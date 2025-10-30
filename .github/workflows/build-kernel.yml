@@ -1,0 +1,183 @@
+
+name: build-kernel
+
+# Controls when the workflow will run
+on:
+  workflow_dispatch:
+    inputs:
+      qcom-build-utils-ref:
+        description: qcom-build-utils ref branch or commit
+        required: false
+        default: 'main'
+      kernel-branch:
+        description: Kernel Branch or Tag to sync
+        required: false
+        default: 'qcom-next'
+      qcom-next-pr:
+        description: PR number to take the latest changes from qcom-next
+        required: false
+        type: string
+      kernel-topics-pr:
+        description: Space-separated list of kernel-topics PR numbers
+        type: string
+        required: false
+        default: ''
+
+    secrets:
+      DEB_PKG_BOT_CI_TOKEN:
+        required: true
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+
+    env:
+      KERNEL_BRANCH: ${{ github.event.inputs.kernel-branch }}
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      - name: Extract org, repo and branch name
+        run: |
+          # Extract org (owner) and repo name from GITHUB_REPOSITORY (format: org/repo)
+          echo "ORG_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
+          echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+
+      - name: Debug print exported env
+        run: |
+          echo "ORG_NAME=$ORG_NAME"
+          echo "REPO_NAME=$REPO_NAME"
+      
+      - name: Checkout qcom-build-utils
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/qcom-build-utils
+          ref: ${{ inputs.qcom-build-utils-ref }}
+          token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+          path: ./qcom-build-utils
+          fetch-depth: 1
+
+      - name: Deduce qcom-build-utils head commit SHA
+        run: |
+          # Get the tip commit SHA of the qcom-build-utils branch/tag used
+          cd qcom-build-utils
+          QCOM_BUILD_UTILS_SHA=$(git rev-parse HEAD)
+          echo "QCOM_BUILD_UTILS_SHA=$QCOM_BUILD_UTILS_SHA" >> "$GITHUB_ENV"
+          # Echo for logs
+          echo "Head SHA for qcom-build-utils: $QCOM_BUILD_UTILS_SHA"
+
+      - name: Pull docker image
+        run: |
+          docker pull artifacts.codelinaro.org/clo-420-qli-registry/kmake-image-ubuntu-noble-arm64:ver.1.0
+          docker tag artifacts.codelinaro.org/clo-420-qli-registry/kmake-image-ubuntu-noble-arm64:ver.1.0 kmake-image:ubuntu-noble-arm64
+
+      - name: Sync kernel codebase
+        run: |
+          cd qcom-build-utils
+          cd kernel && export BUILD_TOP=`pwd`
+          echo "build_top=$BUILD_TOP" >> "$GITHUB_ENV"
+
+          export REPO="qualcomm-linux/kernel"
+          echo "Syncing ${REPO} ref ${KERNEL_BRANCH}"
+
+          git ls-remote --exit-code --heads https://${{ secrets.PAT }}@github.com/${REPO}.git ${KERNEL_BRANCH} && IS_BRANCH=true || IS_BRANCH=false
+
+          git init $BUILD_TOP/qcom-next
+          cd $BUILD_TOP/qcom-next
+          git remote add origin https://${{ secrets.PAT }}@github.com/${REPO}.git
+
+          if [ "$IS_BRANCH" = true ]; then
+            echo "Detected branch: ${KERNEL_BRANCH}"
+            git fetch --depth=1 origin ${KERNEL_BRANCH}
+            git checkout ${KERNEL_BRANCH}
+          else
+            echo "Assuming tag: ${KERNEL_BRANCH}"
+            git fetch --depth=1 origin tag ${KERNEL_BRANCH}
+            git checkout FETCH_HEAD
+          fi
+
+          # Get Head SHA of kernel branch/tag cloned
+          QCOM_KERNEL_SHA=$(git rev-parse HEAD)
+          echo "QCOM_KERNEL_SHA=$QCOM_KERNEL_SHA" >> "$GITHUB_ENV"
+
+          if [ -z "${{ github.event.inputs.qcom-next-pr }}" ]; then
+            echo "No PR number specified, skipping merge."
+          else
+            echo "Merging PR #${{ github.event.inputs.qcom-next-pr }}"
+            cd $BUILD_TOP/qcom-next
+            git fetch https://${{ secrets.PAT }}@github.com/${REPO}.git pull/${{ github.event.inputs.qcom-next-pr }}/head:pr-${{ github.event.inputs.qcom-next-pr }}
+            git merge pr-${{ github.event.inputs.qcom-next-pr }} --no-commit || echo "Merge already applied or fast-forwarded"
+            if ! git diff --cached --quiet; then
+              git commit -m "Merged PR #${{ github.event.inputs.qcom-next-pr }}"
+            else
+              echo "Nothing to commit. PR may already be merged or fast-forwarded."
+            fi
+          fi
+
+      - name: Apply kernel-topics PR patches
+        run: |
+          cd "${{ env.build_top }}/"
+          if [ -z "${{ github.event.inputs.kernel-topics-pr }}" ]; then
+            echo "Nothing to apply in kernel topics."
+          else
+            echo "Applying PR(s) from topics branch #${{ github.event.inputs.kernel-topics-pr }}"
+            for pr in ${{ github.event.inputs.kernel-topics-pr }}; do
+              echo "::group::Applying kernel-topics PR #$pr"
+              wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
+              cd "${{ env.build_top }}/qcom-next"
+              # Apply patch; on failure abort and fail the job
+              if ! git am "../$pr.patch"; then
+                echo "Patch application failed for PR #$pr. Aborting 'git am' and failing the job."
+                git am --abort || true
+                exit 1
+              fi
+              echo "::endgroup::"
+              cd "${{ env.build_top }}/"
+            done
+          fi
+
+      - name: Enable Kernel Configs
+        run: |
+          cd qcom-build-utils/kernel
+          export BUILD_TOP=$(pwd)
+          ./scripts/enable_squashfs_configs.sh $BUILD_TOP/qcom-next/
+
+      - name: Run build script
+        run: |
+          docker run -i \
+          --privileged --rm -v $PWD:$PWD --workdir="$PWD" kmake-image:ubuntu-noble-arm64 \
+          -c '
+            cd qcom-build-utils/kernel
+            export BUILD_TOP=`pwd`
+            ./scripts/build_kernel.sh
+          '
+
+      - name: Build Kernel Debian Package
+        run: |
+          docker run -i \
+          --privileged --rm -v $PWD:$PWD --workdir="$PWD" kmake-image:ubuntu-noble-arm64 \
+          -c '
+            cd qcom-build-utils/kernel
+            export BUILD_TOP=`pwd`
+            ./scripts/build-kernel-deb.sh out/
+            mkdir -p deb_artifact
+            cp ./*.deb deb_artifact/
+          '
+
+      - name: Get built kernel version
+        id: get_kernel_version
+        run: |
+          cd qcom-build-utils/kernel
+          kernel_version=$(ls *.deb)
+          echo "kernel_version=${kernel_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload kernel .deb package to S3
+        uses: qualcomm-linux/upload-private-artifact-action@aws
+        with:
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: qcom-build-utils/kernel/deb_artifact
+          destination: kernel/
