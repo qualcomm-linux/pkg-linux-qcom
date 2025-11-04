@@ -14,9 +14,10 @@ on:
         required: false
         default: 'qcom-next'
       qcom-next-pr:
-        description: PR number to take the latest changes from qcom-next
-        required: false
+        description: Space-separated PR numbers to merge from qcom-next
         type: string
+        required: false
+        default: ''
       kernel-topics-pr:
         description: Space-separated list of kernel-topics PR numbers
         type: string
@@ -82,6 +83,7 @@ jobs:
           echo "build_top=$BUILD_TOP" >> "$GITHUB_ENV"
 
           export REPO="qualcomm-linux/kernel"
+          echo "kernel_repo=$REPO" >> "$GITHUB_ENV"
           echo "Syncing ${REPO} ref ${KERNEL_BRANCH}"
 
           git ls-remote --exit-code --heads https://${{ secrets.PAT }}@github.com/${REPO}.git ${KERNEL_BRANCH} && IS_BRANCH=true || IS_BRANCH=false
@@ -104,18 +106,37 @@ jobs:
           QCOM_KERNEL_SHA=$(git rev-parse HEAD)
           echo "QCOM_KERNEL_SHA=$QCOM_KERNEL_SHA" >> "$GITHUB_ENV"
 
+      - name: Merge qcom-next PR patches
+        run: |
+          cd "${{ env.build_top }}/"
           if [ -z "${{ github.event.inputs.qcom-next-pr }}" ]; then
             echo "No PR number specified, skipping merge."
           else
-            echo "Merging PR #${{ github.event.inputs.qcom-next-pr }}"
-            cd $BUILD_TOP/qcom-next
-            git fetch https://${{ secrets.PAT }}@github.com/${REPO}.git pull/${{ github.event.inputs.qcom-next-pr }}/head:pr-${{ github.event.inputs.qcom-next-pr }}
-            git merge pr-${{ github.event.inputs.qcom-next-pr }} --no-commit || echo "Merge already applied or fast-forwarded"
-            if ! git diff --cached --quiet; then
-              git commit -m "Merged PR #${{ github.event.inputs.qcom-next-pr }}"
-            else
-              echo "Nothing to commit. PR may already be merged or fast-forwarded."
-            fi
+            echo "Merging PR(s) #${{ github.event.inputs.qcom-next-pr }}"
+            cd "${{ env.build_top }}/qcom-next"
+
+            for pr in ${{ github.event.inputs.qcom-next-pr }}; do
+              echo "::group::Merging qcom-next PR #$pr"
+              # Fetch the PR head into a local branch pr-<num>
+              git fetch "https://${{ secrets.PAT }}@github.com/${{ env.kernel_repo }}.git" "pull/$pr/head:pr-$pr"
+
+              # Attempt merge without committing; on conflict abort and fail the job
+              if ! git merge "pr-$pr" --no-commit; then
+                echo "Merge conflict while merging PR #$pr. Aborting merge and failing the job."
+                git merge --abort || true
+                exit 1
+              fi
+
+              # Commit only if there are staged changes; otherwise it's already merged/FF
+              if ! git diff --cached --quiet; then
+                git commit -m "Merged PR #$pr"
+              else
+                echo "Nothing to commit for PR #$pr (already merged or fast-forwarded)."
+                # Ensure no merge state remains
+                git merge --abort 2>/dev/null || true
+              fi
+              echo "::endgroup::"
+            done
           fi
 
       - name: Apply kernel-topics PR patches
