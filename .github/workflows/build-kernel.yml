@@ -189,6 +189,22 @@ jobs:
             cp ./*.deb deb_artifact/
           '
 
+      - name: Generate build_info metadata
+        run: |
+          cd qcom-build-utils/kernel
+          {
+            echo "JOB_ID: ${{ github.run_id }}"
+            echo "JOB_ATTEMPT: ${{ github.run_attempt }}"
+            echo "ORG_NAME: ${{ env.ORG_NAME }}"
+            echo "REPO_NAME: ${{ env.REPO_NAME }}"
+            echo "QCOM-BUILD-UTILS BRANCH/TAG: ${{ inputs.qcom-build-utils-ref }}"
+            echo "QCOM-BUILD-UTILS HEAD SHA: ${{ env.QCOM_BUILD_UTILS_SHA }}"
+            echo "KERNEL BRANCH/TAG: ${KERNEL_BRANCH}"
+            echo "KERNEL HEAD SHA: ${{ env.QCOM_KERNEL_SHA }}"
+            echo "PRs FROM QCOM-NEXT: ${{ inputs.qcom-next-pr }}"
+            echo "PRs FROM KERNEL TOPICS: ${{ inputs.kernel-topics-pr }}"
+          } > deb_artifact/build_info
+
       - name: Upload kernel .deb package to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
