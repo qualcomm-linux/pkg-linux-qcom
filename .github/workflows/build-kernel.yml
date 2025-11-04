@@ -194,4 +194,4 @@ jobs:
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: qcom-build-utils/kernel/deb_artifact
-          destination: ${{ env.ORG_NAME }}/pkg/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          destination: ${{ env.ORG_NAME }}/pkg/temp/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
