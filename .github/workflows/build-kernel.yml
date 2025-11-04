@@ -189,16 +189,9 @@ jobs:
             cp ./*.deb deb_artifact/
           '
 
-      - name: Get built kernel version
-        id: get_kernel_version
-        run: |
-          cd qcom-build-utils/kernel
-          kernel_version=$(ls *.deb)
-          echo "kernel_version=${kernel_version}" >> "$GITHUB_OUTPUT"
-
       - name: Upload kernel .deb package to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: qcom-build-utils/kernel/deb_artifact
-          destination: kernel/
+          destination: ${{ env.ORG_NAME }}/pkg/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
