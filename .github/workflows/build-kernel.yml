@@ -202,7 +202,7 @@ jobs:
               echo "REPO_NAME: ${{ env.REPO_NAME }}"
               echo "QCOM-BUILD-UTILS BRANCH/TAG: ${{ inputs.qcom-build-utils-ref }}"
               echo "QCOM-BUILD-UTILS HEAD SHA: ${{ env.QCOM_BUILD_UTILS_SHA }}"
-              echo "KERNEL BRANCH/TAG: ${KERNEL_BRANCH}"
+              echo "KERNEL BRANCH/TAG: ${{ inputs.kernel-branch }}"
               echo "KERNEL HEAD SHA: ${{ env.QCOM_KERNEL_SHA }}"
               echo "PRs FROM QCOM-NEXT: ${{ inputs.qcom-next-pr }}"
               echo "PRs FROM KERNEL TOPICS: ${{ inputs.kernel-topics-pr }}"
