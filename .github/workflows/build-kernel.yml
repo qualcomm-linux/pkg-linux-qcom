@@ -184,7 +184,7 @@ jobs:
           -c '
             cd qcom-build-utils/kernel
             export BUILD_TOP=`pwd`
-            ./scripts/build-kernel-deb.sh out/
+            ./scripts/build-kernel-deb.sh out/ ${{ github.run_id }}-${{ github.run_attempt }}
             mkdir -p deb_artifact
             cp ./*.deb deb_artifact/
           '
