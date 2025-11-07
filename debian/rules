@@ -92,6 +92,8 @@ override_dh_auto_install:
 	      --include='*/' --include='*.dtb' --exclude='*' \
 	      "$$DTB_ROOT" $$PKG/lib/firmware/$$BASE/device-tree/
 
+override_dh_auto_test:
+	@echo "Skipping dh_auto_test (no kernel test suite)."
 
 override_dh_auto_clean:
 	# Only clean the objdir if one is used; never nuke the source tree.
