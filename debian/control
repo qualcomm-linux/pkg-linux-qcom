@@ -1,0 +1,21 @@
+Source: qcom-linux-kernel
+Section: kernel
+Priority: optional
+Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13),
+               bc, bison, flex, libssl-dev, libelf-dev, dwarves,
+               python3, kmod, cpio, rsync, pkg-config, gcc, make
+Homepage: https://kernel.org
+Rules-Requires-Root: binary-targets
+
+Package: qcom-linux-kernel
+Architecture: arm64
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Recommends: initramfs-tools | dracut | linux-initramfs-tool
+Provides: linux-image
+Description: Qualcomm ARM64 Linux kernel (Image, DTBs, modules)
+ Installs the built kernel Image, .config, all DTBs, and modules under
+ versioned paths keyed to the kernel's BASE release (uname -r).
+ Runtime version: ${qcom:BaseKrel}
+ Optional build tag: ${qcom:BuildId}
