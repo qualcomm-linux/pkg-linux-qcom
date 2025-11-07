@@ -1,6 +1,6 @@
 # qcom-linux-kernel — Debian build & packaging
 
-This `debian/` tree compiles **and** packages the Qualcomm ARM64 kernel into a Debian/Ubuntu-installable package named `qcom-linux-kernel`. It mirrors the internal scripts (build, strip modules, include all DTBs) using debhelper/dpkg conventions.
+This `debian/` tree compiles **and** packages the Qualcomm ARM64 kernel into a Debian/Ubuntu-installable package named `qcom-linux-kernel`. 
 
 ## Features
 
@@ -99,23 +99,4 @@ sudo dpkg -r qcom-linux-kernel
 * Out-of-tree builds: set `O=` or `KBUILD_OUTPUT`; rules read Image, DTBs, and modules from that objdir.
 * SQUASHFS options: `debian/scripts/enable-squashfs-configs.sh` appends required options to `arch/arm64/configs/defconfig` if missing.
 
-## Troubleshooting
 
-* Missing Image / DTBs: confirm the (obj) tree has `arch/arm64/boot/Image` and `arch/arm64/boot/dts/**`.
-* Unexpected BASE: check `make -s kernelrelease`. To embed a tag, use `LOCALVERSION=-foo`.
-* Initramfs/GRUB warnings: re-run manually:
-
-  ```bash
-  sudo update-initramfs -c -k <BASE>
-  sudo update-grub
-  ```
-* Multiple kernels present: newest `/lib/modules/*` (by mtime) is treated as the one just installed for initramfs/GRUB steps.
-
-## Extending
-
-* Add a sibling `qcom-linux-headers` package for DKMS/out-of-tree modules.
-* Enable signing: use `dpkg-buildpackage` with your signing key (e.g., `-k<keyid>`), or run `debsign` post-build.
-
-## License
-
-SPDX-License-Identifier: BSD-3-Clause-Clear.
