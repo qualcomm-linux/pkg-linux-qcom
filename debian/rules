@@ -41,9 +41,7 @@ endef
 	dh $@ --buildsystem=makefile
 
 override_dh_auto_configure:
-	# Ensure Ubuntu SQUASHFS options are present (mirrors your helper script)
-	./debian/scripts/enable-squashfs-configs.sh "$(CURDIR)"
-	# defconfig + optional vendor fragment (parity with your build-kernel.sh)
+	# Base defconfig (+ vendor fragment if present)
 	[ -f arch/arm64/configs/qcom.config ] && \
 		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig qcom.config || \
 		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig
