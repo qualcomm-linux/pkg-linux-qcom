@@ -1,47 +1,121 @@
-**After repository creation:**
-- [ ] Update this `README.md`. Update the Project Name, description, and all sections. Remove this checklist.
-- [ ] If required, update `LICENSE.txt` and the License section with your project's approved license
-- [ ] Search this repo for "REPLACE-ME" and update all instances accordingly
-- [ ] Update `CONTRIBUTING.md` as needed
-- [ ] Review the workflows in `.github/workflows`, updating as needed. See https://docs.github.com/en/actions for information on what these files do and how they work.
-- [ ] Review and update the suggested Issue and PR templates as needed in `.github/ISSUE_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE`
+# qcom-linux-kernel — Debian build & packaging
 
-# Project Name
+This `debian/` tree compiles **and** packages the Qualcomm ARM64 kernel into a Debian/Ubuntu-installable package named `qcom-linux-kernel`. It mirrors the internal scripts (build, strip modules, include all DTBs) using debhelper/dpkg conventions.
 
-*\<update with your project name and a short description\>*
+## Features
 
-Project that does ... implemented in ... runs on Qualcomm® *\<processor\>*
+* Build: `defconfig` (+ `qcom.config` if present), `Image`, `modules`, `dtbs`
+* Out-of-tree support: honors `O=` or `KBUILD_OUTPUT`
+* DTBs: packages **all** `*.dtb` under `arch/arm64/boot/dts/**` (vendor subdirs preserved)
+* Modules: installed with `INSTALL_MOD_STRIP=1`
+* Runtime paths keyed to BASE (`make -s kernelrelease`):
 
-## Branches
+  * `/boot/vmlinuz-<BASE>`
+  * `/boot/config-<BASE>`
+  * `/lib/modules/<BASE>/`
+  * `/lib/firmware/<BASE>/device-tree/**`
+* Versioning: `1.0+<BASE>[-<BUILD_ID>]`
 
-**main**: Primary development branch. Contributors should develop submissions based on this branch, and submit pull requests to this branch.
+  * `BUILD_ID` tags package metadata only (runtime `uname -r` unchanged)
+* Maintainer scripts:
 
-## Requirements
+  * `preinst` cleans prior artifacts for same BASE
+  * `postinst` runs `update-initramfs -c -k <BASE>` and `update-grub`
+  * `postrm` refreshes GRUB
+* Config helper: ensures SQUASHFS options at configure time (Ubuntu rootfs compatibility)
 
-List requirements to run the project, how to install them, instructions to use docker container, etc...
+## Prerequisites
 
-## Installation Instructions
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential devscripts debhelper-compat bc bison flex libssl-dev \
+  libelf-dev dwarves python3 kmod cpio rsync pkg-config
+```
 
-How to install the software itself.
+## Repository layout
 
-## Usage
+Place `debian/` at the kernel source root (next to the kernel `Makefile`):
 
-Describe how to use the project.
+```
+<kernel-src-root>/
+├─ Makefile
+├─ arch/arm64/...
+└─ debian/
+   ├─ control
+   ├─ rules
+   ├─ changelog
+   ├─ source/format
+   ├─ scripts/enable-squashfs-configs.sh
+   ├─ qcom-linux-kernel.preinst
+   ├─ qcom-linux-kernel.postinst
+   └─ qcom-linux-kernel.postrm
+```
 
-## Development
+## Build
 
-How to develop new features/fixes for the software. Maybe different than "usage". Also provide details on how to contribute via a [CONTRIBUTING.md file](CONTRIBUTING.md).
+```bash
+# Optional: tag package version (metadata only; runtime stays at BASE)
+export BUILD_ID=19085636185-1
 
-## Getting in Contact
+# Optional: out-of-tree build directory
+# export O=/abs/path/to/out
+# or:
+# export KBUILD_OUTPUT=/abs/path/to/out
 
-How to contact maintainers. E.g. GitHub Issues, GitHub Discussions could be indicated for many cases. However a mail list or list of Maintainer e-mails could be shared for other types of discussions. E.g.
+# Build unsigned binary package
+dpkg-buildpackage -us -uc -b
+```
 
-* [Report an Issue on GitHub](../../issues)
-* [Open a Discussion on GitHub](../../discussions)
-* [E-mail us](mailto:REPLACE-ME@qti.qualcomm.com) for general questions
+**Result:**
+
+```
+../qcom-linux-kernel_1.0+<BASE>[-<BUILD_ID>]_arm64.deb
+```
+
+## Install / remove
+
+```bash
+# Install
+sudo dpkg -i ../qcom-linux-kernel_*.deb
+# postinst generates initramfs and updates GRUB
+
+# Remove
+sudo dpkg -r qcom-linux-kernel
+```
+
+## Installed paths
+
+* `/boot/vmlinuz-<BASE>`
+* `/boot/config-<BASE>`
+* `/lib/modules/<BASE>/**` (modules stripped)
+* `/lib/firmware/<BASE>/device-tree/**` (every `*.dtb` from `arch/arm64/boot/dts/**`)
+
+## Configuration & knobs
+
+* BASE derivation: `make -s kernelrelease`
+  If you want `uname -r` to carry a tag, set `LOCALVERSION=-<suffix>` before building (this changes BASE and install paths).
+* BUILD_ID: environment variable appended to the **Debian package version** only (e.g., CI build number); does not affect runtime paths or `uname -r`.
+* Out-of-tree builds: set `O=` or `KBUILD_OUTPUT`; rules read Image, DTBs, and modules from that objdir.
+* SQUASHFS options: `debian/scripts/enable-squashfs-configs.sh` appends required options to `arch/arm64/configs/defconfig` if missing.
+
+## Troubleshooting
+
+* Missing Image / DTBs: confirm the (obj) tree has `arch/arm64/boot/Image` and `arch/arm64/boot/dts/**`.
+* Unexpected BASE: check `make -s kernelrelease`. To embed a tag, use `LOCALVERSION=-foo`.
+* Initramfs/GRUB warnings: re-run manually:
+
+  ```bash
+  sudo update-initramfs -c -k <BASE>
+  sudo update-grub
+  ```
+* Multiple kernels present: newest `/lib/modules/*` (by mtime) is treated as the one just installed for initramfs/GRUB steps.
+
+## Extending
+
+* Add a sibling `qcom-linux-headers` package for DKMS/out-of-tree modules.
+* Enable signing: use `dpkg-buildpackage` with your signing key (e.g., `-k<keyid>`), or run `debsign` post-build.
 
 ## License
 
-*\<update with your project name and license\>*
-
-*\<REPLACE-ME\>* is licensed under the [BSD-3-clause License](https://spdx.org/licenses/BSD-3-Clause.html). See [LICENSE.txt](LICENSE.txt) for the full license text.
+SPDX-License-Identifier: BSD-3-Clause-Clear.
