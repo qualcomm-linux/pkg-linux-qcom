@@ -49,8 +49,8 @@ override_dh_auto_configure:
 		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig
 
 override_dh_auto_build:
-	# Build kernel, modules, and DTBs
-	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL)
+	# Build kernel, modules, DTBs, and ensure a bootable image target is made
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) Image
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) modules
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) dtbs || true
 	# Cache BASE (uname -r) for later steps
@@ -63,20 +63,24 @@ override_dh_auto_install:
 	echo "Installing for BASE kernel release: $$BASE"; \
 	PKG=debian/qcom-linux-kernel; \
 	\
-	# Paths to built artifacts (objdir vs in-tree)
+	# Resolve object dir (if any)
 	OBJ_DIR="$(BUILD_OBJ)"; \
-	IMG_PATH="arch/arm64/boot/Image"; \
+	IMG_DIR="arch/arm64/boot"; \
 	DTB_ROOT="arch/arm64/boot/dts/"; \
 	if [ -n "$$OBJ_DIR" ]; then \
-		IMG_PATH="$$OBJ_DIR/$$IMG_PATH"; \
+		IMG_DIR="$$OBJ_DIR/$$IMG_DIR"; \
 		DTB_ROOT="$$OBJ_DIR/$$DTB_ROOT"; \
 	fi; \
 	\
-	# Sanity checks (fail early if missing)
-	[ -f "$$IMG_PATH" ] || { echo "Missing Image at $$IMG_PATH"; exit 1; }; \
-	[ -d "$$DTB_ROOT" ] || { echo "Missing DTB root at $$DTB_ROOT"; exit 1; }; \
+	# Pick the first available kernel image: Image, Image.gz, or Image.lz4
+	IMG_PATH=""; \
+	for cand in "$$IMG_DIR/Image" "$$IMG_DIR/Image.gz" "$$IMG_DIR/Image.lz4"; do \
+		if [ -f "$$cand" ]; then IMG_PATH="$$cand"; break; fi; \
+	done; \
+	[ -n "$$IMG_PATH" ] || { echo "ERROR: No kernel image found under $$IMG_DIR (tried Image, Image.gz, Image.lz4)"; exit 1; }; \
+	[ -d "$$DTB_ROOT" ] || { echo "ERROR: Missing DTB root at $$DTB_ROOT"; exit 1; }; \
 	\
-	# /boot artifacts
+	# /boot artifacts (always install as vmlinuz-<BASE>)
 	install -D -m 0644 "$$IMG_PATH" $$PKG/boot/vmlinuz-$$BASE; \
 	install -D -m 0644 .config      $$PKG/boot/config-$$BASE; \
 	\
@@ -89,6 +93,7 @@ override_dh_auto_install:
 	rsync -a --prune-empty-dirs \
 	      --include='*/' --include='*.dtb' --exclude='*' \
 	      "$$DTB_ROOT" $$PKG/lib/firmware/$$BASE/device-tree/
+
 
 override_dh_auto_clean:
 	# Only clean the objdir if one is used; never nuke the source tree.
