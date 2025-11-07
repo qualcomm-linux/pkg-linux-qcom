@@ -91,7 +91,11 @@ override_dh_auto_install:
 	      "$$DTB_ROOT" $$PKG/lib/firmware/$$BASE/device-tree/
 
 override_dh_auto_clean:
-	-$(MAKE) $(KBUILD_O_ARG) mrproper
+	# Only clean the objdir if one is used; never nuke the source tree.
+ifneq ($(BUILD_OBJ),)
+	$(MAKE) $(KBUILD_O_ARG) clean
+endif
+	# Our cache file
 	rm -f $(KREL_FILE)
 
 override_dh_gencontrol:
