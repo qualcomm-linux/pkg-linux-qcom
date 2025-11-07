@@ -53,9 +53,10 @@ override_dh_auto_build:
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) Image
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) modules
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) dtbs || true
-	# Cache BASE (uname -r) for later steps
-	@KREL=$$( $(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelrelease ); \
-	echo $$KREL > $(KREL_FILE); \
+	# Cache BASE (uname -r) for later steps — filter out make's Entering/Leaving noise
+	@mkdir -p $(dir $(KREL_FILE)); \
+	KREL=$$( $(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelrelease 2>&1 | grep -E '^[0-9]+\.' | head -n1 ); \
+	printf "%s\n" "$$KREL" > "$(KREL_FILE)"; \
 	echo "Detected BASE kernel release: $$KREL"
 
 override_dh_auto_install:
