@@ -1,0 +1,101 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE ?= 1
+export ARCH = arm64
+
+# Optional out-of-tree build directory (honor either O or KBUILD_OUTPUT)
+# If set, we'll pass O=<dir> to make and read artifacts from that objdir.
+BUILD_OBJ ?= $(or $(O),$(KBUILD_OUTPUT))
+
+# Make argument that is empty when BUILD_OBJ is empty
+# (so we don't pass a dangling "O=")
+KBUILD_O_ARG := $(if $(BUILD_OBJ),O=$(BUILD_OBJ),)
+
+# Parallel jobs (override with DEB_BUILD_OPTIONS=parallel=N if desired)
+PARALLEL ?= $(shell nproc)
+
+# Optional build id for Debian version tagging (not runtime paths)
+# Usage: BUILD_ID=19085636185-1 dpkg-buildpackage -us -uc -b
+BUILD_ID ?=
+
+# File that caches the kernelrelease (BASE, i.e., uname -r)
+KREL_FILE := debian/kernel.release
+
+# Helper: compute Debian version like 1.0+<BASE>[-<BUILD_ID>]
+define mk_pkg_version
+	@BASE=$$(cat $(KREL_FILE)); \
+	V="1.0+$$BASE"; \
+	if [ -n "$(BUILD_ID)" ]; then V="$$V-$(BUILD_ID)"; fi; \
+	echo $$V
+endef
+
+# Helper: inject substitution vars and package version into control
+define gencontrol_vars
+	@BASE=$$(cat $(KREL_FILE)); \
+	EXTRA=""; \
+	[ -n "$(BUILD_ID)" ] && EXTRA="$$EXTRA -Vqcom:BuildId=$(BUILD_ID)"; \
+	dh_gencontrol -Vqcom:BaseKrel="$$BASE" $$EXTRA -v "$$($(call mk_pkg_version))"
+endef
+
+%:
+	dh $@ --buildsystem=makefile
+
+override_dh_auto_configure:
+	# Ensure Ubuntu SQUASHFS options are present (mirrors your helper script)
+	./debian/scripts/enable-squashfs-configs.sh "$(CURDIR)"
+	# defconfig + optional vendor fragment (parity with your build-kernel.sh)
+	[ -f arch/arm64/configs/qcom.config ] && \
+		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig qcom.config || \
+		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig
+
+override_dh_auto_build:
+	# Build kernel, modules, and DTBs
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL)
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) modules
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) dtbs || true
+	# Cache BASE (uname -r) for later steps
+	@KREL=$$( $(MAKE) $(KBUILD_O_ARG) -s kernelrelease ); \
+	echo $$KREL > $(KREL_FILE); \
+	echo "Detected BASE kernel release: $$KREL"
+
+override_dh_auto_install:
+	@BASE=$$(cat $(KREL_FILE)); \
+	echo "Installing for BASE kernel release: $$BASE"; \
+	PKG=debian/qcom-linux-kernel; \
+	\
+	# Paths to built artifacts (objdir vs in-tree)
+	OBJ_DIR="$(BUILD_OBJ)"; \
+	IMG_PATH="arch/arm64/boot/Image"; \
+	DTB_ROOT="arch/arm64/boot/dts/"; \
+	if [ -n "$$OBJ_DIR" ]; then \
+		IMG_PATH="$$OBJ_DIR/$$IMG_PATH"; \
+		DTB_ROOT="$$OBJ_DIR/$$DTB_ROOT"; \
+	fi; \
+	\
+	# Sanity checks (fail early if missing)
+	[ -f "$$IMG_PATH" ] || { echo "Missing Image at $$IMG_PATH"; exit 1; }; \
+	[ -d "$$DTB_ROOT" ] || { echo "Missing DTB root at $$DTB_ROOT"; exit 1; }; \
+	\
+	# /boot artifacts
+	install -D -m 0644 "$$IMG_PATH" $$PKG/boot/vmlinuz-$$BASE; \
+	install -D -m 0644 .config      $$PKG/boot/config-$$BASE; \
+	\
+	# Modules (strip like your original packaging script)
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
+		INSTALL_MOD_PATH=$$PKG INSTALL_MOD_STRIP=1; \
+	\
+	# ALL DTBs recursively (preserve vendor subdirs), only *.dtb
+	mkdir -p $$PKG/lib/firmware/$$BASE/device-tree; \
+	rsync -a --prune-empty-dirs \
+	      --include='*/' --include='*.dtb' --exclude='*' \
+	      "$$DTB_ROOT" $$PKG/lib/firmware/$$BASE/device-tree/
+
+override_dh_auto_clean:
+	-$(MAKE) $(KBUILD_O_ARG) mrproper
+	rm -f $(KREL_FILE)
+
+override_dh_gencontrol:
+	$(call gencontrol_vars)
+
+override_dh_installdeb:
+	dh_installdeb --params
