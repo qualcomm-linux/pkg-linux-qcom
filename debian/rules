@@ -1,4 +1,7 @@
 #!/usr/bin/make -f
+.ONESHELL:
+SHELL := /bin/bash
+.SHELLFLAGS := -e -o pipefail -c
 
 export DH_VERBOSE ?= 1
 export ARCH = arm64
