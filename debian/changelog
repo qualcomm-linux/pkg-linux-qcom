@@ -1,0 +1,11 @@
+qcom-linux-kernel (0.0) UNRELEASED; urgency=medium
+
+  * Native packaging for ARM64 kernel:
+    - defconfig (+ qcom.config if present)
+    - build Image/modules/DTBs
+    - install ALL DTBs recursively
+    - strip modules
+    - initramfs + GRUB updates
+    - optional BUILD_ID tags Debian version only
+
+ -- Bjordis Collaku <bcollaku@qti.qualcomm.com>  Fri, 07 Nov 2025 10:00:00 -0800
