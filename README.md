@@ -5,7 +5,8 @@ This `debian/` tree compiles **and** packages the Qualcomm ARM64 kernel into a D
 ```mermaid
 flowchart TD
   A["Clone repo<br/>qcom-next/"] --> B["Add debian/ folder"]
-  B --> C["Run dpkg-buildpackage<br/>-us -uc -b"]
+  B --> X["(optional) export BUILD_ID=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"]
+  X --> C["Run dpkg-buildpackage<br/>-us -uc -b"]
 
   subgraph Pipeline
     direction TB
