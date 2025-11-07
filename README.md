@@ -2,6 +2,41 @@
 
 This `debian/` tree compiles **and** packages the Qualcomm ARM64 kernel into a Debian/Ubuntu-installable package named `qcom-linux-kernel`. 
 
+```mermaid
+flowchart TD
+  A["Clone repo<br/>qcom-next/"] --> B["Add debian/ folder"]
+  B --> C["Run dpkg-buildpackage<br/>-us -uc -b"]
+
+  subgraph Pipeline
+    direction TB
+    C --> E[dh_auto_configure]
+    E --> F[dh_auto_build]
+    F --> G["dh_auto_test - skipped"]
+    G --> H[dh_auto_install]
+    H --> I[dh_gencontrol]
+    I --> J[dh_builddeb]
+  end
+
+  subgraph Build
+    direction TB
+    E --> K["defconfig (+ qcom.config)"]
+    K --> L["optional out-of-tree<br/>O=/KBUILD_OUTPUT"]
+    F --> M["make Image, modules, dtbs"]
+    F --> N["make -s kernelrelease → BASE"]
+  end
+
+  subgraph Install
+    direction TB
+    H --> P["/boot/vmlinuz-BASE"]
+    H --> Q["/boot/config-BASE"]
+    H --> R["/lib/modules/BASE/** (stripped)"]
+    H --> S["/lib/firmware/BASE/device-tree/** (all DTBs)"]
+  end
+
+  J --> T["../qcom-linux-kernel_1.0+BASE[_BUILD_ID]_arm64.deb"]
+
+```
+
 ## Features
 
 * Build: `defconfig` (+ `qcom.config` if present), `Image`, `modules`, `dtbs`
