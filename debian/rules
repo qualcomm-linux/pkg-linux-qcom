@@ -86,8 +86,10 @@ override_dh_auto_install:
 	[ -f "$$CFG_PATH" ] || { echo "ERROR: Missing .config at $$CFG_PATH"; exit 1; }; \
 	\
 	# /boot artifacts (always install as vmlinuz-<BASE>)
-	install -D -m 0644 "$$IMG_PATH" $$PKG/boot/vmlinuz-$$BASE; \
-	install -D -m 0644 "$$CFG_PATH" $$PKG/boot/config-$$BASE; \
+	# (avoid 'install -D' parsing quirks by creating dirs and copying explicitly)
+	mkdir -p "$$PKG/boot"; \
+	cp -a -T "$$IMG_PATH" "$$PKG/boot/vmlinuz-$$BASE"; \
+	cp -a -T "$$CFG_PATH" "$$PKG/boot/config-$$BASE"; \
 	\
 	# Modules (strip like your original packaging script)
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
