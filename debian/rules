@@ -117,4 +117,4 @@ override_dh_gencontrol:
 	$(call gencontrol_vars)
 
 override_dh_installdeb:
-	dh_installdeb --params
+	dh_installdeb
