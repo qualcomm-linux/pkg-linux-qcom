@@ -34,7 +34,13 @@ flowchart TD
     H --> S["/lib/firmware/BASE/device-tree/** (all DTBs)"]
   end
 
-  J --> T["../qcom-linux-kernel_1.0+BASE[_BUILD_ID]_arm64.deb"]
+  subgraph Meta
+    direction TB
+    I --> V1["SRC_VER = top of debian/changelog"]
+    I --> V2["Binary Version = SRC_VER + BASE [- BUILD_ID]"]
+  end
+
+  J --> T["../qcom-linux-kernel_<SRC_VER>+BASE[-BUILD_ID]_arm64.deb"]
 
 ```
 
