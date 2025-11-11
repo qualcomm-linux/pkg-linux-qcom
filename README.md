@@ -50,9 +50,27 @@ flowchart TD
   * `/boot/config-<BASE>`
   * `/lib/modules/<BASE>/`
   * `/lib/firmware/<BASE>/device-tree/**`
-* Versioning: `1.0+<BASE>[-<BUILD_ID>]`
+  
+## Versioning (in progress)
 
-  * `BUILD_ID` tags package metadata only (runtime `uname -r` unchanged)
+> ⚠️ **Current behavior (before the gencontrol override is merged):**
+>
+> - The **binary package version** comes from `debian/changelog` (e.g., `0.0`, `1.0`, `2.0`).
+> - `BUILD_ID` (e.g., `export BUILD_ID=…`) is **ignored** by the .deb version.
+> - Runtime kernel release (**`uname -r`**) comes from the kernel itself (`make -s kernelrelease`) and does **not** include `BUILD_ID` unless you set `LOCALVERSION=-…`.
+
+**Planned behavior (after the versioning override lands):**
+- Binary package version will be:  
+  `\<SRC_VER\>+\<BASE\>[-\<BUILD_ID\>]`
+  - `SRC_VER` = top entry in `debian/changelog` (e.g., `2.0`)
+  - `BASE` = `make -s kernelrelease` (the built kernel’s release)
+  - `BUILD_ID` = optional CI tag (e.g., `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`)
+
+**Examples (planned):**
+- `2.0+6.18.0-rc4-g963d75401ece`
+- `2.0+6.18.0-rc4-g963d75401ece-123456789-1`
+
+  
 * Maintainer scripts:
 
   * `preinst` cleans prior artifacts for same BASE
