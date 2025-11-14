@@ -1,4 +1,4 @@
-qcom-linux-kernel (0.0) UNRELEASED; urgency=medium
+qcom-linux-kernel (1.0.0-1) UNRELEASED; urgency=medium
 
   * Native packaging for ARM64 kernel:
     - defconfig (+ qcom.config if present)
@@ -8,4 +8,4 @@ qcom-linux-kernel (0.0) UNRELEASED; urgency=medium
     - initramfs + GRUB updates
     - optional BUILD_ID tags Debian version only
 
- -- Bjordis Collaku <bcollaku@qti.qualcomm.com>  Fri, 07 Nov 2025 10:00:00 -0800
+ -- Bjordis Collaku <bcollaku@qti.qualcomm.com>  Fri, 14 Nov 2025 10:00:00 -0800
