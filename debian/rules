@@ -128,8 +128,10 @@ override_dh_gencontrol:
 	V="$$SRC_VER+$$BASE"; \
 	if [ -n "$(BUILD_ID)" ]; then V="$$V-$(BUILD_ID)"; fi; \
 	echo "dh_gencontrol: Version=$$V (SRC_VER=$$SRC_VER, BASE=$$BASE, BUILD_ID=$(BUILD_ID))"; \
-	# 4) Pass args to dpkg-gencontrol via dh_gencontrol -- <args>
-	dh_gencontrol -- -v "$$V" -Vqcom:BaseKrel="$$BASE" -Vqcom:BuildId="$(BUILD_ID)"
+	# 4) Run dh_gencontrol normally (define our substvars)
+	dh_gencontrol -Vqcom:BaseKrel="$$BASE" -Vqcom:BuildId="$(BUILD_ID)"; \
+	# 5) Overwrite the Version field in the generated control file
+	sed -i -E "s/^Version: .*/Version: $$V/" debian/qcom-linux-kernel/DEBIAN/control
 
 override_dh_installdeb:
 	dh_installdeb
