@@ -28,6 +28,10 @@ on:
       DEB_PKG_BOT_CI_TOKEN:
         required: true
 
+  # TEMP: run at 10:12 AM PST (18:12 UTC) for testing
+  schedule:
+    - cron: '12 18 * * *'
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
