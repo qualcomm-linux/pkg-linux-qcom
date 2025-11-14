@@ -114,7 +114,21 @@ endif
 	rm -f $(KREL_FILE)
 
 override_dh_gencontrol:
-	$(call gencontrol_vars)
+	@mkdir -p $(dir $(KREL_FILE)); \
+	# 1) Read source (changelog) version as prefix, e.g. 2.0
+	SRC_VER="$$(dpkg-parsechangelog -S Version)"; \
+	# 2) Ensure BASE (uname -r) is available
+	if [ ! -s "$(KREL_FILE)" ]; then \
+		BASE="$$( $(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelrelease 2>&1 | grep -E '^[0-9]+\.' | head -n1 )"; \
+		printf "%s\n" "$$BASE" > "$(KREL_FILE)"; \
+	else \
+		BASE="$$(cat "$(KREL_FILE)")"; \
+	fi; \
+	# 3) Compose binary version: <SRC_VER>+<BASE>[-<BUILD_ID>]
+	V="$$SRC_VER+$$BASE"; \
+	if [ -n "$(BUILD_ID)" ]; then V="$$V-$(BUILD_ID)"; fi; \
+	echo "dh_gencontrol: Version=$$V (SRC_VER=$$SRC_VER, BASE=$$BASE, BUILD_ID=$(BUILD_ID))"; \
+	dh_gencontrol -Vqcom:BaseKrel="$$BASE" -Vqcom:BuildId="$(BUILD_ID)" -v "$$V"
 
 override_dh_installdeb:
 	dh_installdeb
