@@ -28,9 +28,9 @@ on:
       DEB_PKG_BOT_CI_TOKEN:
         required: true
 
-  # TEMP: run at 10:12 AM PST (18:12 UTC) for testing
+  # TEMP: run at 10:49 AM PST (18:49 UTC) for testing
   schedule:
-    - cron: '12 18 * * *'
+    - cron: '49 18 * * *'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
