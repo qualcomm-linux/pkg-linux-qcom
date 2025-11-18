@@ -35,6 +35,10 @@ graph TD
 ```
 * via qcom-build-utils kernel build tools
 
+#### NOTE: Planned Migration to Native Debian Tooling
+
+The current workflow relies on qcom-build-utils for kernel build orchestration and Debian package generation. There is ongoing work to migrate this flow to a native `dpkg-buildpackage`-based process with proper Debian metadata, which will eventually replace the existing qcom-build-utils kernel build tooling. This README documents the current state; the documentation will be updated as the new packaging flow is rolled out.
+
 
 ### 1. Trigger Modes
 
@@ -243,4 +247,5 @@ This structure makes it easy to:
 * Trace each artifact back to the originating GitHub Actions run.
 * See exactly which inputs and PRs were used.
 * Consume the `.deb` packages in downstream systems (image builds, testing pipelines, etc.).
+
 
