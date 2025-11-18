@@ -1,6 +1,11 @@
 ## Kernel Build Workflow
 
-This workflow builds a Qualcomm Linux kernel `.deb` package and uploads it, together with build metadata, to a private S3 bucket. It supports both **manual** and **nightly scheduled** runs.
+The `build-kernel` workflow builds the `qualcomm-linux/kernel` into a single Debian package and publishes it to dedicated S3 bucket location, together with a metadata file that captures how the package was produced.
+
+The same pipeline is used in two modes:
+- **Manual runs** (on demand, via GitHub UI)
+- **Nightly runs** (scheduled, with fixed defaults)
+
 
 ```mermaid
 graph TD
@@ -33,7 +38,7 @@ graph TD
   O1 --> S3[s3 bucket]
   O2 --> S3
 ```
-* via qcom-build-utils kernel build tools
+*via qcom-build-utils kernel build tools
 
 #### NOTE: Planned Migration to Native Debian Tooling
 
@@ -191,7 +196,7 @@ The job runs on a **self-hosted ARM64 runner**:
    cp ./*.deb deb_artifact/
    ```
 
-   This produces one or more kernel `.deb` packages and collects them under `deb_artifact/`.
+   This produces one kernel `.deb` package and deploys that under `deb_artifact/`.
 
 7. **Metadata Generation**
 
@@ -213,7 +218,7 @@ The job runs on a **self-hosted ARM64 runner**:
 
 The workflow produces two key outputs:
 
-1. **Kernel Debian package(s)**
+1. **Kernel Debian package**
 
    * Location before upload:
      `qcom-build-utils/kernel/deb_artifact/*.deb`
@@ -239,7 +244,7 @@ These are uploaded to a **private S3 bucket** using `upload-private-artifact-act
 
 Under that path you will typically find:
 
-* `*.deb` – the built kernel Debian package(s)
+* `*.deb` – the built kernel Debian package
 * `build_info` – metadata describing exactly what was built (refs, SHAs, PRs, job IDs)
 
 This structure makes it easy to:
