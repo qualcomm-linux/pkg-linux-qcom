@@ -1,47 +1,246 @@
-**After repository creation:**
-- [ ] Update this `README.md`. Update the Project Name, description, and all sections. Remove this checklist.
-- [ ] If required, update `LICENSE.txt` and the License section with your project's approved license
-- [ ] Search this repo for "REPLACE-ME" and update all instances accordingly
-- [ ] Update `CONTRIBUTING.md` as needed
-- [ ] Review the workflows in `.github/workflows`, updating as needed. See https://docs.github.com/en/actions for information on what these files do and how they work.
-- [ ] Review and update the suggested Issue and PR templates as needed in `.github/ISSUE_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE`
+## Kernel Build Workflow
 
-# Project Name
+This workflow builds a Qualcomm Linux kernel `.deb` package and uploads it, together with build metadata, to a private S3 bucket. It supports both **manual** and **nightly scheduled** runs.
 
-*\<update with your project name and a short description\>*
+```mermaid
+graph TD
+  A[Manual run GitHub UI] --> B[workflow dispatch]
+  S[Nightly run 9PM PST] --> T[schedule event]
 
-Project that does ... implemented in ... runs on Qualcomm® *\<processor\>*
+  B --> C[Manual inputs]
+  C --> I1[qcom-build-utils ref]
+  C --> I2[kernel branch]
+  C --> I3[qcom next PRs optional]
+  C --> I4[kernel topics PRs optional]
 
-## Branches
+  T --> D[Use default inputs]
+  D --> J1[ref main]
+  D --> J2[qcom-next]
+  D --> J3[no PR overrides]
 
-**main**: Primary development branch. Contributors should develop submissions based on this branch, and submit pull requests to this branch.
+  I1 --> P[Kernel build and deb packaging*]
+  I2 --> P
+  I3 --> P
+  I4 --> P
 
-## Requirements
+  J1 --> P
+  J2 --> P
+  J3 --> P
 
-List requirements to run the project, how to install them, instructions to use docker container, etc...
+  P --> O1[kernel deb package]
+  P --> O2[build info metadata]
 
-## Installation Instructions
+  O1 --> S3[s3 bucket]
+  O2 --> S3
+```
+* via qcom-build-utils kernel build tools
 
-How to install the software itself.
 
-## Usage
+### 1. Trigger Modes
 
-Describe how to use the project.
+#### Manual Run
 
-## Development
+* Triggered from **GitHub Actions → Run workflow**.
+* Event: `workflow_dispatch`.
+* The operator can set or override all inputs:
 
-How to develop new features/fixes for the software. Maybe different than "usage". Also provide details on how to contribute via a [CONTRIBUTING.md file](CONTRIBUTING.md).
+  * `qcom-build-utils-ref`
+  * `kernel-branch`
+  * `qcom-next-pr`
+  * `kernel-topics-pr`
+* Typical use cases:
 
-## Getting in Contact
+  * Test a specific `qcom-build-utils` ref or kernel branch/tag.
+  * Integrate specific PRs from `qcom-next` and/or `kernel-topics`.
 
-How to contact maintainers. E.g. GitHub Issues, GitHub Discussions could be indicated for many cases. However a mail list or list of Maintainer e-mails could be shared for other types of discussions. E.g.
+#### Scheduled Run (Nightly)
 
-* [Report an Issue on GitHub](../../issues)
-* [Open a Discussion on GitHub](../../discussions)
-* [E-mail us](mailto:REPLACE-ME@qti.qualcomm.com) for general questions
+* Triggered by cron:
 
-## License
+  ```yaml
+  schedule:
+    - cron: '0 5 * * *'  # 05:00 UTC ≈ 9:00 PM PST
+  ```
 
-*\<update with your project name and license\>*
+* Event: `schedule`.
 
-*\<REPLACE-ME\>* is licensed under the [BSD-3-clause License](https://spdx.org/licenses/BSD-3-Clause.html). See [LICENSE.txt](LICENSE.txt) for the full license text.
+* Always uses **default inputs**:
+
+  * `qcom-build-utils-ref = main`
+  * `kernel-branch = qcom-next`
+  * `qcom-next-pr = ""` (no qcom-next PRs merged)
+  * `kernel-topics-pr = ""` (no kernel-topics patches applied)
+
+* Purpose:
+
+  * Produce a **clean nightly kernel build** from the standard branch.
+
+---
+
+### 2. Inputs
+
+#### Workflow Inputs (`workflow_dispatch`)
+
+All inputs are optional; defaults are used when omitted. The scheduled run always behaves as if all defaults were chosen.
+
+* **`qcom-build-utils-ref`**
+  Branch, tag, or SHA for `qualcomm-linux/qcom-build-utils`.
+  **Default:** `main`
+
+* **`kernel-branch`**
+  Branch or tag to sync from `qualcomm-linux/kernel`.
+  **Default:** `qcom-next`
+
+* **`qcom-next-pr`**
+  Space-separated list of PR numbers to merge from `qcom-next`.
+  **Default:** `""` (no PR overrides)
+
+* **`kernel-topics-pr`**
+  Space-separated list of PR numbers from `kernel-topics` to apply as patches.
+  **Default:** `""` (no topic patches)
+
+#### Secrets
+
+* **`DEB_PKG_BOT_CI_TOKEN`**
+  Required to check out `qcom-build-utils` and related private resources.
+
+* **`PAT`**
+  Used inside the scripts to fetch from `qualcomm-linux/kernel` and PR refs.
+
+---
+
+### 3. Build Pipeline (Kernel Build and Deb Packaging)
+
+The job runs on a **self-hosted ARM64 runner**:
+
+1. **Checkout and Environment Setup**
+
+   * Check out the current repository.
+   * Derive:
+
+     * `ORG_NAME` from `GITHUB_REPOSITORY` (string before `/`)
+     * `REPO_NAME` from `GITHUB_REPOSITORY` (string after `/`)
+   * Check out `qualcomm-linux/qcom-build-utils` at `qcom-build-utils-ref`.
+   * Record the build-utils HEAD SHA:
+
+     ```bash
+     QCOM_BUILD_UTILS_SHA=$(git rev-parse HEAD)
+     ```
+
+2. **Kernel Sync**
+
+   In `qcom-build-utils/kernel`:
+
+   * Set `BUILD_TOP` and export `build_top` into the environment.
+   * Sync `qualcomm-linux/kernel` into `"$BUILD_TOP/qcom-next"`:
+
+     * Detect if `KERNEL_BRANCH` is a **branch** or a **tag** (via `git ls-remote`).
+     * Fetch the appropriate ref with `--depth=1` and check it out.
+   * Record kernel HEAD SHA:
+
+     ```bash
+     QCOM_KERNEL_SHA=$(git rev-parse HEAD)
+     ```
+
+3. **Optional PR Integration**
+
+   * If `qcom-next-pr` is non-empty:
+
+     * For each PR:
+
+       * Fetch `pull/<PR>/head` into a local branch `pr-<PR>`.
+       * Attempt `git merge pr-<PR> --no-commit`.
+       * On conflict: `git merge --abort` and **fail the job**.
+   * If `kernel-topics-pr` is non-empty:
+
+     * For each PR:
+
+       * Download `https://github.com/qualcomm-linux/kernel-topics/pull/<PR>.patch`.
+       * Apply with `git am`.
+       * On failure: `git am --abort` and **fail the job**.
+
+4. **Kernel Configuration**
+
+   Ensure SquashFS and related options are enabled before building:
+
+   ```bash
+   ./scripts/enable_squashfs_configs.sh "$BUILD_TOP/qcom-next/"
+   ```
+
+5. **Kernel Build**
+
+   Inside the build environment (via the kmake image), run:
+
+   ```bash
+   ./scripts/build_kernel.sh
+   ```
+
+   This compiles the kernel using the synced (and optionally patched) tree under `qcom-build-utils/kernel`.
+
+6. **Debian Package Build**
+
+   Still inside the build environment:
+
+   ```bash
+   ./scripts/build-kernel-deb.sh out/ "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+   mkdir -p deb_artifact
+   cp ./*.deb deb_artifact/
+   ```
+
+   This produces one or more kernel `.deb` packages and collects them under `deb_artifact/`.
+
+7. **Metadata Generation**
+
+   Generate a `build_info` file that captures provenance and configuration:
+
+   * File path: `qcom-build-utils/kernel/deb_artifact/build_info`
+   * Contents include (examples):
+
+     * `JOB_ID` and `JOB_ATTEMPT`
+     * `ORG_NAME`, `REPO_NAME`
+     * `QCOM-BUILD-UTILS BRANCH/TAG` and `HEAD SHA`
+     * `KERNEL BRANCH/TAG` and `HEAD SHA`
+     * `PRs FROM QCOM-NEXT`
+     * `PRs FROM KERNEL TOPICS`
+
+---
+
+### 4. Outputs and S3 Layout
+
+The workflow produces two key outputs:
+
+1. **Kernel Debian package(s)**
+
+   * Location before upload:
+     `qcom-build-utils/kernel/deb_artifact/*.deb`
+
+2. **Build metadata file**
+
+   * Location before upload:
+     `qcom-build-utils/kernel/deb_artifact/build_info`
+
+These are uploaded to a **private S3 bucket** using `upload-private-artifact-action`.
+
+* **Bucket name:**
+
+  ```text
+  qli-prd-lecore-gh-artifacts
+  ```
+
+* **Final object path template:**
+
+  ```text
+  s3://qli-prd-lecore-gh-artifacts/${ORG_NAME}/pkg/temp/${REPO_NAME}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/
+  ```
+
+Under that path you will typically find:
+
+* `*.deb` – the built kernel Debian package(s)
+* `build_info` – metadata describing exactly what was built (refs, SHAs, PRs, job IDs)
+
+This structure makes it easy to:
+
+* Trace each artifact back to the originating GitHub Actions run.
+* See exactly which inputs and PRs were used.
+* Consume the `.deb` packages in downstream systems (image builds, testing pipelines, etc.).
+
