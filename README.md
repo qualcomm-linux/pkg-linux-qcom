@@ -57,16 +57,9 @@ flowchart TD
   * `/lib/modules/<BASE>/`
   * `/lib/firmware/<BASE>/device-tree/**`
   
-## Versioning (in progress)
+## Versioning
 
-> ⚠️ **Current behavior (before the gencontrol override is merged):**
->
-> - The **binary package version** comes from `debian/changelog` (e.g., `0.0`, `1.0`, `2.0`).
-> - `BUILD_ID` (e.g., `export BUILD_ID=…`) is **ignored** by the .deb version.
-> - Runtime kernel release (**`uname -r`**) comes from the kernel itself (`make -s kernelrelease`) and does **not** include `BUILD_ID` unless you set `LOCALVERSION=-…`.
-
-**Planned behavior (after the versioning override lands):**
-- Binary package version will be:  
+- Binary package version:  
   `\<SRC_VER\>+\<BASE\>[-\<BUILD_ID\>]`
   - `SRC_VER` = top entry in `debian/changelog` (e.g., `2.0`)
   - `BASE` = `make -s kernelrelease` (the built kernel’s release)
