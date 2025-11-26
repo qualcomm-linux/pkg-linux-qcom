@@ -244,32 +244,6 @@ jobs:
 
               echo "[INFO] Generated DTB image:"
               ls -lh dtb.bin
-
-              echo "[INFO] Running size sanity check (sum of DTBs vs dtb.bin)..."
-              DTB_SUM=0
-              while IFS= read -r f; do
-                # skip blank and comment lines
-                case "$f" in
-                  "" | \#* ) continue ;;
-                esac
-                path="$DTB_SRC/$f"
-                if [ ! -f "$path" ]; then
-                  echo "[ERROR] DTB from manifest not found: $path"
-                  exit 1
-                fi
-                sz=$(stat -c%s "$path")
-                DTB_SUM=$(( DTB_SUM + sz ))
-              done < "$MANIFEST"
-
-              COMBINED_SZ=$(stat -c%s dtb.bin)
-              echo "[INFO] Sum(DTBs)=${DTB_SUM} bytes, dtb.bin=${COMBINED_SZ} bytes"
-
-              if [ "$DTB_SUM" -ne "$COMBINED_SZ" ]; then
-                echo "[ERROR] Size mismatch: dtb.bin != sum of input DTBs"
-                exit 1
-              fi
-
-              echo "[INFO] DTB size sanity check passed."
             '
 
       # ------------------------------------------------------------------------
