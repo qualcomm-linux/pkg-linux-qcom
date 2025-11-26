@@ -220,7 +220,7 @@ jobs:
               cd qcom-build-utils/kernel
               export BUILD_TOP=$(pwd)
 
-              DTB_SRC="$BUILD_TOP/out/arch/arm64/boot/dts/qcom"
+              DTB_SRC="$BUILD_TOP/qcom-next/arch/arm64/boot/dts/qcom"
               MANIFEST="$BUILD_TOP/../../config/dtb-manifest"
 
               echo "[INFO] DTB_SRC:  $DTB_SRC"
