@@ -211,6 +211,7 @@ jobs:
       #     - Output: dtb.bin (4 MB FAT image, containing combined-dtb.dtb)
       # ------------------------------------------------------------------------
       - name: Build combined DTB image
+        if: ${{ github.event_name != 'schedule' }}
         run: |
           docker run -i \
             --privileged --rm -v $PWD:$PWD --workdir="$PWD" kmake-image:ubuntu-noble-arm64 \
