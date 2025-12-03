@@ -61,13 +61,13 @@ flowchart TD
 
 - Binary package version:  
   `\<SRC_VER\>+\<BASE\>[-\<BUILD_ID\>]`
-  - `SRC_VER` = top entry in `debian/changelog` (e.g., `2.0`)
+  - `SRC_VER` = top entry in `debian/changelog` (e.g., `1.0.0-1`)
   - `BASE` = `make -s kernelrelease` (the built kernel’s release)
   - `BUILD_ID` = optional CI tag (e.g., `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`)
 
 **Examples (planned):**
-- `2.0+6.18.0-rc4-g963d75401ece`
-- `2.0+6.18.0-rc4-g963d75401ece-123456789-1`
+- `1.0.0-1+6.18.0-rc4-g963d75401ece`
+- `1.0.0-1+6.18.0-rc4-g963d75401ece-123456789-1`
 
   
 * Maintainer scripts:
@@ -123,7 +123,7 @@ dpkg-buildpackage -us -uc -b
 **Result:**
 
 ```
-../qcom-linux-kernel_1.0+<BASE>[-<BUILD_ID>]_arm64.deb
+../qcom-linux-kernel_1.0.0-1+<BASE>[-<BUILD_ID>]_arm64.deb
 ```
 
 ## Install / remove
