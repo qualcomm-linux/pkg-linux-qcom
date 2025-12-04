@@ -85,7 +85,7 @@ jobs:
           repository: qualcomm-linux/qcom-dtb-metadata
           ref: main
           token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
-          path: ./qcom-build-utils/kernel
+          path: ./qcom-build-utils/kernel/qcom-dtb-metadata
           fetch-depth: 1
 
       - name: Checkout kmake-image tools
@@ -94,7 +94,7 @@ jobs:
           repository: bjordiscollaku/kmake-image
           ref: fix/make-fitimage-improvements
           token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
-          path: ./qcom-build-utils/kernel
+          path: ./qcom-build-utils/kernel/kmake-image
           fetch-depth: 1
 
       - name: Deduce qcom-build-utils head commit SHA
