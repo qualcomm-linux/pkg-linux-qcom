@@ -243,7 +243,7 @@ jobs:
               DTS_METADATA="$BUILD_TOP/qcom-dtb-metadata/qcom-metadata.dts"
               ITS_FITIMAGE="$BUILD_TOP/qcom-dtb-metadata/qcom-fitimage.its"
 
-              if [ ! -d "$DTS_METADATA" ]; then
+              if [ ! -f "$DTS_METADATA" ]; then
                 echo "[ERROR] DTS METADATA not found: $DTS_METADATA"
                 exit 1
               fi
