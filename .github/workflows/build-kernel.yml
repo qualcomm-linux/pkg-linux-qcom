@@ -228,7 +228,7 @@ jobs:
       #     - Manifest from: pkg-linux-kernel/config/dtb-manifest
       #     - Output: dtb.bin (4 MB FAT image, containing combined-dtb.dtb)
       # ------------------------------------------------------------------------
-      - name: Build combined DTB image
+      - name: Build FIT DTB image
         if: ${{ github.event_name != 'schedule' }}
         run: |
           docker run -i \
@@ -239,29 +239,28 @@ jobs:
               cd qcom-build-utils/kernel
               export BUILD_TOP=$(pwd)
 
-              DTB_SRC="$BUILD_TOP/qcom-next/arch/arm64/boot/dts/qcom"
-              MANIFEST="$BUILD_TOP/../../config/dtb-manifest"
+              KERNEL_PRODUCTS="$BUILD_TOP/qcom-next"
+              DTS_METADATA="$BUILD_TOP/qcom-dtb-metadata/qcom-metadata.dts"
+              ITS_FITIMAGE="$BUILD_TOP/qcom-dtb-metadata/qcom-fitimage.its"
 
-              echo "[INFO] DTB_SRC:  $DTB_SRC"
-              echo "[INFO] MANIFEST: $MANIFEST"
-
-              if [ ! -d "$DTB_SRC" ]; then
-                echo "[ERROR] DTB source directory not found: $DTB_SRC"
+              if [ ! -d "$DTS_METADATA" ]; then
+                echo "[ERROR] DTS METADATA not found: $DTS_METADATA"
                 exit 1
               fi
 
-              if [ ! -f "$MANIFEST" ]; then
-                echo "[ERROR] DTB manifest not found: $MANIFEST"
+              if [ ! -f "$ITS_FITIMAGE" ]; then
+                echo "[ERROR] FITIMAGE ITS not found: $ITS_FITIMAGE"
                 exit 1
               fi
 
-              ./scripts/build-dtb-image.sh \
-                -dtb-src "$DTB_SRC" \
-                -manifest "$MANIFEST" \
-                -size 4 \
-                -out dtb.bin
+              ./kmake-image/make_fitimage.sh \
+                --sector-size 4096 \
+                --metadata "$DTS_METADATA" \
+                --its "$ITS_FITIMAGE" \
+                --kobj "$KERNEL_PRODUCTS" \
+                --output dtb.bin
 
-              echo "[INFO] Generated DTB image:"
+              echo "[INFO] Generated FIT DTB image:"
               ls -lh dtb.bin
             '
 
