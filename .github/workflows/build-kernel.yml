@@ -68,7 +68,7 @@ jobs:
           echo "REPO_NAME=$REPO_NAME"
 
       # ------------------------------------------------------------------------
-      # 3. Checkout qcom-build-utils into a sibling directory
+      # 3. Checkout required repositories
       # ------------------------------------------------------------------------
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v4
@@ -77,6 +77,24 @@ jobs:
           ref: ${{ inputs.qcom-build-utils-ref }}
           token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
           path: ./qcom-build-utils
+          fetch-depth: 1
+
+      - name: Checkout qcom-dtb-metadata
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/qcom-dtb-metadata
+          ref: main
+          token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+          path: ./qcom-build-utils/kernel
+          fetch-depth: 1
+
+      - name: Checkout kmake-image tools
+        uses: actions/checkout@v4
+        with:
+          repository: bjordiscollaku/kmake-image
+          ref: fix/make-fitimage-improvements
+          token: ${{ secrets.DEB_PKG_BOT_CI_TOKEN }}
+          path: ./qcom-build-utils/kernel
           fetch-depth: 1
 
       - name: Deduce qcom-build-utils head commit SHA
