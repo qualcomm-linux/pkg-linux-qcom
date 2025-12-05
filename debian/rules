@@ -3,6 +3,10 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -e -o pipefail -c
 
+include /usr/share/dpkg/pkg-info.mk
+
+export DEB_VERSION
+
 export DH_VERBOSE ?= 1
 export ARCH = arm64
 
@@ -115,17 +119,15 @@ endif
 
 override_dh_gencontrol:
 	@mkdir -p $(dir $(KREL_FILE)) debian
-	# 1) Read source (changelog) version as prefix, e.g. 1.0.0-1
-	SRC_VER="$$(dpkg-parsechangelog -S Version)"; \
-	# 2) Ensure BASE (uname -r) is available/cached
+	# 1) Ensure BASE (uname -r) is available/cached
 	if [ ! -s "$(KREL_FILE)" ]; then \
 		BASE="$$( $(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelrelease )"; \
 		printf "%s\n" "$$BASE" > "$(KREL_FILE)"; \
 	else \
 		BASE="$$(cat "$(KREL_FILE)")"; \
 	fi; \
-	# 3) Compose binary version: <SRC_VER>+<BASE>[-<BUILD_ID>]
-	V="$$SRC_VER+$$BASE"; \
+	# 2) Compose binary version: <SRC_VER>+<BASE>[-<BUILD_ID>]
+	V="$(DEB_VERSION)+$$BASE"; \
 	if [ -n "$(BUILD_ID)" ]; then V="$$V-$(BUILD_ID)"; fi; \
 	echo "$$V" > debian/pkg.version; \
 	echo "dh_gencontrol: Version=$$V (SRC_VER=$$SRC_VER, BASE=$$BASE, BUILD_ID=$(BUILD_ID))"; \
