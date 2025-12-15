@@ -1,10 +1,7 @@
+
 name: build-kernel
 
-# ==============================================================================
-# Triggers
-# - Manual: workflow_dispatch with optional inputs for refs and PRs.
-# - Scheduled: nightly at 9:00 PM PST (05:00 UTC).
-# ==============================================================================
+# Controls when the workflow will run
 on:
   workflow_dispatch:
     inputs:
@@ -35,27 +32,20 @@ on:
   schedule:
     - cron: '0 5 * * *'
 
-# ==============================================================================
-# Jobs
-# ==============================================================================
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
+  # This workflow contains a single job called "build"
   build:
-    # Self-hosted runner on ARM64 (Ubuntu 24.04-based build host).
+    # The type of runner that the job will run on
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
 
     env:
-      # Default kernel branch if workflow_dispatch input is omitted.
       KERNEL_BRANCH: ${{ github.event.inputs.kernel-branch || 'qcom-next' }}
-
+    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # ------------------------------------------------------------------------
-      # 1. Check out pkg-linux-kernel (this repo)
-      # ------------------------------------------------------------------------
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
 
-      # ------------------------------------------------------------------------
-      # 2. Derive ORG/REPO for metadata + artifact paths
-      # ------------------------------------------------------------------------
       - name: Extract org, repo and branch name
         run: |
           # Extract org (owner) and repo name from GITHUB_REPOSITORY (format: org/repo)
@@ -66,10 +56,7 @@ jobs:
         run: |
           echo "ORG_NAME=$ORG_NAME"
           echo "REPO_NAME=$REPO_NAME"
-
-      # ------------------------------------------------------------------------
-      # 3. Checkout qcom-build-utils into a sibling directory
-      # ------------------------------------------------------------------------
+      
       - name: Checkout qcom-build-utils
         uses: actions/checkout@v4
         with:
@@ -81,22 +68,18 @@ jobs:
 
       - name: Deduce qcom-build-utils head commit SHA
         run: |
+          # Get the tip commit SHA of the qcom-build-utils branch/tag used
           cd qcom-build-utils
           QCOM_BUILD_UTILS_SHA=$(git rev-parse HEAD)
           echo "QCOM_BUILD_UTILS_SHA=$QCOM_BUILD_UTILS_SHA" >> "$GITHUB_ENV"
+          # Echo for logs
           echo "Head SHA for qcom-build-utils: $QCOM_BUILD_UTILS_SHA"
 
-      # ------------------------------------------------------------------------
-      # 4. Prepare docker build image used for kernel + DTB builds
-      # ------------------------------------------------------------------------
       - name: Pull docker image
         run: |
           docker pull artifacts.codelinaro.org/clo-420-qli-registry/kmake-image-ubuntu-noble-arm64:ver.1.0
           docker tag artifacts.codelinaro.org/clo-420-qli-registry/kmake-image-ubuntu-noble-arm64:ver.1.0 kmake-image:ubuntu-noble-arm64
 
-      # ------------------------------------------------------------------------
-      # 5. Sync kernel codebase (qcom-next or tag) into qcom-build-utils/kernel
-      # ------------------------------------------------------------------------
       - name: Sync kernel codebase
         run: |
           cd qcom-build-utils
@@ -123,12 +106,10 @@ jobs:
             git checkout FETCH_HEAD
           fi
 
+          # Get Head SHA of kernel branch/tag cloned
           QCOM_KERNEL_SHA=$(git rev-parse HEAD)
           echo "QCOM_KERNEL_SHA=$QCOM_KERNEL_SHA" >> "$GITHUB_ENV"
 
-      # ------------------------------------------------------------------------
-      # 6. Optionally merge PRs into qcom-next
-      # ------------------------------------------------------------------------
       - name: Merge qcom-next PR patches
         run: |
           cd "${{ env.build_top }}/"
@@ -140,27 +121,28 @@ jobs:
 
             for pr in ${{ github.event.inputs.qcom-next-pr }}; do
               echo "::group::Merging qcom-next PR #$pr"
+              # Fetch the PR head into a local branch pr-<num>
               git fetch "https://${{ secrets.PAT }}@github.com/${{ env.kernel_repo }}.git" "pull/$pr/head:pr-$pr"
 
+              # Attempt merge without committing; on conflict abort and fail the job
               if ! git merge "pr-$pr" --no-commit; then
                 echo "Merge conflict while merging PR #$pr. Aborting merge and failing the job."
                 git merge --abort || true
                 exit 1
               fi
 
+              # Commit only if there are staged changes; otherwise it's already merged/FF
               if ! git diff --cached --quiet; then
                 git commit -m "Merged PR #$pr"
               else
                 echo "Nothing to commit for PR #$pr (already merged or fast-forwarded)."
+                # Ensure no merge state remains
                 git merge --abort 2>/dev/null || true
               fi
               echo "::endgroup::"
             done
           fi
 
-      # ------------------------------------------------------------------------
-      # 7. Optionally apply kernel-topics PR patches
-      # ------------------------------------------------------------------------
       - name: Apply kernel-topics PR patches
         run: |
           cd "${{ env.build_top }}/"
@@ -172,6 +154,7 @@ jobs:
               echo "::group::Applying kernel-topics PR #$pr"
               wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
               cd "${{ env.build_top }}/qcom-next"
+              # Apply patch; on failure abort and fail the job
               if ! git am "../$pr.patch"; then
                 echo "Patch application failed for PR #$pr. Aborting 'git am' and failing the job."
                 git am --abort || true
@@ -182,18 +165,12 @@ jobs:
             done
           fi
 
-      # ------------------------------------------------------------------------
-      # 8. Enable any required kernel configs (e.g. squashfs)
-      # ------------------------------------------------------------------------
       - name: Enable Kernel Configs
         run: |
           cd qcom-build-utils/kernel
           export BUILD_TOP=$(pwd)
           ./scripts/enable_squashfs_configs.sh $BUILD_TOP/qcom-next/
 
-      # ------------------------------------------------------------------------
-      # 9. Build the kernel (O=out under qcom-build-utils/kernel)
-      # ------------------------------------------------------------------------
       - name: Run build script
         run: |
           docker run -i \
@@ -204,88 +181,18 @@ jobs:
             ./scripts/build_kernel.sh
           '
 
-      # ------------------------------------------------------------------------
-      # 10. Build combined DTB image (dtb.bin) from built DTBs + manifest
-      #     - DTBs from: out/arch/arm64/boot/dts/qcom
-      #     - Manifest from: pkg-linux-kernel/config/dtb-manifest
-      #     - Output: dtb.bin (4 MB FAT image, containing combined-dtb.dtb)
-      # ------------------------------------------------------------------------
-      - name: Build combined DTB image
-        if: ${{ github.event_name != 'schedule' }}
-        run: |
-          docker run -i \
-            --privileged --rm -v $PWD:$PWD --workdir="$PWD" kmake-image:ubuntu-noble-arm64 \
-            -c '
-              set -euo pipefail
-
-              cd qcom-build-utils/kernel
-              export BUILD_TOP=$(pwd)
-
-              DTB_SRC="$BUILD_TOP/qcom-next/arch/arm64/boot/dts/qcom"
-              MANIFEST="$BUILD_TOP/../../config/dtb-manifest"
-
-              echo "[INFO] DTB_SRC:  $DTB_SRC"
-              echo "[INFO] MANIFEST: $MANIFEST"
-
-              if [ ! -d "$DTB_SRC" ]; then
-                echo "[ERROR] DTB source directory not found: $DTB_SRC"
-                exit 1
-              fi
-
-              if [ ! -f "$MANIFEST" ]; then
-                echo "[ERROR] DTB manifest not found: $MANIFEST"
-                exit 1
-              fi
-
-              ./scripts/build-dtb-image.sh \
-                -dtb-src "$DTB_SRC" \
-                -manifest "$MANIFEST" \
-                -size 4 \
-                -out dtb.bin
-
-              echo "[INFO] Generated DTB image:"
-              ls -lh dtb.bin
-            '
-
-      # ------------------------------------------------------------------------
-      # 11. Build kernel Debian package (.deb) in qcom-build-utils/kernel
-      # ------------------------------------------------------------------------
       - name: Build Kernel Debian Package
         run: |
           docker run -i \
           --privileged --rm -v $PWD:$PWD --workdir="$PWD" kmake-image:ubuntu-noble-arm64 \
           -c '
-            set -euo pipefail
             cd qcom-build-utils/kernel
             export BUILD_TOP=`pwd`
             ./scripts/build-kernel-deb.sh out/ ${{ github.run_id }}-${{ github.run_attempt }}
+            mkdir -p deb_artifact
+            cp ./*.deb deb_artifact/
           '
 
-      # ------------------------------------------------------------------------
-      # 12. Assemble deb_artifact/ on host:
-      #     - All kernel .deb packages
-      #     - dtb.bin (combined DTB image) if present
-      # ------------------------------------------------------------------------
-      - name: Assemble deb artifacts (kernel + dtb image)
-        run: |
-          set -euo pipefail
-          cd qcom-build-utils/kernel
-
-          mkdir -p deb_artifact
-
-          echo "[INFO] Collecting kernel .deb packages into deb_artifact/"
-          cp ./*.deb deb_artifact/
-
-          if [ -f dtb.bin ]; then
-            echo "[INFO] Attaching dtb.bin to deb_artifact/"
-            cp dtb.bin deb_artifact/
-          else
-            echo "[WARN] dtb.bin not found in $(pwd); skipping DTB artifact copy."
-          fi
-
-      # ------------------------------------------------------------------------
-      # 13. Generate build_info metadata (written inside deb_artifact/)
-      # ------------------------------------------------------------------------
       - name: Generate build_info metadata
         run: |
           docker run -i \
@@ -306,9 +213,6 @@ jobs:
             } > deb_artifact/build_info
           '
 
-      # ------------------------------------------------------------------------
-      # 14. Upload artifacts directory (kernel debs + dtb.bin + build_info) to S3
-      # ------------------------------------------------------------------------
       - name: Upload kernel .deb package to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
