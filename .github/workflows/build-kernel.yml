@@ -1,4 +1,3 @@
-
 name: build-kernel
 
 # Controls when the workflow will run
@@ -13,6 +12,10 @@ on:
         description: Kernel Branch or Tag to sync
         required: false
         default: 'qcom-next'
+      kernel-url:
+        description: Custom Kernel Repo URL (Leave empty for default qualcomm-linux/kernel)
+        required: false
+        default: ''
       qcom-next-pr:
         description: Space-separated PR numbers to merge from qcom-next
         type: string
@@ -80,7 +83,9 @@ jobs:
           docker pull artifacts.codelinaro.org/clo-420-qli-registry/kmake-image-ubuntu-noble-arm64:ver.1.0
           docker tag artifacts.codelinaro.org/clo-420-qli-registry/kmake-image-ubuntu-noble-arm64:ver.1.0 kmake-image:ubuntu-noble-arm64
 
-      - name: Sync kernel codebase
+      # Runs if kernel-url is EMPTY
+      - name: Sync kernel codebase (Default)
+        if: ${{ inputs.kernel-url == '' }}
         run: |
           cd qcom-build-utils
           cd kernel && export BUILD_TOP=`pwd`
@@ -92,8 +97,8 @@ jobs:
 
           git ls-remote --exit-code --heads https://${{ secrets.PAT }}@github.com/${REPO}.git ${KERNEL_BRANCH} && IS_BRANCH=true || IS_BRANCH=false
 
-          git init $BUILD_TOP/qcom-next
-          cd $BUILD_TOP/qcom-next
+          git init $BUILD_TOP/qcom-kernel
+          cd $BUILD_TOP/qcom-kernel
           git remote add origin https://${{ secrets.PAT }}@github.com/${REPO}.git
 
           if [ "$IS_BRANCH" = true ]; then
@@ -110,33 +115,63 @@ jobs:
           QCOM_KERNEL_SHA=$(git rev-parse HEAD)
           echo "QCOM_KERNEL_SHA=$QCOM_KERNEL_SHA" >> "$GITHUB_ENV"
 
+      # Runs if kernel-url is PROVIDED
+      - name: Sync custom kernel codebase
+        if: ${{ inputs.kernel-url != '' }}
+        run: |
+          cd qcom-build-utils
+          mkdir -p kernel
+          cd kernel && export BUILD_TOP=`pwd`
+          echo "build_top=$BUILD_TOP" >> "$GITHUB_ENV"
+
+          KERNEL_URL="${{ inputs.kernel-url }}"
+          echo "Syncing custom repo: ${KERNEL_URL} ref ${KERNEL_BRANCH}"
+
+          git ls-remote --exit-code --heads ${KERNEL_URL} ${KERNEL_BRANCH} && IS_BRANCH=true || IS_BRANCH=false
+
+          mkdir -p $BUILD_TOP/qcom-kernel
+          cd $BUILD_TOP/qcom-kernel
+          git init
+          git remote add origin ${KERNEL_URL}
+
+          if [ "$IS_BRANCH" = true ]; then
+            echo "Detected branch: ${KERNEL_BRANCH}"
+            git fetch --depth=1 origin ${KERNEL_BRANCH}
+            git checkout ${KERNEL_BRANCH}
+          else
+            echo "Assuming tag: ${KERNEL_BRANCH}"
+            git fetch --depth=1 origin tag ${KERNEL_BRANCH}
+            git checkout FETCH_HEAD
+          fi
+
+          QCOM_KERNEL_SHA=$(git rev-parse HEAD)
+          echo "QCOM_KERNEL_SHA=$QCOM_KERNEL_SHA" >> "$GITHUB_ENV"
+
       - name: Merge qcom-next PR patches
+        if: ${{ inputs.kernel-url == '' }}
         run: |
           cd "${{ env.build_top }}/"
           if [ -z "${{ github.event.inputs.qcom-next-pr }}" ]; then
             echo "No PR number specified, skipping merge."
           else
             echo "Merging PR(s) #${{ github.event.inputs.qcom-next-pr }}"
-            cd "${{ env.build_top }}/qcom-next"
+
+            cd "${{ env.build_top }}/qcom-kernel"
 
             for pr in ${{ github.event.inputs.qcom-next-pr }}; do
               echo "::group::Merging qcom-next PR #$pr"
-              # Fetch the PR head into a local branch pr-<num>
               git fetch "https://${{ secrets.PAT }}@github.com/${{ env.kernel_repo }}.git" "pull/$pr/head:pr-$pr"
 
-              # Attempt merge without committing; on conflict abort and fail the job
               if ! git merge "pr-$pr" --no-commit; then
                 echo "Merge conflict while merging PR #$pr. Aborting merge and failing the job."
                 git merge --abort || true
                 exit 1
               fi
 
-              # Commit only if there are staged changes; otherwise it's already merged/FF
               if ! git diff --cached --quiet; then
                 git commit -m "Merged PR #$pr"
               else
                 echo "Nothing to commit for PR #$pr (already merged or fast-forwarded)."
-                # Ensure no merge state remains
                 git merge --abort 2>/dev/null || true
               fi
               echo "::endgroup::"
@@ -144,6 +179,7 @@ jobs:
           fi
 
       - name: Apply kernel-topics PR patches
+        if: ${{ inputs.kernel-url == '' }}
         run: |
           cd "${{ env.build_top }}/"
           if [ -z "${{ github.event.inputs.kernel-topics-pr }}" ]; then
@@ -153,8 +189,10 @@ jobs:
             for pr in ${{ github.event.inputs.kernel-topics-pr }}; do
               echo "::group::Applying kernel-topics PR #$pr"
               wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
-              cd "${{ env.build_top }}/qcom-next"
-              # Apply patch; on failure abort and fail the job
+              
+
+              cd "${{ env.build_top }}/qcom-kernel"
+              
               if ! git am "../$pr.patch"; then
                 echo "Patch application failed for PR #$pr. Aborting 'git am' and failing the job."
                 git am --abort || true
@@ -169,7 +207,7 @@ jobs:
         run: |
           cd qcom-build-utils/kernel
           export BUILD_TOP=$(pwd)
-          ./scripts/enable_squashfs_configs.sh $BUILD_TOP/qcom-next/
+          ./scripts/enable_squashfs_configs.sh $BUILD_TOP/qcom-kernel/
 
       - name: Run build script
         run: |
@@ -178,7 +216,7 @@ jobs:
           -c '
             cd qcom-build-utils/kernel
             export BUILD_TOP=`pwd`
-            ./scripts/build_kernel.sh
+            ./scripts/build_kernel.sh $BUILD_TOP/qcom-kernel/
           '
 
       - name: Build Kernel Debian Package
