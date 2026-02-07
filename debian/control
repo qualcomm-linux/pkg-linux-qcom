@@ -13,7 +13,7 @@ Package: qcom-linux-kernel
 Architecture: arm64
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Recommends: initramfs-tools | dracut | linux-initramfs-tool
-Provides: linux-image
+Provides: linux-image, linux-image-arm64
 Description: Qualcomm ARM64 Linux kernel (Image, DTBs, modules)
  Installs the built kernel Image, .config, all DTBs, and modules under
  versioned paths keyed to the kernel's BASE release (uname -r).

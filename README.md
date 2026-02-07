@@ -142,7 +142,7 @@ sudo dpkg -r qcom-linux-kernel
 * `/boot/vmlinuz-<BASE>`
 * `/boot/config-<BASE>`
 * `/lib/modules/<BASE>/**` (modules stripped)
-* `/lib/firmware/<BASE>/device-tree/**` (every `*.dtb` from `arch/arm64/boot/dts/**`)
+* `/usr/lib/linux-image-<BASE>/**` (every `*.dtb` from `arch/arm64/boot/dts/**`)
 
 ## Configuration & knobs
 
@@ -151,5 +151,3 @@ sudo dpkg -r qcom-linux-kernel
 * BUILD_ID: environment variable appended to the **Debian package version** only (e.g., CI build number); does not affect runtime paths or `uname -r`.
 * Out-of-tree builds: set `O=` or `KBUILD_OUTPUT`; rules read Image, DTBs, and modules from that objdir.
 * SQUASHFS options: `debian/scripts/enable-squashfs-configs.sh` appends required options to `arch/arm64/configs/defconfig` if missing.
-
-

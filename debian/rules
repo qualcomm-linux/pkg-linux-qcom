@@ -101,10 +101,11 @@ override_dh_auto_install:
 		INSTALL_MOD_PATH=$$PKG INSTALL_MOD_STRIP=1; \
 	\
 	# ALL DTBs recursively (preserve vendor subdirs), only *.dtb
-	mkdir -p $$PKG/lib/firmware/$$BASE/device-tree; \
+	# Install to standard Debian location: /usr/lib/linux-image-<BASE>/
+	mkdir -p $$PKG/usr/lib/linux-image-$$BASE; \
 	rsync -a --prune-empty-dirs \
 	      --include='*/' --include='*.dtb' --exclude='*' \
-	      "$$DTB_ROOT" $$PKG/lib/firmware/$$BASE/device-tree/
+	      "$$DTB_ROOT" $$PKG/usr/lib/linux-image-$$BASE/
 
 override_dh_auto_test:
 	@echo "Skipping dh_auto_test (no kernel test suite)."
@@ -145,4 +146,3 @@ override_dh_builddeb:
 	if [ -f debian/files ]; then \
 	  sed -i -E "s@(qcom-linux-kernel_)[^_]+(_$${ARCH}\.deb)@\\1$${V}\\2@" debian/files; \
 	fi
-
