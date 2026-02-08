@@ -24,6 +24,11 @@ PARALLEL ?= $(shell nproc)
 # Usage: BUILD_ID=19085636185-1 dpkg-buildpackage -us -uc -b
 BUILD_ID ?=
 
+# Automatically append profile name to BUILD_ID for version disambiguation
+ifneq (,$(findstring debug,$(DEB_BUILD_PROFILES)))
+    BUILD_ID := $(if $(BUILD_ID),$(BUILD_ID)-debug,debug)
+endif
+
 # File that caches the kernelrelease (BASE, i.e., uname -r)
 KREL_FILE := debian/kernel.release
 
@@ -47,10 +52,22 @@ endef
 	dh $@ --buildsystem=makefile
 
 override_dh_auto_configure:
-	# Base defconfig (+ vendor fragment if present)
-	[ -f arch/arm64/configs/qcom.config ] && \
-		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig qcom.config || \
-		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig
+	# Base defconfig
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig
+	# Merge qcom.config if present
+	@if [ -f arch/arm64/configs/qcom.config ]; then \
+		echo "Merging qcom.config fragment..."; \
+		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) qcom.config; \
+	fi
+	# Merge debug.config if debug build profile is active
+	@if echo "$(DEB_BUILD_PROFILES)" | grep -qw "debug"; then \
+		if [ -f arch/arm64/configs/debug.config ]; then \
+			echo "Debug profile active: merging debug.config fragment..."; \
+			$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) debug.config; \
+		else \
+			echo "Warning: debug profile requested but arch/arm64/configs/debug.config not found"; \
+		fi; \
+	fi
 
 override_dh_auto_build:
 	# Build kernel, modules, DTBs, and ensure a bootable image target is made
@@ -67,6 +84,8 @@ override_dh_auto_install:
 	@BASE=$$(cat $(KREL_FILE)); \
 	echo "Installing for BASE kernel release: $$BASE"; \
 	PKG=debian/qcom-linux-kernel; \
+	HDR_PKG=debian/qcom-linux-headers; \
+	DBG_PKG=debian/qcom-linux-kernel-dbg; \
 	\
 	# Resolve object dir (if any)
 	OBJ_DIR="$(BUILD_OBJ)"; \
@@ -105,7 +124,48 @@ override_dh_auto_install:
 	mkdir -p $$PKG/usr/lib/linux-image-$$BASE; \
 	rsync -a --prune-empty-dirs \
 	      --include='*/' --include='*.dtb' --exclude='*' \
-	      "$$DTB_ROOT" $$PKG/usr/lib/linux-image-$$BASE/
+	      "$$DTB_ROOT" $$PKG/usr/lib/linux-image-$$BASE/; \
+	\
+	# Install kernel headers for qcom-linux-headers package
+	echo "Installing kernel headers to $$HDR_PKG/usr/src/linux-headers-$$BASE"; \
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) headers_install \
+		INSTALL_HDR_PATH=$$HDR_PKG/usr/src/linux-headers-$$BASE; \
+	\
+	# Copy necessary build files for out-of-tree module compilation
+	mkdir -p $$HDR_PKG/usr/src/linux-headers-$$BASE; \
+	cp -a Makefile $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
+	cp -a .config $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
+	[ -n "$$OBJ_DIR" ] && cp -a $$OBJ_DIR/.config $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
+	cp -a Module.symvers $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
+	[ -n "$$OBJ_DIR" ] && cp -a $$OBJ_DIR/Module.symvers $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
+	\
+	# Copy arch-specific headers and scripts
+	mkdir -p $$HDR_PKG/usr/src/linux-headers-$$BASE/arch/arm64; \
+	cp -a arch/arm64/Makefile $$HDR_PKG/usr/src/linux-headers-$$BASE/arch/arm64/ 2>/dev/null || true; \
+	cp -a arch/arm64/kernel/module.lds $$HDR_PKG/usr/src/linux-headers-$$BASE/arch/arm64/kernel/ 2>/dev/null || true; \
+	\
+	# Copy scripts directory for module building
+	if [ -d scripts ]; then \
+		mkdir -p $$HDR_PKG/usr/src/linux-headers-$$BASE; \
+		cp -a scripts $$HDR_PKG/usr/src/linux-headers-$$BASE/; \
+	fi; \
+	if [ -n "$$OBJ_DIR" ] && [ -d "$$OBJ_DIR/scripts" ]; then \
+		cp -a $$OBJ_DIR/scripts $$HDR_PKG/usr/src/linux-headers-$$BASE/; \
+	fi; \
+	\
+	# Install debug symbols for qcom-linux-kernel-dbg package
+	echo "Installing debug symbols to $$DBG_PKG"; \
+	# Install unstripped modules
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
+		INSTALL_MOD_PATH=$$DBG_PKG INSTALL_MOD_STRIP=0; \
+	\
+	# Copy vmlinux with debug symbols if available
+	VMLINUX_PATH="vmlinux"; \
+	[ -n "$$OBJ_DIR" ] && VMLINUX_PATH="$$OBJ_DIR/vmlinux"; \
+	if [ -f "$$VMLINUX_PATH" ]; then \
+		mkdir -p $$DBG_PKG/usr/lib/debug/boot; \
+		cp -a $$VMLINUX_PATH $$DBG_PKG/usr/lib/debug/boot/vmlinux-$$BASE; \
+	fi
 
 override_dh_auto_test:
 	@echo "Skipping dh_auto_test (no kernel test suite)."
@@ -132,10 +192,14 @@ override_dh_gencontrol:
 	if [ -n "$(BUILD_ID)" ]; then V="$$V-$(BUILD_ID)"; fi; \
 	echo "$$V" > debian/pkg.version; \
 	echo "dh_gencontrol: Version=$$V (SRC_VER=$$SRC_VER, BASE=$$BASE, BUILD_ID=$(BUILD_ID))"; \
-	# 4) Run dh_gencontrol with our substvars
+	# 4) Run dh_gencontrol with our substvars for all packages
 	dh_gencontrol -Vqcom:BaseKrel="$$BASE" -Vqcom:BuildId="$(BUILD_ID)"; \
-	# 5) Force the Version field in the generated control file
-	sed -i -E "s/^Version: .*/Version: $$V/" debian/qcom-linux-kernel/DEBIAN/control
+	# 5) Force the Version field in the generated control files
+	for pkg in qcom-linux-kernel qcom-linux-headers qcom-linux-kernel-dbg; do \
+		if [ -f debian/$$pkg/DEBIAN/control ]; then \
+			sed -i -E "s/^Version: .*/Version: $$V/" debian/$$pkg/DEBIAN/control; \
+		fi; \
+	done
 
 override_dh_builddeb:
 	@# Reuse the composed version and fix debian/files to match the actual .deb name

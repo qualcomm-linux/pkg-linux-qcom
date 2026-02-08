@@ -19,3 +19,30 @@ Description: Qualcomm ARM64 Linux kernel (Image, DTBs, modules)
  versioned paths keyed to the kernel's BASE release (uname -r).
  Runtime version: ${qcom:BaseKrel}
  Optional build tag: ${qcom:BuildId}
+
+Package: qcom-linux-headers
+Architecture: arm64
+Depends: ${misc:Depends}
+Provides: linux-headers, linux-headers-arm64
+Description: Qualcomm ARM64 Linux kernel headers
+ This package provides the kernel headers for building out-of-tree modules
+ and other kernel development tasks. Headers are installed under
+ /usr/src/linux-headers-${qcom:BaseKrel}/ and include the necessary build
+ infrastructure for compiling external modules.
+ .
+ Runtime version: ${qcom:BaseKrel}
+ Optional build tag: ${qcom:BuildId}
+
+Package: qcom-linux-kernel-dbg
+Architecture: arm64
+Section: debug
+Priority: optional
+Depends: ${misc:Depends}, qcom-linux-kernel (= ${binary:Version})
+Provides: linux-image-dbg, linux-image-arm64-dbg
+Description: Qualcomm ARM64 Linux kernel debugging symbols
+ This package provides debugging symbols for the Qualcomm ARM64 kernel.
+ It includes unstripped kernel modules and vmlinux with debug information
+ for kernel debugging and crash analysis.
+ .
+ Runtime version: ${qcom:BaseKrel}
+ Optional build tag: ${qcom:BuildId}
