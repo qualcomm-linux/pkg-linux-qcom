@@ -155,9 +155,9 @@ override_dh_auto_install:
 	\
 	# Install debug symbols for qcom-linux-kernel-dbg package
 	echo "Installing debug symbols to $$DBG_PKG"; \
-	# Install unstripped modules
+	# Install unstripped modules (don't set INSTALL_MOD_STRIP to keep debug symbols)
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
-		INSTALL_MOD_PATH=$$DBG_PKG INSTALL_MOD_STRIP=0; \
+		INSTALL_MOD_PATH=$$DBG_PKG; \
 	\
 	# Copy vmlinux with debug symbols if available
 	VMLINUX_PATH="vmlinux"; \
@@ -205,8 +205,10 @@ override_dh_builddeb:
 	@# Reuse the composed version and fix debian/files to match the actual .deb name
 	V="$$(cat debian/pkg.version)"; \
 	ARCH="$$(dpkg-architecture -qDEB_HOST_ARCH)"; \
-	echo "dh_builddeb: expecting qcom-linux-kernel_$${V}_$${ARCH}.deb"; \
+	echo "dh_builddeb: expecting packages with version $${V}"; \
 	dh_builddeb; \
 	if [ -f debian/files ]; then \
 	  sed -i -E "s@(qcom-linux-kernel_)[^_]+(_$${ARCH}\.deb)@\\1$${V}\\2@" debian/files; \
+	  sed -i -E "s@(qcom-linux-headers_)[^_]+(_$${ARCH}\.deb)@\\1$${V}\\2@" debian/files; \
+	  sed -i -E "s@(qcom-linux-kernel-dbg_)[^_]+(_$${ARCH}\.deb)@\\1$${V}\\2@" debian/files; \
 	fi
