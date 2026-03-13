@@ -3,9 +3,15 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -e -o pipefail -c
 
+# Include dpkg package info only after 'prepare' has substituted @KVER@ in
+# debian/changelog. If the file still contains the template placeholder,
+# dpkg-parsechangelog would emit confusing warnings — skip the include instead.
+ifneq ($(wildcard debian/changelog),)
+ifeq ($(shell grep -qF '@KVER@' debian/changelog 2>/dev/null && echo template || echo ready),ready)
 include /usr/share/dpkg/pkg-info.mk
-
 export DEB_VERSION
+endif
+endif
 
 export DH_VERBOSE ?= 1
 export ARCH = arm64
@@ -20,49 +26,145 @@ KBUILD_O_ARG := $(if $(BUILD_OBJ),O=$(BUILD_OBJ),)
 # Parallel jobs (override with DEB_BUILD_OPTIONS=parallel=N if desired)
 PARALLEL ?= $(shell nproc)
 
-# Optional build id for Debian version tagging (not runtime paths)
-# Usage: BUILD_ID=19085636185-1 dpkg-buildpackage -us -uc -b
-BUILD_ID ?=
-
-# Automatically append profile name to BUILD_ID for version disambiguation
-ifneq (,$(findstring debug,$(DEB_BUILD_PROFILES)))
-    BUILD_ID := $(if $(BUILD_ID),$(BUILD_ID)-debug,debug)
-endif
 
 # File that caches the kernelrelease (BASE, i.e., uname -r)
 KREL_FILE := debian/kernel.release
 
-# Helper: compute Debian version like 1.0+<BASE>[-<BUILD_ID>]
-define mk_pkg_version
-	@BASE=$$(cat $(KREL_FILE)); \
-	V="1.0+$$BASE"; \
-	if [ -n "$(BUILD_ID)" ]; then V="$$V-$(BUILD_ID)"; fi; \
-	echo $$V
-endef
-
-# Helper: inject substitution vars and package version into control
-define gencontrol_vars
-	@BASE=$$(cat $(KREL_FILE)); \
-	EXTRA=""; \
-	[ -n "$(BUILD_ID)" ] && EXTRA="$$EXTRA -Vqcom:BuildId=$(BUILD_ID)"; \
-	dh_gencontrol -Vqcom:BaseKrel="$$BASE" $$EXTRA -v "$$($(call mk_pkg_version))"
-endef
-
 %:
 	dh $@ --buildsystem=makefile
 
+# ---------------------------------------------------------------------------
+# prepare: generate debian/control and debian/changelog from *.in templates.
+#
+# This target must be called before dpkg-buildpackage / sbuild, since those
+# tools read debian/control before invoking any debian/rules targets.
+#
+# Usage:
+#   make -f debian/rules prepare KVER=<kernelrelease>
+#   make -f debian/rules prepare LOCALVERSION=<suffix> [KVER_EXTRA=<tag>]
+#
+# KVER is the full kernelrelease string (uname -r), e.g.:
+#   6.12.0-qcom-next-20260210
+#
+# LOCALVERSION is the suffix appended to the base kernel version when KVER
+# is not provided explicitly, e.g.: -qcom-next-20260210
+#
+# KVER_EXTRA is an optional additional suffix appended to the final KVER,
+# useful for distinguishing local builds, CI runs, or user modifications
+# without changing the kernel source, e.g.:
+#   KVER_EXTRA=-mybuild  →  7.0.0-rc2-qcom-next-20260312-mybuild
+#   KVER_EXTRA=-ci42     →  7.0.0-rc2-qcom-next-20260312-ci42
+# KVER_EXTRA is appended after LOCALVERSION (or after KVER if explicit).
+#
+# The generated debian/control and debian/changelog are gitignored; only the
+# *.in templates are version-controlled.
+# ---------------------------------------------------------------------------
+KVER_EXTRA ?=
+
+.PHONY: prepare
+prepare:
+	@# Auto-detect KVER by reading VERSION/PATCHLEVEL/SUBLEVEL/EXTRAVERSION
+	@# directly from the kernel top-level Makefile — no make invocation needed.
+	@# Pass LOCALVERSION (e.g., LOCALVERSION=-qcom-next-20260210) to get a
+	@# meaningful package name. If KVER is provided explicitly it is used as-is.
+	@# KVER_EXTRA is appended last and is purely a packaging-level tag.
+	@set -e; \
+	if [ -n "$(KVER)" ]; then \
+		KVER_RESOLVED="$(KVER)"; \
+	else \
+		echo "KVER not set — reading base version from kernel Makefile..."; \
+		VER=$$(grep '^VERSION = ' Makefile | awk '{print $$3}'); \
+		PATCH=$$(grep '^PATCHLEVEL = ' Makefile | awk '{print $$3}'); \
+		SUB=$$(grep '^SUBLEVEL = ' Makefile | awk '{print $$3}'); \
+		EXTRA=$$(grep '^EXTRAVERSION = ' Makefile | awk '{print $$3}'); \
+		BASE_KVER="$${VER}.$${PATCH}.$${SUB}$${EXTRA}"; \
+		KVER_RESOLVED="$${BASE_KVER}$(LOCALVERSION)"; \
+		echo "Auto-detected KVER=$$KVER_RESOLVED (base=$$BASE_KVER, LOCALVERSION=$(LOCALVERSION))"; \
+	fi; \
+	if [ -n "$(KVER_EXTRA)" ]; then \
+		KVER_RESOLVED="$${KVER_RESOLVED}$(KVER_EXTRA)"; \
+		echo "Appending KVER_EXTRA=$(KVER_EXTRA) → KVER=$$KVER_RESOLVED"; \
+	fi; \
+	if [ -z "$$KVER_RESOLVED" ]; then \
+		echo "ERROR: Could not determine KVER. Pass KVER=<kernelrelease> or LOCALVERSION=<suffix>."; \
+		exit 1; \
+	fi; \
+	sed "s/@KVER@/$$KVER_RESOLVED/g" debian/control.in > debian/control; \
+	sed "s/@KVER@/$$KVER_RESOLVED/g; s/@DISTRO@/$(DISTRO)/g" debian/changelog.in > debian/changelog; \
+	echo "Generated debian/control and debian/changelog for KVER=$$KVER_RESOLVED DISTRO=$(DISTRO)"
+
 override_dh_auto_configure:
-	# Base defconfig
+	# ---------------------------------------------------------------------------
+	# Config build order:
+	#   1. ARM64 base defconfig
+	#   2. Disable CONFIG_LOCALVERSION_AUTO (must happen before any merges)
+	#   3. Config fragments — applied in a single unified pipeline:
+	#        a. arch/arm64/configs/qcom.config  (kernel-source fragment, if present)
+	#        b. debian/config/*.config           (packaging fragments, sorted order)
+	#      All fragments use the same mechanism: append to .config + olddefconfig.
+	#   4. Re-check CONFIG_LOCALVERSION_AUTO (merges may re-enable it)
+	#   5. arch/arm64/configs/debug.config — only when DEB_BUILD_PROFILES=debug
+	# ---------------------------------------------------------------------------
+
+	# Step 1: Base defconfig
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) defconfig
-	# Merge qcom.config if present
-	@if [ -f arch/arm64/configs/qcom.config ]; then \
-		echo "Merging qcom.config fragment..."; \
-		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) qcom.config; \
+
+	# Step 2: Disable CONFIG_LOCALVERSION_AUTO to prevent git hash in version.
+	# Must be done after defconfig and before any config merges.
+	@CONFIG_FILE="$(if $(BUILD_OBJ),$(BUILD_OBJ)/).config"; \
+	if [ -f "$$CONFIG_FILE" ]; then \
+		echo "Disabling CONFIG_LOCALVERSION_AUTO in $$CONFIG_FILE"; \
+		sed -i '/^CONFIG_LOCALVERSION_AUTO/d' "$$CONFIG_FILE"; \
+		echo "# CONFIG_LOCALVERSION_AUTO is not set" >> "$$CONFIG_FILE"; \
+		echo "CONFIG_LOCALVERSION_AUTO disabled"; \
+	else \
+		echo "ERROR: .config not found at $$CONFIG_FILE"; \
+		exit 1; \
 	fi
-	# Merge debug.config if debug build profile is active
+
+	# Step 3: Unified config fragment pipeline.
+	# Fragments are collected in order and applied together:
+	#   - arch/arm64/configs/qcom.config first (kernel-source, present in qcom-next)
+	#   - then debian/config/*.config in sorted order (packaging repo fragments)
+	# All are applied via: append to .config → make olddefconfig.
+	# To add options: drop a *.config file in debian/config/ — no rules changes needed.
+	@CONFIG_FILE="$(if $(BUILD_OBJ),$(BUILD_OBJ)/).config"; \
+	FRAGMENTS=""; \
+	if [ -f arch/arm64/configs/qcom.config ]; then \
+		echo "Found kernel-source fragment: arch/arm64/configs/qcom.config"; \
+		FRAGMENTS="arch/arm64/configs/qcom.config"; \
+	else \
+		echo "Note: arch/arm64/configs/qcom.config not found (not a qcom-next tree?)"; \
+	fi; \
+	if [ -d debian/config ] && ls debian/config/*.config >/dev/null 2>&1; then \
+		for f in $$(ls debian/config/*.config | sort); do \
+			echo "Found packaging fragment: $$f"; \
+			FRAGMENTS="$$FRAGMENTS $$f"; \
+		done; \
+	fi; \
+	if [ -n "$$FRAGMENTS" ]; then \
+		for frag in $$FRAGMENTS; do \
+			echo "Applying config fragment: $$frag"; \
+			cat "$$frag" >> "$$CONFIG_FILE"; \
+		done; \
+		echo "Running olddefconfig to resolve all fragment conflicts..."; \
+		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) olddefconfig; \
+	else \
+		echo "No config fragments to apply"; \
+	fi
+
+	# Step 4: Re-check CONFIG_LOCALVERSION_AUTO — merges may have re-enabled it.
+	@CONFIG_FILE="$(if $(BUILD_OBJ),$(BUILD_OBJ)/).config"; \
+	if grep -q "^CONFIG_LOCALVERSION_AUTO=y" "$$CONFIG_FILE" 2>/dev/null; then \
+		echo "Re-disabling CONFIG_LOCALVERSION_AUTO (was re-enabled by a config merge)"; \
+		sed -i '/^CONFIG_LOCALVERSION_AUTO/d' "$$CONFIG_FILE"; \
+		echo "# CONFIG_LOCALVERSION_AUTO is not set" >> "$$CONFIG_FILE"; \
+	fi
+
+	# Step 5: Merge debug.config if debug build profile is active.
 	@if echo "$(DEB_BUILD_PROFILES)" | grep -qw "debug"; then \
 		if [ -f arch/arm64/configs/debug.config ]; then \
-			echo "Debug profile active: merging debug.config fragment..."; \
+			echo "Debug profile active: merging arch/arm64/configs/debug.config..."; \
 			$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) debug.config; \
 		else \
 			echo "Warning: debug profile requested but arch/arm64/configs/debug.config not found"; \
@@ -70,22 +172,31 @@ override_dh_auto_configure:
 	fi
 
 override_dh_auto_build:
-	# Build kernel, modules, DTBs, and ensure a bootable image target is made
-	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) Image
-	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) modules
-	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -j$(PARALLEL) dtbs || true
-	# Cache BASE (uname -r) for later steps — filter out make's Entering/Leaving noise
-	@mkdir -p $(dir $(KREL_FILE)); \
-	KREL=$$( $(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelrelease 2>&1 | grep -E '^[0-9]+\.' | head -n1 ); \
+	# Extract LOCALVERSION from package name in debian/changelog.
+	# Package name format: linux-image-6.12.0-qcom-next-20260210-qcom
+	# BASE_KVER (from make kernelversion): 6.12.0
+	# We strip the "linux-image-" prefix and the trailing "-qcom" flavour suffix
+	# to recover the LOCALVERSION: -qcom-next-20260210
+	@CHANGELOG_PKG=$$(head -n1 debian/changelog | cut -d' ' -f1); \
+	BASE_KVER=$$($(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelversion); \
+	LOCALVER_SUFFIX=$$(echo "$$CHANGELOG_PKG" | sed "s/linux-image-$$BASE_KVER//" | sed 's/-qcom$$//'); \
+	echo "Building with LOCALVERSION=$$LOCALVER_SUFFIX"; \
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) LOCALVERSION=$$LOCALVER_SUFFIX -j$(PARALLEL) Image; \
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) LOCALVERSION=$$LOCALVER_SUFFIX -j$(PARALLEL) modules; \
+	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) LOCALVERSION=$$LOCALVER_SUFFIX -j$(PARALLEL) dtbs || true; \
+	mkdir -p $(dir $(KREL_FILE)); \
+	KREL=$$( $(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) LOCALVERSION=$$LOCALVER_SUFFIX -s kernelrelease 2>&1 | grep -E '^[0-9]+\.' | head -n1 ); \
 	printf "%s\n" "$$KREL" > "$(KREL_FILE)"; \
 	echo "Detected BASE kernel release: $$KREL"
 
 override_dh_auto_install:
 	@BASE=$$(cat $(KREL_FILE)); \
 	echo "Installing for BASE kernel release: $$BASE"; \
-	PKG=debian/qcom-linux-kernel; \
-	HDR_PKG=debian/qcom-linux-headers; \
-	DBG_PKG=debian/qcom-linux-kernel-dbg; \
+	CHANGELOG_PKG=$$(head -n1 debian/changelog | cut -d' ' -f1); \
+	echo "Package name from changelog: $$CHANGELOG_PKG"; \
+	PKG=debian/$$CHANGELOG_PKG; \
+	HDR_PKG=debian/$$(echo "$$CHANGELOG_PKG" | sed 's/^linux-image-/linux-headers-/'); \
+	DBG_PKG=debian/$$(echo "$$CHANGELOG_PKG")-dbg; \
 	\
 	# Resolve object dir (if any)
 	OBJ_DIR="$(BUILD_OBJ)"; \
@@ -119,14 +230,23 @@ override_dh_auto_install:
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
 		INSTALL_MOD_PATH=$$PKG INSTALL_MOD_STRIP=1; \
 	\
+	# Fix build/source symlinks: modules_install sets them to the build machine's
+	# absolute source tree path, which is a broken symlink on the target system.
+	# Repoint both to the installed headers location so that out-of-tree module
+	# builds (DKMS, etc.) work correctly after linux-headers-<BASE>-qcom is installed.
+	rm -f $$PKG/lib/modules/$$BASE/build; \
+	rm -f $$PKG/lib/modules/$$BASE/source; \
+	ln -sf /usr/src/linux-headers-$$BASE $$PKG/lib/modules/$$BASE/build; \
+	ln -sf /usr/src/linux-headers-$$BASE $$PKG/lib/modules/$$BASE/source; \
+	\
 	# ALL DTBs recursively (preserve vendor subdirs), only *.dtb
 	# Install to standard Debian location: /usr/lib/linux-image-<BASE>/
 	mkdir -p $$PKG/usr/lib/linux-image-$$BASE; \
 	rsync -a --prune-empty-dirs \
-	      --include='*/' --include='*.dtb' --exclude='*' \
+	      --include='*/' --include='*.dtb' --include='*.dtbo' --exclude='*' \
 	      "$$DTB_ROOT" $$PKG/usr/lib/linux-image-$$BASE/; \
 	\
-	# Install kernel headers for qcom-linux-headers package
+	# Install kernel headers for linux-headers-<BASE>-qcom package
 	echo "Installing kernel headers to $$HDR_PKG/usr/src/linux-headers-$$BASE"; \
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) headers_install \
 		INSTALL_HDR_PATH=$$HDR_PKG/usr/src/linux-headers-$$BASE; \
@@ -153,11 +273,17 @@ override_dh_auto_install:
 		cp -a $$OBJ_DIR/scripts $$HDR_PKG/usr/src/linux-headers-$$BASE/; \
 	fi; \
 	\
-	# Install debug symbols for qcom-linux-kernel-dbg package
+	# Install debug symbols for linux-image-<BASE>-qcom-dbg package
 	echo "Installing debug symbols to $$DBG_PKG"; \
 	# Install unstripped modules (don't set INSTALL_MOD_STRIP to keep debug symbols)
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
 		INSTALL_MOD_PATH=$$DBG_PKG; \
+	\
+	# Fix build/source symlinks in the debug package as well
+	rm -f $$DBG_PKG/lib/modules/$$BASE/build; \
+	rm -f $$DBG_PKG/lib/modules/$$BASE/source; \
+	ln -sf /usr/src/linux-headers-$$BASE $$DBG_PKG/lib/modules/$$BASE/build; \
+	ln -sf /usr/src/linux-headers-$$BASE $$DBG_PKG/lib/modules/$$BASE/source; \
 	\
 	# Copy vmlinux with debug symbols if available
 	VMLINUX_PATH="vmlinux"; \
@@ -166,6 +292,45 @@ override_dh_auto_install:
 		mkdir -p $$DBG_PKG/usr/lib/debug/boot; \
 		cp -a $$VMLINUX_PATH $$DBG_PKG/usr/lib/debug/boot/vmlinux-$$BASE; \
 	fi
+
+# Skip automatic dh_installmodules - we'll call it manually in override_dh_installdeb
+override_dh_installmodules:
+	@echo "Skipping automatic dh_installmodules (will be called manually)"
+
+# Override dh_installdeb to handle versioned package names.
+#
+# dh_installmodules injects the depmod #DEBHELPER# snippet by looking for
+# debian/<pkgname>.postinst. Since our package name is dynamic (linux-image-
+# <kver>-qcom), we generate debian/<pkgname>.postinst directly from the
+# postinst.in template here (using BASE from kernel.release) so that
+# dh_installmodules finds and injects into our script rather than generating
+# a fresh one that overwrites our run-parts hooks.
+#
+# We do NOT rely on a pre-generated debian/linux-image.postinst because
+# dpkg-buildpackage calls debian/rules clean before the build, which would
+# delete any file listed in debian/clean.
+override_dh_installdeb:
+	@BASE=$$(cat $(KREL_FILE)); \
+	CHANGELOG_PKG=$$(head -n1 debian/changelog | cut -d' ' -f1); \
+	\
+	# Generate debian/<pkgname>.postinst from template with KVER substituted.
+	# dh_installmodules will find this file and inject the depmod snippet at #DEBHELPER#.
+	sed "s/@KVER@/$$BASE/g" debian/linux-image.postinst.in > debian/$$CHANGELOG_PKG.postinst; \
+	chmod 755 debian/$$CHANGELOG_PKG.postinst; \
+	\
+	# Copy static maintainer scripts (preinst, postrm, prerm) to versioned names.
+	for script in preinst postrm prerm; do \
+		if [ -f debian/linux-image.$$script ]; then \
+			cp debian/linux-image.$$script debian/$$CHANGELOG_PKG.$$script; \
+			chmod 755 debian/$$CHANGELOG_PKG.$$script; \
+		fi; \
+	done; \
+	\
+	# dh_installmodules finds debian/<pkgname>.postinst and injects depmod at #DEBHELPER#
+	dh_installmodules; \
+	\
+	# dh_installdeb moves the scripts into debian/<pkg>/DEBIAN/
+	dh_installdeb
 
 override_dh_auto_test:
 	@echo "Skipping dh_auto_test (no kernel test suite)."
@@ -180,35 +345,13 @@ endif
 
 override_dh_gencontrol:
 	@mkdir -p $(dir $(KREL_FILE)) debian
-	# 1) Ensure BASE (uname -r) is available/cached
+	# Ensure BASE (uname -r) is available/cached
 	if [ ! -s "$(KREL_FILE)" ]; then \
 		BASE="$$( $(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelrelease )"; \
 		printf "%s\n" "$$BASE" > "$(KREL_FILE)"; \
 	else \
 		BASE="$$(cat "$(KREL_FILE)")"; \
 	fi; \
-	# 2) Compose binary version: <SRC_VER>+<BASE>[-<BUILD_ID>]
-	V="$(DEB_VERSION)+$$BASE"; \
-	if [ -n "$(BUILD_ID)" ]; then V="$$V-$(BUILD_ID)"; fi; \
-	echo "$$V" > debian/pkg.version; \
-	echo "dh_gencontrol: Version=$$V (SRC_VER=$$SRC_VER, BASE=$$BASE, BUILD_ID=$(BUILD_ID))"; \
-	# 4) Run dh_gencontrol with our substvars for all packages
-	dh_gencontrol -Vqcom:BaseKrel="$$BASE" -Vqcom:BuildId="$(BUILD_ID)"; \
-	# 5) Force the Version field in the generated control files
-	for pkg in qcom-linux-kernel qcom-linux-headers qcom-linux-kernel-dbg; do \
-		if [ -f debian/$$pkg/DEBIAN/control ]; then \
-			sed -i -E "s/^Version: .*/Version: $$V/" debian/$$pkg/DEBIAN/control; \
-		fi; \
-	done
-
-override_dh_builddeb:
-	@# Reuse the composed version and fix debian/files to match the actual .deb name
-	V="$$(cat debian/pkg.version)"; \
-	ARCH="$$(dpkg-architecture -qDEB_HOST_ARCH)"; \
-	echo "dh_builddeb: expecting packages with version $${V}"; \
-	dh_builddeb; \
-	if [ -f debian/files ]; then \
-	  sed -i -E "s@(qcom-linux-kernel_)[^_]+(_$${ARCH}\.deb)@\\1$${V}\\2@" debian/files; \
-	  sed -i -E "s@(qcom-linux-headers_)[^_]+(_$${ARCH}\.deb)@\\1$${V}\\2@" debian/files; \
-	  sed -i -E "s@(qcom-linux-kernel-dbg_)[^_]+(_$${ARCH}\.deb)@\\1$${V}\\2@" debian/files; \
-	fi
+	echo "dh_gencontrol: Version=1-1"; \
+	# Run dh_gencontrol with simple version (package name already has kernel version)
+	dh_gencontrol -- -v"1-1"
