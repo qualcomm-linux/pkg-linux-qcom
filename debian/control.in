@@ -47,10 +47,18 @@ Architecture: arm64
 Section: debug
 Priority: optional
 Depends: ${misc:Depends}, linux-image-@KVER@-qcom (= ${binary:Version})
-Provides: linux-image-dbg, linux-image-arm64-dbg
+Provides: linux-image-dbg
 Description: Qualcomm ARM64 Linux kernel debugging symbols @KVER@
  This package provides debugging symbols for the Qualcomm ARM64 kernel
- version @KVER@.
+ version @KVER@, following the standard GNU debuglink layout used by the
+ upstream kernel builddeb script.
  .
- It includes unstripped kernel modules and vmlinux with debug information
- for kernel debugging and crash analysis.
+ Debug symbols are installed under /usr/lib/debug/ and do not conflict
+ with the main linux-image package. Both packages can be installed
+ simultaneously.
+ .
+ Files installed:
+  - /usr/lib/debug/lib/modules/@KVER@/  (per-module .ko debug symbols)
+  - /usr/lib/debug/lib/modules/@KVER@/vmlinux  (unstripped vmlinux, for perf/crash)
+  - /usr/lib/debug/boot/vmlinux-@KVER@  (symlink, for systemtap)
+  - /usr/lib/debug/vmlinux-@KVER@  (symlink, for kdump-tools)

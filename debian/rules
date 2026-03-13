@@ -26,6 +26,10 @@ KBUILD_O_ARG := $(if $(BUILD_OBJ),O=$(BUILD_OBJ),)
 # Parallel jobs (override with DEB_BUILD_OPTIONS=parallel=N if desired)
 PARALLEL ?= $(shell nproc)
 
+# objcopy for debug symbol extraction (cross-compile aware).
+# Prefer the aarch64 cross-compiler's objcopy; fall back to the host objcopy.
+OBJCOPY ?= $(shell which aarch64-linux-gnu-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo objcopy)
+
 
 # File that caches the kernelrelease (BASE, i.e., uname -r)
 KREL_FILE := debian/kernel.release
@@ -60,6 +64,7 @@ KREL_FILE := debian/kernel.release
 # *.in templates are version-controlled.
 # ---------------------------------------------------------------------------
 KVER_EXTRA ?=
+DISTRO     ?= unstable
 
 .PHONY: prepare
 prepare:
@@ -246,51 +251,97 @@ override_dh_auto_install:
 	      --include='*/' --include='*.dtb' --include='*.dtbo' --exclude='*' \
 	      "$$DTB_ROOT" $$PKG/usr/lib/linux-image-$$BASE/; \
 	\
-	# Install kernel headers for linux-headers-<BASE>-qcom package
-	echo "Installing kernel headers to $$HDR_PKG/usr/src/linux-headers-$$BASE"; \
+	# Install kernel headers for linux-headers-<BASE>-qcom package.
+	# Follows the upstream install-extmod-build approach (scripts/package/install-extmod-build):
+	#   Pass 1 (source tree): Makefile, include/, scripts/, arch/arm64/ headers
+	#   Pass 2 (build dir):   generated headers, compiled scripts, Module.symvers, .config
+	#   Pass 3 (make):        UAPI headers via headers_install (sanitised for user-space)
+	HDRDIR="$$HDR_PKG/usr/src/linux-headers-$$BASE"; \
+	echo "Installing kernel headers to $$HDRDIR"; \
+	mkdir -p "$$HDRDIR"; \
+	\
+	# Pass 1: source-tree files needed for out-of-tree module builds.
+	# include/ covers linux/, uapi/, asm-generic/, generated/ (in-tree builds).
+	# scripts/ provides the build infrastructure (kconfig, basic, etc.).
+	cp -a Makefile "$$HDRDIR/"; \
+	cp -a include "$$HDRDIR/"; \
+	cp -a scripts "$$HDRDIR/"; \
+	mkdir -p "$$HDRDIR/arch/arm64"; \
+	find arch/arm64 -maxdepth 1 -name 'Makefile*' \
+	    -exec cp -a {} "$$HDRDIR/arch/arm64/" \; 2>/dev/null || true; \
+	[ -d arch/arm64/include ] && cp -a arch/arm64/include "$$HDRDIR/arch/arm64/"; \
+	\
+	# Pass 2: build-directory generated files (overlay on source-tree files).
+	# For out-of-tree builds (OBJ_DIR set), generated headers live in OBJ_DIR.
+	# For in-tree builds they are already in the source tree (copied in Pass 1).
+	if [ -n "$$OBJ_DIR" ]; then \
+		[ -d "$$OBJ_DIR/include/generated" ] && \
+		    cp -a "$$OBJ_DIR/include/generated" "$$HDRDIR/include/"; \
+		if [ -d "$$OBJ_DIR/arch/arm64/include/generated" ]; then \
+		    mkdir -p "$$HDRDIR/arch/arm64/include"; \
+		    cp -a "$$OBJ_DIR/arch/arm64/include/generated" "$$HDRDIR/arch/arm64/include/"; \
+		fi; \
+		[ -d "$$OBJ_DIR/scripts" ] && cp -a "$$OBJ_DIR/scripts/." "$$HDRDIR/scripts/"; \
+		cp -a "$$OBJ_DIR/Module.symvers" "$$HDRDIR/" 2>/dev/null || true; \
+		cp -a "$$OBJ_DIR/.config" "$$HDRDIR/"; \
+	else \
+		cp -a Module.symvers "$$HDRDIR/" 2>/dev/null || true; \
+		cp -a .config "$$HDRDIR/"; \
+	fi; \
+	\
+	# Pass 3: UAPI headers (sanitised for user-space, installed by headers_install).
+	# These overwrite the raw uapi/ files copied in Pass 1 with the sanitised versions.
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) headers_install \
-		INSTALL_HDR_PATH=$$HDR_PKG/usr/src/linux-headers-$$BASE; \
+	    INSTALL_HDR_PATH=$$HDRDIR; \
 	\
-	# Copy necessary build files for out-of-tree module compilation
-	mkdir -p $$HDR_PKG/usr/src/linux-headers-$$BASE; \
-	cp -a Makefile $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
-	cp -a .config $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
-	[ -n "$$OBJ_DIR" ] && cp -a $$OBJ_DIR/.config $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
-	cp -a Module.symvers $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
-	[ -n "$$OBJ_DIR" ] && cp -a $$OBJ_DIR/Module.symvers $$HDR_PKG/usr/src/linux-headers-$$BASE/ 2>/dev/null || true; \
+	# module.lds — generated linker script needed for out-of-tree module builds.
+	# It lives in the build directory; fall back to source tree for in-tree builds.
+	mkdir -p "$$HDRDIR/arch/arm64/kernel"; \
+	MODULE_LDS="arch/arm64/kernel/module.lds"; \
+	[ -n "$$OBJ_DIR" ] && MODULE_LDS="$$OBJ_DIR/arch/arm64/kernel/module.lds"; \
+	cp -a "$$MODULE_LDS" "$$HDRDIR/arch/arm64/kernel/" 2>/dev/null || true; \
 	\
-	# Copy arch-specific headers and scripts
-	mkdir -p $$HDR_PKG/usr/src/linux-headers-$$BASE/arch/arm64; \
-	cp -a arch/arm64/Makefile $$HDR_PKG/usr/src/linux-headers-$$BASE/arch/arm64/ 2>/dev/null || true; \
-	cp -a arch/arm64/kernel/module.lds $$HDR_PKG/usr/src/linux-headers-$$BASE/arch/arm64/kernel/ 2>/dev/null || true; \
-	\
-	# Copy scripts directory for module building
-	if [ -d scripts ]; then \
-		mkdir -p $$HDR_PKG/usr/src/linux-headers-$$BASE; \
-		cp -a scripts $$HDR_PKG/usr/src/linux-headers-$$BASE/; \
-	fi; \
-	if [ -n "$$OBJ_DIR" ] && [ -d "$$OBJ_DIR/scripts" ]; then \
-		cp -a $$OBJ_DIR/scripts $$HDR_PKG/usr/src/linux-headers-$$BASE/; \
-	fi; \
-	\
-	# Install debug symbols for linux-image-<BASE>-qcom-dbg package
+	# Install debug symbols for linux-image-<BASE>-qcom-dbg package.
+	# Following the upstream kernel builddeb approach (scripts/package/builddeb):
+	#   - objcopy --only-keep-debug extracts debug symbols from each .ko
+	#   - Symbols go to /usr/lib/debug/lib/modules/<BASE>/ (NOT /lib/modules/)
+	#   - No file conflicts with the main linux-image package
+	#   - vmlinux installed for perf/crash/systemtap/kdump-tools
 	echo "Installing debug symbols to $$DBG_PKG"; \
-	# Install unstripped modules (don't set INSTALL_MOD_STRIP to keep debug symbols)
-	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
-		INSTALL_MOD_PATH=$$DBG_PKG; \
 	\
-	# Fix build/source symlinks in the debug package as well
-	rm -f $$DBG_PKG/lib/modules/$$BASE/build; \
-	rm -f $$DBG_PKG/lib/modules/$$BASE/source; \
-	ln -sf /usr/src/linux-headers-$$BASE $$DBG_PKG/lib/modules/$$BASE/build; \
-	ln -sf /usr/src/linux-headers-$$BASE $$DBG_PKG/lib/modules/$$BASE/source; \
+	# Per-module debug symbol extraction via objcopy --only-keep-debug.
+	# modules.order lists every built module (relative to the build root).
+	MODULES_ORDER="modules.order"; \
+	[ -n "$$OBJ_DIR" ] && MODULES_ORDER="$$OBJ_DIR/modules.order"; \
+	if [ -f "$$MODULES_ORDER" ]; then \
+		while IFS= read -r mod; do \
+			mod="$${mod%.o}.ko"; \
+			src_mod="$$mod"; \
+			[ -n "$$OBJ_DIR" ] && src_mod="$$OBJ_DIR/$$mod"; \
+			[ -f "$$src_mod" ] || continue; \
+			dbg="$$DBG_PKG/usr/lib/debug/lib/modules/$$BASE/$$mod"; \
+			mkdir -p "$${dbg%/*}"; \
+			$(OBJCOPY) --only-keep-debug "$$src_mod" "$$dbg" 2>/dev/null || \
+				cp -a "$$src_mod" "$$dbg"; \
+		done < "$$MODULES_ORDER"; \
+	else \
+		echo "Warning: modules.order not found — skipping per-module debug symbol extraction"; \
+	fi; \
 	\
-	# Copy vmlinux with debug symbols if available
+	# vmlinux — full unstripped image for perf, crash, systemtap, kdump-tools.
+	# Layout mirrors the upstream builddeb script.
 	VMLINUX_PATH="vmlinux"; \
 	[ -n "$$OBJ_DIR" ] && VMLINUX_PATH="$$OBJ_DIR/vmlinux"; \
 	if [ -f "$$VMLINUX_PATH" ]; then \
+		mkdir -p $$DBG_PKG/usr/lib/debug/lib/modules/$$BASE; \
+		cp -a $$VMLINUX_PATH $$DBG_PKG/usr/lib/debug/lib/modules/$$BASE/vmlinux; \
 		mkdir -p $$DBG_PKG/usr/lib/debug/boot; \
-		cp -a $$VMLINUX_PATH $$DBG_PKG/usr/lib/debug/boot/vmlinux-$$BASE; \
+		ln -sf ../lib/modules/$$BASE/vmlinux \
+		       $$DBG_PKG/usr/lib/debug/boot/vmlinux-$$BASE; \
+		ln -sf lib/modules/$$BASE/vmlinux \
+		       $$DBG_PKG/usr/lib/debug/vmlinux-$$BASE; \
+	else \
+		echo "Warning: vmlinux not found at $$VMLINUX_PATH — debug package will not contain vmlinux"; \
 	fi
 
 # Skip automatic dh_installmodules - we'll call it manually in override_dh_installdeb
