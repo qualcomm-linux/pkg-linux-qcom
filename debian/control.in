@@ -1,0 +1,56 @@
+Source: linux-image-@KVER@-qcom
+Section: kernel
+Priority: optional
+Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13),
+               bc, bison, flex, libssl-dev, libelf-dev, dwarves,
+               python3, kmod, cpio, rsync, pkg-config, gcc, make
+Homepage: https://kernel.org
+Rules-Requires-Root: binary-targets
+
+Package: linux-image-@KVER@-qcom
+Architecture: arm64
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Recommends: initramfs-tools | dracut | linux-initramfs-tool
+Suggests: linux-headers-@KVER@-qcom
+Provides: linux-image, linux-image-arm64
+Description: Qualcomm ARM64 Linux kernel @KVER@
+ Installs the built kernel Image, .config, all DTBs, and modules under
+ versioned paths keyed to the kernel's release version.
+ .
+ This package contains kernel version @KVER@ with all necessary components
+ for booting and running the kernel on ARM64 systems.
+ .
+ Files are installed to:
+  - /boot/vmlinuz-@KVER@
+  - /boot/config-@KVER@
+  - /lib/modules/@KVER@/
+  - /usr/lib/linux-image-@KVER@/
+
+Package: linux-headers-@KVER@-qcom
+Architecture: arm64
+Depends: ${misc:Depends}
+Provides: linux-headers, linux-headers-arm64
+Description: Qualcomm ARM64 Linux kernel headers @KVER@
+ This package provides the kernel headers for building out-of-tree modules
+ and other kernel development tasks for kernel version @KVER@.
+ .
+ Headers are installed under /usr/src/linux-headers-@KVER@/ and include
+ the necessary build infrastructure for compiling external modules.
+ .
+ Installing this package also fixes the /lib/modules/@KVER@/build symlink
+ to point to /usr/src/linux-headers-@KVER@/.
+
+Package: linux-image-@KVER@-qcom-dbg
+Architecture: arm64
+Section: debug
+Priority: optional
+Depends: ${misc:Depends}, linux-image-@KVER@-qcom (= ${binary:Version})
+Provides: linux-image-dbg, linux-image-arm64-dbg
+Description: Qualcomm ARM64 Linux kernel debugging symbols @KVER@
+ This package provides debugging symbols for the Qualcomm ARM64 kernel
+ version @KVER@.
+ .
+ It includes unstripped kernel modules and vmlinux with debug information
+ for kernel debugging and crash analysis.

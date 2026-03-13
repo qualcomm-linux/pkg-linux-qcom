@@ -1,7 +1,0 @@
-#!/bin/sh
-set -e
-echo "qcom-linux-kernel: updating GRUB after removal (if present)..."
-if command -v update-grub >/dev/null 2>&1; then
-  update-grub || echo "Warning: update-grub failed."
-fi
-exit 0

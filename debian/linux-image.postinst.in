@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+KVER="@KVER@"
+
+# Auto-generated code from dh_installmodules (depmod calls) will be inserted here
+#DEBHELPER#
+
+# Run kernel postinst.d hooks (triggers initramfs generation and bootloader updates)
+if [ "$1" = "configure" ] && [ -d /etc/kernel/postinst.d ]; then
+    echo "linux-image: running /etc/kernel/postinst.d hooks for $KVER..."
+    image_path="/boot/vmlinuz-$KVER"
+    DEB_MAINT_PARAMS="$*" run-parts --verbose --exit-on-error \
+          --arg="$KVER" --arg="$image_path" /etc/kernel/postinst.d
+fi
+
+echo "linux-image: installed kernel $KVER (reboot to use it)."
+exit 0
