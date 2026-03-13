@@ -41,7 +41,7 @@ pkg-linux-kernel/
 │   ├── rules                   ← Build logic + 'prepare' target
 │   ├── clean                   ← Lists generated files for dh_clean
 │   ├── linux-image.preinst     ← Pre-install maintainer script
-│   ├── linux-image.postinst    ← Post-install maintainer script (depmod, initramfs, GRUB)
+│   ├── linux-image.postinst.in ← Post-install maintainer script template (depmod, initramfs, GRUB)
 │   ├── linux-image.postrm      ← Post-remove maintainer script (GRUB update)
 │   ├── config/                 ← Always-applied config fragments (committed)
 │   │   └── squashfs.config     ← SQUASHFS options for Ubuntu compatibility
@@ -51,8 +51,6 @@ pkg-linux-kernel/
 │   │   ├── qcom-imsdk.config   ← DMABUF heaps for Qualcomm IMSDK/GStreamer
 │   │   ├── qemu-boot.config    ← virtio drivers for QEMU testing
 │   │   └── usb-can.config      ← USB CAN adapters
-│   └── scripts/
-│       └── enable-squashfs-configs.sh  ← Superseded by config/squashfs.config
 ├── .gitignore
 └── README.md
 ```
@@ -67,7 +65,9 @@ pkg-linux-kernel/
 | `debian/control.in` | ✅ Committed | Template with `@KVER@` placeholder |
 | `debian/changelog.in` | ✅ Committed | Template with `@KVER@` placeholder |
 | `debian/rules` | ✅ Committed | Build rules + `prepare` target |
-| `debian/linux-image.*` | ✅ Committed | Maintainer scripts |
+| `debian/linux-image.preinst` | ✅ Committed | Pre-install maintainer script |
+| `debian/linux-image.postinst.in` | ✅ Committed | Post-install script template (`@KVER@` substituted at build time) |
+| `debian/linux-image.postrm` | ✅ Committed | Post-remove maintainer script |
 | `debian/config/*.config` | ✅ Committed | Always-applied config fragments |
 | `debian/config-available/*.config` | ✅ Committed | Optional fragment library |
 | `debian/control` | 🔄 Generated | Produced by `make -f debian/rules prepare KVER=...` |
@@ -263,9 +263,19 @@ Maintainer scripts:
 
 ### `linux-headers-<KVER>-qcom` — Kernel headers
 
-Installed paths:
-- `/usr/src/linux-headers-<KVER>/` — UAPI headers, `Makefile`, `.config`,
-  `Module.symvers`, `scripts/`, `arch/arm64/` headers
+Follows the upstream `install-extmod-build` approach
+(`scripts/package/install-extmod-build`). Three passes:
+
+1. **Source-tree files**: `Makefile`, `include/` (linux/, uapi/, asm-generic/,
+   generated/), `scripts/`, `arch/arm64/Makefile*`, `arch/arm64/include/`
+2. **Build-directory overlay**: `include/generated/`, `arch/arm64/include/generated/`,
+   compiled `scripts/`, `Module.symvers`, `.config` (from objdir when `O=` is set)
+3. **UAPI headers**: `make headers_install` (sanitised for user-space)
+
+Also installs `arch/arm64/kernel/module.lds` (generated linker script required
+for out-of-tree module builds).
+
+Installed root: `/usr/src/linux-headers-<KVER>/`
 
 Required for out-of-tree kernel module compilation (DKMS, etc.).
 
@@ -273,13 +283,20 @@ Virtual packages provided: `linux-headers`, `linux-headers-arm64`
 
 ### `linux-image-<KVER>-qcom-dbg` — Debug symbols
 
+Follows the standard GNU debuglink layout used by the upstream kernel `builddeb`
+script (`scripts/package/builddeb`). Debug symbols are installed under
+`/usr/lib/debug/` and do **not** conflict with the main `linux-image` package —
+both can be installed simultaneously.
+
 Installed paths:
-- `/lib/modules/<KVER>/` — unstripped kernel modules (with debug symbols)
-- `/usr/lib/debug/boot/vmlinux-<KVER>` — unstripped vmlinux
+- `/usr/lib/debug/lib/modules/<KVER>/` — per-module debug symbols extracted via `objcopy --only-keep-debug`
+- `/usr/lib/debug/lib/modules/<KVER>/vmlinux` — unstripped vmlinux (for `perf`, `crash`)
+- `/usr/lib/debug/boot/vmlinux-<KVER>` → symlink to vmlinux (for `systemtap`)
+- `/usr/lib/debug/vmlinux-<KVER>` → symlink to vmlinux (for `kdump-tools`)
 
 Depends on `linux-image-<KVER>-qcom` (same version).
 
-Virtual packages provided: `linux-image-dbg`, `linux-image-arm64-dbg`
+Virtual packages provided: `linux-image-dbg`
 
 ---
 
