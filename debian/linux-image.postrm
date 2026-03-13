@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+# Auto-generated code from dh_installmodules (depmod calls) will be inserted here
+#DEBHELPER#
+
+# Run kernel postrm.d hooks (includes zz-update-grub)
+# This is the standard Debian way to trigger GRUB updates after kernel removal
+if [ "$1" = "remove" ] && [ -d /etc/kernel/postrm.d ]; then
+    # Extract the kernel version (uname -r) from the package name.
+    # Package name format: linux-image-<kver>-qcom
+    # Strip the "linux-image-" prefix and the trailing "-qcom" flavour suffix.
+    KVER=$(echo "$DPKG_MAINTSCRIPT_PACKAGE" | sed 's/^linux-image-//' | sed 's/-qcom$//')
+    if [ -n "$KVER" ]; then
+        echo "linux-image: running kernel postrm.d hooks for $KVER..."
+        image_path="/boot/vmlinuz-$KVER"
+        DEB_MAINT_PARAMS="$*" run-parts --report --exit-on-error --arg="$KVER" \
+              --arg="$image_path" /etc/kernel/postrm.d || true
+    fi
+fi
+exit 0
