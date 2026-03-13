@@ -11,13 +11,13 @@ Packages follow the standard Debian/Ubuntu kernel naming convention:
 
 | Package | Role | Example |
 |---------|------|---------|
-| `linux-image-<KVER>-qcom` | Kernel image, modules, DTBs | `linux-image-6.12.0-qcom-next-20260210-qcom` |
-| `linux-headers-<KVER>-qcom` | Headers for out-of-tree modules | `linux-headers-6.12.0-qcom-next-20260210-qcom` |
-| `linux-image-<KVER>-qcom-dbg` | Debug symbols | `linux-image-6.12.0-qcom-next-20260210-qcom-dbg` |
+| `linux-image-<KVER>-qcom` | Kernel image, modules, DTBs | `linux-image-7.0.0-rc2-qcom-next-20260312-qcom` |
+| `linux-headers-<KVER>-qcom` | Headers for out-of-tree modules | `linux-headers-7.0.0-rc2-qcom-next-20260312-qcom` |
+| `linux-image-<KVER>-qcom-dbg` | Debug symbols | `linux-image-7.0.0-rc2-qcom-next-20260312-qcom-dbg` |
 
 **`<KVER>`** is the full `kernelrelease` string (`uname -r`), which includes the
 base kernel version and the LOCALVERSION suffix encoding the branch and snapshot
-date (e.g., `-qcom-next-20260210`).
+date (e.g., `-qcom-next-20260312`).
 
 **`-qcom`** is a static flavour suffix appended by the packaging, identifying
 Qualcomm-packaged kernels independently of the branch name.
@@ -31,7 +31,7 @@ for dependency resolution.
 ## Repository structure
 
 ```
-pkg-linux-kernel/
+pkg-linux-qcom/
 ├── build-kernel.sh             ← Build orchestrator (clone → prepare → build)
 ├── debian/
 │   ├── control.in              ← Source-of-truth template (version-controlled)
@@ -85,25 +85,27 @@ pkg-linux-kernel/
 │  build-kernel.sh (or CI equivalent)                             │
 │                                                                 │
 │  1. Set up kernel source (clone / checkout branch or tag)       │
-│  2. Copy debian/ from pkg-linux-kernel into kernel source root  │
+│  2. Copy debian/ from pkg-linux-qcom into kernel source root    │
 │  3. [Optional] Copy selected fragments from config-available/   │
 │     into config/ to activate them for this build                │
-│  4. Determine KVER via make kernelrelease (kernel-source step)  │
 │                                                                 │
-│  5. make -f debian/rules prepare KVER=$KVER  ◄── handoff        │
+│  4. make -f debian/rules prepare  ◄── handoff                   │
+│         LOCALVERSION=-<branch>-<date>  [KVER_EXTRA=<tag>]      │
+│         (or: KVER=<explicit-kernelrelease>)                     │
+│         ↓ reads base version from kernel Makefile               │
 │         ↓ generates debian/control                              │
 │         ↓ generates debian/changelog                            │
 │                                                                 │
-│  6. dpkg-buildpackage / sbuild / docker_deb_build.py            │
+│  5. dpkg-buildpackage / sbuild / docker_deb_build.py            │
 │         ↓ reads debian/control (real package names)             │
 │         ↓ calls debian/rules build / install / etc.             │
 │         ↓ produces .deb files                                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Steps 1–4 are kernel-source concerns handled by the build orchestrator.
-Step 5 is the single handoff point into the packaging infrastructure.
-Step 6 is a standard, unmodified Debian build tool invocation.
+Steps 1–3 are kernel-source concerns handled by the build orchestrator.
+Step 4 is the single handoff point into the packaging infrastructure.
+Step 5 is a standard, unmodified Debian build tool invocation.
 
 ### The `prepare` target
 
@@ -113,12 +115,20 @@ in the `.in` templates to produce the final `debian/control` and
 
 ```bash
 # From the kernel source root (after copying debian/ into it):
-make -f debian/rules prepare KVER=6.12.0-qcom-next-20260210
+
+# Primary form — auto-detect base version from kernel Makefile + append suffix:
+make -f debian/rules prepare LOCALVERSION=-qcom-next-20260312
+
+# Explicit form — pass the full kernelrelease string directly:
+make -f debian/rules prepare KVER=7.0.0-rc2-qcom-next-20260312
+
+# With optional extra suffix (CI build ID, user tag, etc.):
+make -f debian/rules prepare LOCALVERSION=-qcom-next-20260312 KVER_EXTRA=-ci42
 ```
 
 This produces:
-- `debian/control` — with package names `linux-image-6.12.0-qcom-next-20260210-qcom`, etc.
-- `debian/changelog` — with source package `linux-image-6.12.0-qcom-next-20260210-qcom (1-1)`
+- `debian/control` — with package names `linux-image-7.0.0-rc2-qcom-next-20260312-qcom`, etc.
+- `debian/changelog` — with source package `linux-image-7.0.0-rc2-qcom-next-20260312-qcom (1-1)`
 
 **Why this step is required:** `dpkg-buildpackage` reads `debian/control` before
 calling any `debian/rules` targets. The `@KVER@` substitution must therefore
@@ -131,14 +141,16 @@ Debian's official `linux` source package and Ubuntu OEM kernels.
 
 ```
 KVER = <base-version> + LOCALVERSION
-     = 6.12.0          + -qcom-next-20260210
-     = 6.12.0-qcom-next-20260210
+     = 7.0.0-rc2        + -qcom-next-20260312
+     = 7.0.0-rc2-qcom-next-20260312
 ```
 
-`build-kernel.sh` determines KVER by:
-1. Running `make defconfig` to create `.config`
-2. Disabling `CONFIG_LOCALVERSION_AUTO` (prevents git hash appended to version)
-3. Running `make -s kernelrelease LOCALVERSION=-<branch>-<abi>`
+`build-kernel.sh` passes `LOCALVERSION` to `prepare`, which determines KVER by:
+1. Reading `VERSION`, `PATCHLEVEL`, `SUBLEVEL`, `EXTRAVERSION` directly from the
+   kernel top-level `Makefile` (no `make` invocation needed)
+2. Appending the `LOCALVERSION` suffix (auto-detected from the git tag, or
+   passed via `--localversion`)
+3. Optionally appending `KVER_EXTRA` (passed via `--kver-extra`)
 
 The LOCALVERSION suffix encodes the branch name and snapshot/ABI date. For
 tagged builds, `build-kernel.sh` auto-extracts this from the tag name.
@@ -147,9 +159,9 @@ tagged builds, `build-kernel.sh` auto-extracts this from the tag name.
 stripping the `linux-image-` prefix and the trailing `-qcom` flavour suffix:
 
 ```
-linux-image-6.12.0-qcom-next-20260210-qcom
-→ strip "linux-image-6.12.0" → -qcom-next-20260210-qcom
-→ strip "-qcom" suffix       → -qcom-next-20260210   (= LOCALVERSION)
+linux-image-7.0.0-rc2-qcom-next-20260312-qcom
+→ strip "linux-image-7.0.0-rc2" → -qcom-next-20260312-qcom
+→ strip "-qcom" suffix          → -qcom-next-20260312   (= LOCALVERSION)
 ```
 
 ---
@@ -174,19 +186,19 @@ clone → prepare → build. Run it from the repo root.
 ./build-kernel.sh --latest-tag
 
 # Build from specific tag
-./build-kernel.sh --tag qcom-next-6.12.0-20260210
+./build-kernel.sh --tag qcom-next-7.0-rc2-20260312
 
 # Build from branch tip
 ./build-kernel.sh --branch qcom-next --distro noble
 
 # Build with explicit LOCALVERSION
-./build-kernel.sh --tag qcom-next-6.12.0-20260210 --localversion qcom-next-20260210
+./build-kernel.sh --tag qcom-next-7.0-rc2-20260312 --localversion qcom-next-20260312
 
 # Build debug variant
 ./build-kernel.sh --latest-tag --localversion debug --profiles debug
 
 # Use local kernel source (skip clone)
-./build-kernel.sh --local-source /path/to/kernel-source --localversion qcom-next-20260210
+./build-kernel.sh --local-source /path/to/kernel-source --localversion qcom-next-20260312
 
 # The script auto-detects debian/ from its own directory — no --debian-dir needed
 
@@ -206,22 +218,17 @@ cd kernel-source
 git checkout qcom-next
 
 # 2. Copy debian/ packaging
-cp -r /path/to/pkg-linux-kernel/debian .
+cp -r /path/to/pkg-linux-qcom/debian .
 
 # 3. [Optional] Activate config fragments for this build
 cp debian/config-available/docker.config       debian/config/
 cp debian/config-available/systemd-boot.config debian/config/
 
-# 4. Determine KVER
-make ARCH=arm64 defconfig
-sed -i 's/CONFIG_LOCALVERSION_AUTO=y/# CONFIG_LOCALVERSION_AUTO is not set/' .config
-KVER=$(make -s ARCH=arm64 LOCALVERSION="-qcom-next-20260210" kernelrelease)
-echo "KVER=$KVER"
+# 4. Prepare packaging — reads base version from kernel Makefile automatically
+#    (single handoff to packaging infrastructure)
+make -f debian/rules prepare LOCALVERSION=-qcom-next-20260312
 
-# 5. Prepare packaging (single handoff to packaging infrastructure)
-make -f debian/rules prepare KVER="$KVER"
-
-# 6. Build
+# 5. Build
 dpkg-buildpackage -us -uc -b
 ```
 
