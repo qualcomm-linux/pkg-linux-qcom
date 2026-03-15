@@ -253,4 +253,8 @@ This structure makes it easy to:
 * See exactly which inputs and PRs were used.
 * Consume the `.deb` packages in downstream systems (image builds, testing pipelines, etc.).
 
+---
 
+## License
+
+pkg-linux-kernel is licensed under the BSD-3-clause License. See LICENSE.txt for the full license text.
