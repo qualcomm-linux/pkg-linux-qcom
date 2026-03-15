@@ -166,6 +166,14 @@ if [[ -z "$LOCAL_SOURCE" ]]; then
     else
         log_step "Updating kernel source..."
         [[ -d "$KERNEL_DIR/.git" ]] || { log_error "Not a git repo: $KERNEL_DIR"; exit 1; }
+        EXISTING_REMOTE=$(git -C "$KERNEL_DIR" remote get-url origin 2>/dev/null || true)
+        if [[ -n "$EXISTING_REMOTE" && "$EXISTING_REMOTE" != "$REPO" ]]; then
+            log_error "Repo mismatch at $KERNEL_DIR"
+            log_error "  existing remote: $EXISTING_REMOTE"
+            log_error "  requested repo:  $REPO"
+            log_error "Use --clean to remove and re-clone, or --local-source to use the directory as-is."
+            exit 1
+        fi
         git -C "$KERNEL_DIR" fetch --all --tags
     fi
 fi
