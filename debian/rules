@@ -68,11 +68,10 @@ DISTRO     ?= unstable
 
 .PHONY: prepare
 prepare:
-	@# Auto-detect KVER by reading VERSION/PATCHLEVEL/SUBLEVEL/EXTRAVERSION
-	@# directly from the kernel top-level Makefile — no make invocation needed.
-	@# Pass LOCALVERSION (e.g., LOCALVERSION=-qcom-next-20260210) to get a
-	@# meaningful package name. If KVER is provided explicitly it is used as-is.
-	@# KVER_EXTRA is appended last and is purely a packaging-level tag.
+	@# Replicate the kernelrelease formula (VERSION.PATCHLEVEL.SUBLEVEL +
+	@# EXTRAVERSION + localversion* files + LOCALVERSION + KVER_EXTRA) without
+	@# invoking 'make kernelrelease', which requires a configured tree (.config).
+	@# prepare must run before the kernel build, so we read the Makefile directly.
 	@set -e; \
 	if [ -n "$(KVER)" ]; then \
 		KVER_RESOLVED="$(KVER)"; \
@@ -82,7 +81,8 @@ prepare:
 		PATCH=$$(grep '^PATCHLEVEL = ' Makefile | awk '{print $$3}'); \
 		SUB=$$(grep '^SUBLEVEL = ' Makefile | awk '{print $$3}'); \
 		EXTRA=$$(grep '^EXTRAVERSION = ' Makefile | awk '{print $$3}'); \
-		BASE_KVER="$${VER}.$${PATCH}.$${SUB}$${EXTRA}"; \
+		TREE_LOCALVER=$$(cat localversion* 2>/dev/null | tr -d '\n' || true); \
+		BASE_KVER="$${VER}.$${PATCH}.$${SUB}$${EXTRA}$${TREE_LOCALVER}"; \
 		KVER_RESOLVED="$${BASE_KVER}$(LOCALVERSION)"; \
 		echo "Auto-detected KVER=$$KVER_RESOLVED (base=$$BASE_KVER, LOCALVERSION=$(LOCALVERSION))"; \
 	fi; \
@@ -177,14 +177,14 @@ override_dh_auto_configure:
 	fi
 
 override_dh_auto_build:
-	# Extract LOCALVERSION from package name in debian/changelog.
-	# Package name format: linux-image-6.12.0-qcom-next-20260210-qcom
-	# BASE_KVER (from make kernelversion): 6.12.0
-	# We strip the "linux-image-" prefix and the trailing "-qcom" flavour suffix
-	# to recover the LOCALVERSION: -qcom-next-20260210
 	@CHANGELOG_PKG=$$(head -n1 debian/changelog | cut -d' ' -f1); \
+	# Back-derive LOCALVER_SUFFIX from the package name: strip everything the
+	# kernel produces on its own (kernelversion + tree localversion* files) to
+	# recover only the user-provided suffix, then pass it as LOCALVERSION= to
+	# make so that kernelrelease matches the package name exactly.
 	BASE_KVER=$$($(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) -s kernelversion); \
-	LOCALVER_SUFFIX=$$(echo "$$CHANGELOG_PKG" | sed "s/linux-image-$$BASE_KVER//" | sed 's/-qcom$$//'); \
+	TREE_LOCALVER=$$(cat localversion* 2>/dev/null | tr -d '\n' || true); \
+	LOCALVER_SUFFIX=$$(echo "$$CHANGELOG_PKG" | sed "s/linux-image-$$BASE_KVER$$TREE_LOCALVER//" | sed 's/-qcom$$//'); \
 	echo "Building with LOCALVERSION=$$LOCALVER_SUFFIX"; \
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) LOCALVERSION=$$LOCALVER_SUFFIX -j$(PARALLEL) Image; \
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) LOCALVERSION=$$LOCALVER_SUFFIX -j$(PARALLEL) modules; \
