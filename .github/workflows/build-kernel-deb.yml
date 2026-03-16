@@ -94,6 +94,7 @@ jobs:
 
           if [[ "$BUILD_MODE" == "docker" ]]; then
             ARGS+=(--docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py")
+            ARGS+=(--skip-gbp)
           fi
 
           if [[ "${{ inputs.latest-tag }}" == "true" ]]; then
