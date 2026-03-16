@@ -23,6 +23,10 @@ on:
         description: 'Extra suffix appended to the package version (e.g. -ci42)'
         required: false
         default: ''
+      self-pr:
+        description: 'pkg-linux-qcom PR number to apply before building (e.g. 42)'
+        required: false
+        default: ''
       build-mode:
         description: 'Build mode: docker (uses docker-pkg-build) or native (dpkg-buildpackage)'
         required: false
@@ -56,6 +60,14 @@ jobs:
     steps:
       - name: Checkout packaging repo
         uses: actions/checkout@v4
+
+      - name: Apply packaging PR (if specified)
+        if: ${{ inputs.self-pr != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Applying pkg-linux-qcom PR #${{ inputs.self-pr }}..."
+          gh pr checkout ${{ inputs.self-pr }}
 
       # TODO: switch to qualcomm-linux/docker-pkg-build@main once
       # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
