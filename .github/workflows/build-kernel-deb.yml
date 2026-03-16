@@ -67,7 +67,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           echo "Applying pkg-linux-qcom PR #${{ inputs.self-pr }}..."
-          gh pr checkout ${{ inputs.self-pr }}
+          git fetch origin pull/${{ inputs.self-pr }}/head:pr-${{ inputs.self-pr }}
+          git checkout pr-${{ inputs.self-pr }}
 
       # TODO: switch to qualcomm-linux/docker-pkg-build@main once
       # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
