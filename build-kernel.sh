@@ -279,6 +279,7 @@ case "$BUILD_MODE" in
             USE_SUDO="sudo"
         }
         BUILD_CMD=("$DOCKER_PKG_BUILD"
+            --skip-gbp
             --no-update-check
             --source-dir "$KERNEL_DIR"
             --output-dir "$OUTPUT_DIR"
