@@ -7,14 +7,13 @@ set -e
 # Modes: docker (default), native, sbuild
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARENT_DIR="$(dirname "$SCRIPT_DIR")"
 
 DEFAULT_REPO="git@github.com:qualcomm-linux/kernel.git"
 DEFAULT_BRANCH="qcom-next"
 DEFAULT_DISTRO="trixie"
 DEFAULT_BUILD_MODE="docker"
-KERNEL_DIR="$PARENT_DIR/kernel-source"
-OUTPUT_BASE_DIR="$PARENT_DIR/kernel-build"
+KERNEL_DIR="$SCRIPT_DIR/kernel-source"
+OUTPUT_BASE_DIR="$SCRIPT_DIR/kernel-build"
 DEBIAN_DIR="$SCRIPT_DIR/debian"
 DOCKER_PKG_BUILD="${DOCKER_PKG_BUILD:-}"
 
@@ -123,7 +122,7 @@ VALID_MODES=(docker native sbuild)
 # Locate docker_deb_build.py (docker mode)
 if [[ "$BUILD_MODE" == "docker" && -z "$DOCKER_PKG_BUILD" ]]; then
     for p in "$HOME/docker-pkg-build/docker_deb_build.py" \
-              "$PARENT_DIR/docker-pkg-build/docker_deb_build.py" \
+              "$SCRIPT_DIR/docker-pkg-build/docker_deb_build.py" \
               "$(which docker_deb_build.py 2>/dev/null || true)"; do
         [[ -x "$p" ]] && { DOCKER_PKG_BUILD="$p"; break; }
     done
