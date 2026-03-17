@@ -5,3 +5,7 @@ debian/changelog
 
 # Kernel release cache (generated during build)
 debian/kernel.release
+
+# Default kernel source and build output directories
+kernel-source/
+kernel-build/
