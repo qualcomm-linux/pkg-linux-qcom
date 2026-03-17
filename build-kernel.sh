@@ -158,11 +158,21 @@ echo
 
 # ── Git operations ──────────────────────────────────────────────────────────
 if [[ -z "$LOCAL_SOURCE" ]]; then
+    # Resolve latest tag remotely before any clone/fetch (avoids fetching all tags)
+    if [[ "$LATEST_TAG" == true ]]; then
+        log_step "Finding latest qcom-next-* tag from remote..."
+        TAG=$(git ls-remote --tags "$REPO" 'refs/tags/qcom-next-*' \
+              | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' \
+              | sort -V | tail -1)
+        [[ -n "$TAG" ]] || { log_error "No qcom-next-* tags found in $REPO"; exit 1; }
+        log_info "Latest tag: $TAG"
+    fi
+
     [[ "$CLEAN" == true && -d "$KERNEL_DIR" ]] && { log_step "Cleaning $KERNEL_DIR..."; rm -rf "$KERNEL_DIR"; }
 
     if [[ ! -d "$KERNEL_DIR" ]]; then
-        log_step "Cloning $REPO ($BRANCH)..."
-        git clone --branch "$BRANCH" "$REPO" "$KERNEL_DIR"
+        log_step "Cloning $REPO (${TAG:-$BRANCH}, shallow)..."
+        git clone --depth 1 --single-branch --branch "${TAG:-$BRANCH}" --no-tags "$REPO" "$KERNEL_DIR"
     else
         log_step "Updating kernel source..."
         [[ -d "$KERNEL_DIR/.git" ]] || { log_error "Not a git repo: $KERNEL_DIR"; exit 1; }
@@ -174,7 +184,11 @@ if [[ -z "$LOCAL_SOURCE" ]]; then
             log_error "Use --clean to remove and re-clone, or --local-source to use the directory as-is."
             exit 1
         fi
-        git -C "$KERNEL_DIR" fetch --all --tags
+        if [[ -n "$TAG" ]]; then
+            git -C "$KERNEL_DIR" fetch --depth 1 --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+        else
+            git -C "$KERNEL_DIR" fetch --depth 1 --no-tags origin "$BRANCH"
+        fi
     fi
 fi
 
@@ -204,11 +218,6 @@ if [[ -n "$LOCAL_SOURCE" ]]; then
             log_warn "Use --localversion to specify, e.g.: --localversion qcom-next-20260312"
         fi
     fi
-elif [[ "$LATEST_TAG" == true ]]; then
-    log_step "Finding latest qcom-next-* tag..."
-    TAG=$(git tag -l 'qcom-next-*' | sort -V | tail -1)
-    [[ -n "$TAG" ]] || { log_error "No qcom-next-* tags found"; exit 1; }
-    log_info "Latest tag: $TAG"
 fi
 
 if [[ -z "$LOCAL_SOURCE" ]]; then
@@ -219,8 +228,7 @@ if [[ -z "$LOCAL_SOURCE" ]]; then
             && log_info "Auto-detected LOCALVERSION='$LOCALVERSION'"
     else
         log_step "Checking out branch: $BRANCH"
-        git checkout "$BRANCH"
-        git pull origin "$BRANCH"
+        git checkout -B "$BRANCH" FETCH_HEAD
     fi
 fi
 
