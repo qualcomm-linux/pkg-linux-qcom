@@ -155,9 +155,20 @@ log_info "  Distro:       $DISTRO   mode: $BUILD_MODE"
 [[ -n "$ENABLE_CONFIGS" ]] && log_info "  Extra configs: $ENABLE_CONFIGS"
 echo
 
-# ── Git operations ──────────────────────────────────────────────────────────
+# ── Helper: derive LOCALVERSION from a tag name ──────────────────────────────
+# qcom-next-6.19-rc8-20260210 → qcom-next-20260210
+_auto_localversion() {
+    local tag="$1"
+    if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+    else
+        echo "$tag"
+    fi
+}
+
+# ── Git operations: resolve ref → sync → checkout ────────────────────────────
 if [[ -z "$LOCAL_SOURCE" ]]; then
-    # Resolve latest tag remotely before any clone/fetch (avoids fetching all tags)
+    # Resolve the latest tag remotely before any network I/O (avoids fetching all tags)
     if [[ "$LATEST_TAG" == true ]]; then
         log_step "Finding latest qcom-next-* tag from remote..."
         TAG=$(git ls-remote --tags "$REPO" 'refs/tags/qcom-next-*' \
@@ -170,10 +181,13 @@ if [[ -z "$LOCAL_SOURCE" ]]; then
     [[ "$CLEAN" == true && -d "$KERNEL_DIR" ]] && { log_step "Cleaning $KERNEL_DIR..."; rm -rf "$KERNEL_DIR"; }
 
     if [[ ! -d "$KERNEL_DIR" ]]; then
+        # ── Fresh clone ───────────────────────────────────────────────────────
+        # --single-branch --branch checks out the requested ref directly;
+        # no separate checkout step is needed.
         log_step "Cloning $REPO (${TAG:-$BRANCH}, shallow)..."
         git clone --depth 1 --single-branch --branch "${TAG:-$BRANCH}" --no-tags "$REPO" "$KERNEL_DIR"
     else
-        log_step "Updating kernel source..."
+        # ── Update existing repo ──────────────────────────────────────────────
         [[ -d "$KERNEL_DIR/.git" ]] || { log_error "Not a git repo: $KERNEL_DIR"; exit 1; }
         EXISTING_REMOTE=$(git -C "$KERNEL_DIR" remote get-url origin 2>/dev/null || true)
         if [[ -n "$EXISTING_REMOTE" && "$EXISTING_REMOTE" != "$REPO" ]]; then
@@ -183,27 +197,26 @@ if [[ -z "$LOCAL_SOURCE" ]]; then
             log_error "Use --clean to remove and re-clone, or --local-source to use the directory as-is."
             exit 1
         fi
+        log_step "Updating kernel source..."
         if [[ -n "$TAG" ]]; then
             git -C "$KERNEL_DIR" fetch --depth 1 --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            git -C "$KERNEL_DIR" checkout "$TAG"
         else
             git -C "$KERNEL_DIR" fetch --depth 1 --no-tags origin "$BRANCH"
+            git -C "$KERNEL_DIR" checkout -B "$BRANCH" FETCH_HEAD
         fi
+    fi
+
+    # Auto-detect LOCALVERSION from tag (applies to both clone and update paths)
+    if [[ -n "$TAG" && -z "$LOCALVERSION" ]]; then
+        LOCALVERSION="$(_auto_localversion "$TAG")"
+        log_info "Auto-detected LOCALVERSION='$LOCALVERSION'"
     fi
 fi
 
 cd "$KERNEL_DIR"
 
-# ── Tag / branch selection ───────────────────────────────────────────────────
-_auto_localversion() {
-    # Extract LOCALVERSION from tag: qcom-next-6.19-rc8-20260210 → qcom-next-20260210
-    local tag="$1"
-    if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$ ]]; then
-        echo "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-    else
-        echo "$tag"
-    fi
-}
-
+# ── Local source: LOCALVERSION detection ─────────────────────────────────────
 if [[ -n "$LOCAL_SOURCE" ]]; then
     log_info "Using local source as-is (skipping git checkout)"
     if [[ -z "$LOCALVERSION" ]]; then
@@ -216,18 +229,6 @@ if [[ -n "$LOCAL_SOURCE" ]]; then
             log_warn "Package will be named linux-image-<base-kver>-qcom (no branch/ABI suffix)."
             log_warn "Use --localversion to specify, e.g.: --localversion qcom-next-20260312"
         fi
-    fi
-fi
-
-if [[ -z "$LOCAL_SOURCE" ]]; then
-    if [[ -n "$TAG" ]]; then
-        log_step "Checking out tag: $TAG"
-        git checkout "$TAG"
-        [[ -z "$LOCALVERSION" ]] && LOCALVERSION="$(_auto_localversion "$TAG")" \
-            && log_info "Auto-detected LOCALVERSION='$LOCALVERSION'"
-    else
-        log_step "Checking out branch: $BRANCH"
-        git checkout -B "$BRANCH" FETCH_HEAD
     fi
 fi
 
