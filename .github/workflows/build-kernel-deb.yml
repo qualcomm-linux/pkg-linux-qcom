@@ -70,6 +70,12 @@ jobs:
           git fetch origin pull/${{ inputs.self-pr }}/head:pr-${{ inputs.self-pr }}
           git checkout pr-${{ inputs.self-pr }}
 
+      - name: Extract org and repo name
+        run: |
+          # Extract org (owner) and repo name from GITHUB_REPOSITORY (format: org/repo)
+          echo "ORG_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
+          echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+
       # TODO: switch to qualcomm-linux/docker-pkg-build@main once
       # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
       # is merged upstream.
@@ -110,9 +116,17 @@ jobs:
 
           ./build-kernel.sh "${ARGS[@]}"
 
-      - name: Upload kernel packages
-        uses: actions/upload-artifact@v4
+#      - name: Upload kernel packages
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: kernel-debs-${{ env.DISTRO }}-${{ github.run_id }}-${{ github.run_attempt }}
+#          path: ${{ github.workspace }}/../kernel-build/${{ env.DISTRO }}/*.deb
+#          if-no-files-found: error
+
+      - name: Upload kernel .deb package to S3
+        uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
-          name: kernel-debs-${{ env.DISTRO }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ github.workspace }}/../kernel-build/${{ env.DISTRO }}/*.deb
-          if-no-files-found: error
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: ${{ github.workspace }}/kernel-build/${{ env.DISTRO }}
+          destination: ${{ env.ORG_NAME }}/pkg/temp/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
+
