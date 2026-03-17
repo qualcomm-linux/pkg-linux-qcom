@@ -77,8 +77,8 @@ jobs:
         if: ${{ env.BUILD_MODE == 'docker' }}
         uses: actions/checkout@v4
         with:
-          repository: abickett/docker-pkg-build
-          ref: dev/kernel-native-build
+          repository: qualcomm-linux/docker-pkg-build
+          ref: main
           path: docker-pkg-build
 
       - name: Install build dependencies
