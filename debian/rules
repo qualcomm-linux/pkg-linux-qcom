@@ -251,14 +251,17 @@ override_dh_auto_install:
 	      --include='*/' --include='*.dtb' --include='*.dtbo' --exclude='*' \
 	      "$$DTB_ROOT" $$PKG/usr/lib/linux-image-$$BASE/; \
 	\
-	# Ubuntu compatibility symlink: /lib/firmware/<KVER>/device-tree
-	# Ubuntu's flash-kernel and related tools look for DTBs at this path.
-	# Use a relative symlink so the package is relocatable / chroot-safe.
-	# Relative path from /lib/firmware/<BASE>/ to /usr/lib/linux-image-<BASE>/:
-	#   ../../../usr/lib/linux-image-<BASE>
-	mkdir -p $$PKG/lib/firmware/$$BASE; \
-	ln -sf ../../../usr/lib/linux-image-$$BASE \
-	       $$PKG/lib/firmware/$$BASE/device-tree; \
+	# Ubuntu compatibility: /lib/firmware/<KVER>/device-tree/
+	# Ubuntu's flash-kernel resolves DTBs from this path; Debian uses
+	# /usr/lib/linux-image-<KVER>/. Mirror the tree as per-file absolute
+	# symlinks to avoid duplicating binary artifacts.
+	find $$PKG/usr/lib/linux-image-$$BASE \( -name '*.dtb' -o -name '*.dtbo' \) \
+	| while IFS= read -r src; do \
+	    rel="$${src#$$PKG/usr/lib/linux-image-$$BASE/}"; \
+	    dst="$$PKG/lib/firmware/$$BASE/device-tree/$$rel"; \
+	    mkdir -p "$$(dirname $$dst)"; \
+	    ln -sf /usr/lib/linux-image-$$BASE/$$rel "$$dst"; \
+	done; \
 	\
 	# Install kernel headers for linux-headers-<BASE>-qcom package.
 	# Follows the upstream install-extmod-build approach (scripts/package/install-extmod-build):
