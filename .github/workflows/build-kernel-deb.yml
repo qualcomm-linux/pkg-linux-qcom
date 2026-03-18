@@ -87,13 +87,6 @@ jobs:
           ref: main
           path: docker-pkg-build
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            debhelper bc bison flex libssl-dev libelf-dev dwarves \
-            python3 kmod cpio rsync pkg-config gcc make build-essential
-
       - name: Build kernel package
         run: |
           ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" --repo "$KERNEL_URL")
