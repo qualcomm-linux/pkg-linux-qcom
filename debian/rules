@@ -251,14 +251,6 @@ override_dh_auto_install:
 	      --include='*/' --include='*.dtb' --include='*.dtbo' --exclude='*' \
 	      "$$DTB_ROOT" $$PKG/usr/lib/linux-image-$$BASE/; \
 	\
-	# Ubuntu compatibility: /lib/firmware/<KVER>/device-tree/
-	# Ubuntu's flash-kernel looks for DTBs here; Debian installs them to
-	# /usr/lib/linux-image-<KVER>/. A relative directory symlink avoids
-	# duplicating DTB binaries and resolves correctly at both build time
-	# and on the installed target.
-	mkdir -p $$PKG/lib/firmware/$$BASE; \
-	ln -sf ../../../usr/lib/linux-image-$$BASE $$PKG/lib/firmware/$$BASE/device-tree; \
-	\
 	# Install kernel headers for linux-headers-<BASE>-qcom package.
 	# Follows the upstream install-extmod-build approach (scripts/package/install-extmod-build):
 	#   Pass 1 (source tree): Makefile, include/, scripts/, arch/arm64/ headers
@@ -371,6 +363,17 @@ override_dh_installmodules:
 override_dh_installdeb:
 	@BASE=$$(cat $(KREL_FILE)); \
 	CHANGELOG_PKG=$$(head -n1 debian/changelog | cut -d' ' -f1); \
+	\
+	# Ubuntu compatibility: /lib/firmware/<KVER>/device-tree/
+	# Ubuntu's flash-kernel looks for DTBs here; Debian installs them to
+	# /usr/lib/linux-image-<KVER>/. A relative directory symlink avoids
+	# duplicating DTB binaries and resolves correctly at both build time
+	# and on the installed target.
+	# Created here (after dh_link) to prevent dh_link from converting it
+	# to an absolute symlink.
+	PKG=debian/$$CHANGELOG_PKG; \
+	mkdir -p $$PKG/lib/firmware/$$BASE; \
+	ln -sfT ../../../usr/lib/linux-image-$$BASE $$PKG/lib/firmware/$$BASE/device-tree; \
 	\
 	# Generate debian/<pkgname>.postinst from template with KVER substituted.
 	# dh_installmodules will find this file and inject the depmod snippet at #DEBHELPER#.
