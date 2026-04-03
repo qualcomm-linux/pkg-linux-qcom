@@ -369,11 +369,26 @@ override_dh_installdeb:
 	# /usr/lib/linux-image-<KVER>/. A relative directory symlink avoids
 	# duplicating DTB binaries and resolves correctly at both build time
 	# and on the installed target.
+	#
+	# Install under usr/lib/firmware/ (not lib/firmware/) so the relative
+	# path resolves correctly on modern Debian/Ubuntu systems where /lib is
+	# a symlink to usr/lib.  On those systems a symlink placed at
+	# lib/firmware/<KVER>/device-tree physically lives at
+	# usr/lib/firmware/<KVER>/device-tree; resolving ../../../usr/lib/...
+	# from there yields usr/usr/lib/... which does not exist.
+	# Using usr/lib/firmware/ as the install location and ../../linux-image-<KVER>
+	# as the target gives the correct two-level traversal in all cases:
+	#
+	#   /usr/lib/firmware/<KVER>/device-tree -> ../../linux-image-<KVER>
+	#   resolves to: /usr/lib/linux-image-<KVER>  ✓
+	#
+	# On modern systems /lib -> usr/lib, so the symlink is also reachable
+	# via /lib/firmware/<KVER>/device-tree as flash-kernel expects.
 	# Created here (after dh_link) to prevent dh_link from converting it
 	# to an absolute symlink.
 	PKG=debian/$$CHANGELOG_PKG; \
-	mkdir -p $$PKG/lib/firmware/$$BASE; \
-	ln -sfT ../../../usr/lib/linux-image-$$BASE $$PKG/lib/firmware/$$BASE/device-tree; \
+	mkdir -p $$PKG/usr/lib/firmware/$$BASE; \
+	ln -sfT ../../linux-image-$$BASE $$PKG/usr/lib/firmware/$$BASE/device-tree; \
 	\
 	# Generate debian/<pkgname>.postinst from template with KVER substituted.
 	# dh_installmodules will find this file and inject the depmod snippet at #DEBHELPER#.
