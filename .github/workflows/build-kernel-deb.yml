@@ -50,6 +50,16 @@ on:
           - questing
           - resolute
           - sid
+      qcom-next-pr:
+        description: 'Space-separated PR numbers to merge from qcom-next (e.g. "42 43")'
+        type: string
+        required: false
+        default: ''
+      kernel-topics-pr:
+        description: 'Space-separated PR numbers from kernel-topics to apply as patches (e.g. "7 8")'
+        type: string
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -93,21 +103,82 @@ jobs:
           ref: main
           path: docker-pkg-build
 
+      - name: Sync kernel source
+        run: |
+          KERNEL_DIR="$GITHUB_WORKSPACE/kernel-source"
+          echo "KERNEL_DIR=$KERNEL_DIR" >> "$GITHUB_ENV"
+
+          if [[ "${{ inputs.latest-tag }}" == "true" ]]; then
+            # Resolve the latest qcom-next-* tag from the remote without fetching all tags
+            KERNEL_REF=$(git ls-remote --tags "$KERNEL_URL" 'refs/tags/qcom-next-*' \
+                         | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' \
+                         | sort -V | tail -1)
+            [[ -n "$KERNEL_REF" ]] || { echo "ERROR: No qcom-next-* tags found in $KERNEL_URL"; exit 1; }
+            echo "Resolved latest tag: $KERNEL_REF"
+          else
+            KERNEL_REF="$KERNEL_BRANCH"
+          fi
+
+          echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
+          echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
+          git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags "$KERNEL_URL" "$KERNEL_DIR"
+
+          KERNEL_SHA=$(git -C "$KERNEL_DIR" rev-parse HEAD)
+          echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
+          echo "Kernel HEAD SHA: $KERNEL_SHA"
+
+      - name: Merge qcom-next PR patches
+        if: ${{ inputs.qcom-next-pr != '' }}
+        run: |
+          cd "$KERNEL_DIR"
+          echo "Merging qcom-next PR(s): ${{ inputs.qcom-next-pr }}"
+          for pr in ${{ inputs.qcom-next-pr }}; do
+            echo "::group::Merging qcom-next PR #$pr"
+            git fetch --no-tags origin "pull/$pr/head:pr-$pr"
+
+            if ! git merge "pr-$pr" --no-commit; then
+              echo "ERROR: Merge conflict while merging PR #$pr. Aborting."
+              git merge --abort || true
+              exit 1
+            fi
+
+            if ! git diff --cached --quiet; then
+              git commit -m "Merged qcom-next PR #$pr"
+              echo "PR #$pr merged successfully."
+            else
+              echo "Nothing to commit for PR #$pr (already merged or fast-forwarded)."
+              git merge --abort 2>/dev/null || true
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Apply kernel-topics PR patches
+        if: ${{ inputs.kernel-topics-pr != '' }}
+        run: |
+          cd "$KERNEL_DIR"
+          echo "Applying kernel-topics PR patch(es): ${{ inputs.kernel-topics-pr }}"
+          for pr in ${{ inputs.kernel-topics-pr }}; do
+            echo "::group::Applying kernel-topics PR #$pr"
+            wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
+
+            if ! git am "$pr.patch"; then
+              echo "ERROR: Patch application failed for PR #$pr. Aborting."
+              git am --abort || true
+              exit 1
+            fi
+            echo "PR #$pr applied successfully."
+            echo "::endgroup::"
+          done
+
       - name: Build kernel package
         run: |
-          ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" --repo "$KERNEL_URL")
+          # Kernel source was prepared by the preceding workflow steps.
+          # Pass it via --local-source so build-kernel.sh skips cloning and
+          # proceeds directly to debian/ injection, prepare, and build.
+          ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" --local-source "$KERNEL_DIR")
 
           if [[ "$BUILD_MODE" == "docker" ]]; then
             ARGS+=(--docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py")
-          fi
-
-          if [[ "${{ inputs.latest-tag }}" == "true" ]]; then
-            ARGS+=(--latest-tag)
-          else
-            # Detect whether KERNEL_BRANCH is a branch or a tag
-            git ls-remote --exit-code --heads "$KERNEL_URL" "$KERNEL_BRANCH" \
-              && ARGS+=(--branch "$KERNEL_BRANCH") \
-              || ARGS+=(--tag "$KERNEL_BRANCH")
           fi
 
           [[ -n "${{ inputs.localversion }}" ]] && ARGS+=(--localversion "${{ inputs.localversion }}")
