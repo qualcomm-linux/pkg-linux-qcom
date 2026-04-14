@@ -170,19 +170,33 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Prepare source
+        run: |
+          # Inject debian/ packaging metadata, activate config fragments, and
+          # run 'debian/rules prepare' to generate debian/control and
+          # debian/changelog from *.in templates.
+          #
+          # This step runs on the host runner (no Docker required for prepare).
+          # A subsequent commit will extend prepare-source.sh with --source-pkg
+          # support to run dpkg-buildpackage -S for Debusine source packages.
+          ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO")
+
+          [[ -n "${{ inputs.localversion }}" ]] && ARGS+=(--localversion "${{ inputs.localversion }}")
+          [[ -n "${{ inputs.kver-extra }}" ]]   && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
+
+          ./prepare-source.sh "${ARGS[@]}"
+
       - name: Build kernel package
         run: |
-          # Kernel source was prepared by the preceding workflow steps.
-          # Pass it via --local-source so build-kernel.sh skips cloning and
-          # proceeds directly to debian/ injection, prepare, and build.
-          ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" --local-source "$KERNEL_DIR")
+          # Kernel source was cloned, patched, and prepared by the preceding
+          # workflow steps. Pass --local-source and --skip-prepare so
+          # build-kernel.sh goes directly to the build step.
+          ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" \
+                --local-source "$KERNEL_DIR" --skip-prepare)
 
           if [[ "$BUILD_MODE" == "docker" ]]; then
             ARGS+=(--docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py")
           fi
-
-          [[ -n "${{ inputs.localversion }}" ]] && ARGS+=(--localversion "${{ inputs.localversion }}")
-          [[ -n "${{ inputs.kver-extra }}" ]]   && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
 
           ./build-kernel.sh "${ARGS[@]}"
 
