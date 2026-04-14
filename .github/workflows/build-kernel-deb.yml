@@ -103,6 +103,12 @@ jobs:
           ref: main
           path: docker-pkg-build
 
+      - name: Build docker image
+        if: ${{ env.BUILD_MODE == 'docker' }}
+        run: |
+          ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
+          docker image ls
+
       - name: Sync kernel source
         run: |
           KERNEL_DIR="$GITHUB_WORKSPACE/kernel-source"
