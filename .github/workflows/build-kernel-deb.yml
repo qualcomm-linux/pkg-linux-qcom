@@ -176,7 +176,11 @@ jobs:
           # run 'debian/rules prepare' to generate debian/control and
           # debian/changelog from *.in templates.
           #
-          # This step runs on the host runner (no Docker required for prepare).
+          # In docker mode the entire prepare-source.sh is executed inside the
+          # distro-matched pkg-builder container for a controlled, reproducible
+          # environment. The workspace is bind-mounted (-v $PWD:$PWD) so all
+          # generated files are written back to the host filesystem.
+          #
           # A subsequent commit will extend prepare-source.sh with --source-pkg
           # support to run dpkg-buildpackage -S for Debusine source packages.
           ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO")
@@ -184,7 +188,14 @@ jobs:
           [[ -n "${{ inputs.localversion }}" ]] && ARGS+=(--localversion "${{ inputs.localversion }}")
           [[ -n "${{ inputs.kver-extra }}" ]]   && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
 
-          ./prepare-source.sh "${ARGS[@]}"
+          if [[ "$BUILD_MODE" == "docker" ]]; then
+            docker run -i --privileged --rm \
+              -v "$PWD:$PWD" --workdir="$PWD" \
+              "ghcr.io/qualcomm-linux/pkg-builder:$DISTRO" \
+              ./prepare-source.sh "${ARGS[@]}"
+          else
+            ./prepare-source.sh "${ARGS[@]}"
+          fi
 
       - name: Build kernel package
         run: |
