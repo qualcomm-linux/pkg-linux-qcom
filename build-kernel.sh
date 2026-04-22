@@ -60,10 +60,10 @@ OPTIONS:
     --debian-dir DIR        debian/ packaging directory (default: $DEBIAN_DIR)
 
   Misc:
-    --skip-prepare          Skip debian/ injection, config fragment activation,
-                            and 'debian/rules prepare'. Use in CI when
-                            prepare-source.sh has already prepared the source
-                            tree. Implies --local-source is also set.
+    --skip-prepare          Skip the call to prepare-source.sh. Use in CI when
+                            prepare-source.sh has already been run as a
+                            dedicated prior step. Implies --local-source is
+                            also set.
     --clean                 Remove kernel source dir before syncing
     -h, --help              Show this help
 
@@ -145,8 +145,6 @@ if [[ -n "$LOCAL_SOURCE" ]]; then
     KERNEL_DIR="$(cd "$LOCAL_SOURCE" && pwd)"
     log_info "Using local kernel source: $KERNEL_DIR"
 fi
-
-[[ -d "$DEBIAN_DIR" ]] || { log_error "Debian dir not found: $DEBIAN_DIR"; exit 1; }
 
 log_step "Configuration:"
 [[ -n "$LOCAL_SOURCE" ]] && log_info "  Source:       local ($KERNEL_DIR)" \
@@ -238,48 +236,19 @@ if [[ -n "$LOCAL_SOURCE" ]]; then
     fi
 fi
 
-# ── Inject debian/, activate config fragments, and run prepare ───────────────
-# Skipped when --skip-prepare is set (CI mode: prepare-source.sh already ran).
+# ── Source preparation ────────────────────────────────────────────────────────
+# Delegates to prepare-source.sh, which is the single source of truth for
+# debian/ injection, config fragment activation, and debian/rules prepare.
+# Skipped when --skip-prepare is set (CI mode: prepare-source.sh already ran
+# as a dedicated prior step).
 if [[ "$SKIP_PREPARE" != true ]]; then
-
-    log_step "Injecting debian/ packaging files..."
-    [[ -d "$KERNEL_DIR/debian" ]] && { log_warn "Removing existing debian/ in kernel source"; rm -rf "$KERNEL_DIR/debian"; }
-
-    ACTUAL_DEBIAN_DIR="$DEBIAN_DIR"
-    [[ -d "$DEBIAN_DIR/debian" ]] && ACTUAL_DEBIAN_DIR="$DEBIAN_DIR/debian"
-    [[ -d "$ACTUAL_DEBIAN_DIR" ]] || { log_error "debian/ not found: $ACTUAL_DEBIAN_DIR"; exit 1; }
-
-    cp -r "$ACTUAL_DEBIAN_DIR" "$KERNEL_DIR/debian"
-    log_info "Copied $ACTUAL_DEBIAN_DIR → $KERNEL_DIR/debian"
-
-    if [[ -n "$ENABLE_CONFIGS" ]]; then
-        log_step "Activating config fragments: $ENABLE_CONFIGS"
-        AVAIL_DIR="$KERNEL_DIR/debian/config-available"
-        ACTIVE_DIR="$KERNEL_DIR/debian/config"
-        mkdir -p "$ACTIVE_DIR"
-        IFS=',' read -ra CFG_LIST <<< "$ENABLE_CONFIGS"
-        for cfg in "${CFG_LIST[@]}"; do
-            cfg="${cfg// /}"
-            frag="${cfg%.config}.config"
-            [[ -f "$AVAIL_DIR/$frag" ]] || {
-                log_error "Fragment not found: $frag"
-                log_error "Available: $(ls "$AVAIL_DIR"/*.config 2>/dev/null | xargs -n1 basename | sed 's/\.config//' | tr '\n' ' ')"
-                exit 1
-            }
-            cp "$AVAIL_DIR/$frag" "$ACTIVE_DIR/$frag"
-            log_info "  Enabled: $frag"
-        done
-    fi
-
-    log_step "Running debian/rules prepare..."
-    PREPARE_ARGS="DISTRO=$DISTRO"
-    [[ -n "$LOCALVERSION" ]] && PREPARE_ARGS="$PREPARE_ARGS LOCALVERSION=-$LOCALVERSION"
-    [[ -n "$KVER_EXTRA" ]]   && PREPARE_ARGS="$PREPARE_ARGS KVER_EXTRA=$KVER_EXTRA"
-    # shellcheck disable=SC2086
-    make -f "$KERNEL_DIR/debian/rules" -C "$KERNEL_DIR" prepare $PREPARE_ARGS
-
+    PREPARE_ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO" --debian-dir "$DEBIAN_DIR")
+    [[ -n "$LOCALVERSION" ]]   && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
+    [[ -n "$KVER_EXTRA" ]]     && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
+    [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--enable-configs "$ENABLE_CONFIGS")
+    "$SCRIPT_DIR/prepare-source.sh" "${PREPARE_ARGS[@]}"
 else
-    log_info "Skipping debian/ injection and prepare (--skip-prepare set)."
+    log_info "Skipping source preparation (--skip-prepare set)."
     [[ -d "$KERNEL_DIR/debian" ]] || {
         log_error "debian/ not found in $KERNEL_DIR — did prepare-source.sh run?"
         exit 1
@@ -288,7 +257,6 @@ else
         log_error "debian/control not found — did prepare-source.sh complete successfully?"
         exit 1
     }
-
 fi
 
 # ── Build ────────────────────────────────────────────────────────────────────
