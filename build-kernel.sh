@@ -124,6 +124,14 @@ VALID_MODES=(docker native sbuild)
 [[ " ${VALID_DISTROS[*]} " =~ " $DISTRO " ]]    || { log_error "Invalid distro: $DISTRO (valid: ${VALID_DISTROS[*]})"; exit 1; }
 [[ " ${VALID_MODES[*]} " =~ " $BUILD_MODE " ]]  || { log_error "Invalid build mode: $BUILD_MODE (valid: ${VALID_MODES[*]})"; exit 1; }
 
+# --skip-prepare requires --local-source: the source tree must already exist
+# and have been prepared by prepare-source.sh before build-kernel.sh is called.
+[[ "$SKIP_PREPARE" == true && -z "$LOCAL_SOURCE" ]] && {
+    log_error "--skip-prepare requires --local-source"
+    log_error "The source tree must already be prepared by prepare-source.sh before invoking build-kernel.sh --skip-prepare."
+    exit 1
+}
+
 # Locate docker_deb_build.py (docker mode)
 if [[ "$BUILD_MODE" == "docker" && -z "$DOCKER_PKG_BUILD" ]]; then
     for p in "$HOME/docker-pkg-build/docker_deb_build.py" \
