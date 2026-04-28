@@ -32,6 +32,11 @@ pkg-linux-qcom
         ├── rules                 ← dpkg-buildpackage build logic
         ├── control.in            ← Package definitions (@KVER@ template)
         ├── changelog.in          ← Changelog template
+        ├── linux-image.postinst.in ← Post-install script template (depmod, initramfs, GRUB)
+        ├── linux-image.postrm    ← Post-remove script (GRUB update)
+        ├── linux-image.preinst   ← Pre-install script
+        ├── clean                 ← Lists generated files for dh_clean
+        ├── source/format         ← 3.0 (quilt)
         ├── config/               ← Always-applied config fragments
         └── config-available/     ← Optional fragment library
 ```
