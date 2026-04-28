@@ -31,10 +31,6 @@ on:
       DEB_PKG_BOT_CI_TOKEN:
         required: true
 
-  # Nightly run at 9:00 PM PST (05:00 UTC)
-  schedule:
-    - cron: '0 5 * * *'
-
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
