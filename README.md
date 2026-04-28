@@ -4,10 +4,10 @@
 
 **Native Debian packaging for the Qualcomm ARM64 Linux kernel**
 
-[![Workflow: build-kernel-deb](https://img.shields.io/badge/workflow-build--kernel--deb-blue?logo=github-actions)](../../actions/workflows/build-kernel-deb.yml)
-[![Nightly](https://img.shields.io/badge/nightly-05%3A00%20UTC-informational?logo=clockify)](../../actions/workflows/build-kernel-deb.yml)
-[![Runner](https://img.shields.io/badge/runner-ARM64%20self--hosted-orange?logo=linux)](../../actions)
-[![License](https://img.shields.io/badge/license-BSD--3--Clause-green)](LICENSE.txt)
+![Workflow: build-kernel-deb](https://img.shields.io/badge/workflow-build--kernel--deb-blue?logo=github-actions)
+![Nightly](https://img.shields.io/badge/nightly-05%3A00%20UTC-informational?logo=clockify)
+![Runner](https://img.shields.io/badge/runner-ARM64%20lecore%20production-orange?logo=linux)
+![License](https://img.shields.io/badge/license-BSD--3--Clause-green)
 
 </div>
 
