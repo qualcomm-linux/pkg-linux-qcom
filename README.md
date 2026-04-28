@@ -23,7 +23,7 @@ pkg-linux-qcom
 ├── main                          ← CI workflow definitions
 │   └── .github/workflows/
 │       ├── build-kernel-deb.yml  ← PRIMARY  · nightly + manual
-│       └── build-kernel.yml      ← LEGACY   · manual only
+│       └── build-kernel.yml      ← DEPRECATED
 │
 └── qcom/debian/latest            ← Packaging metadata + build tools
     ├── build-kernel.sh           ← Build orchestrator
