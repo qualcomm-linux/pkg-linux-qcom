@@ -61,6 +61,10 @@ on:
         required: false
         default: ''
 
+  # Nightly run at 9:00 PM PST (05:00 UTC)
+  schedule:
+    - cron: '0 5 * * *'
+
 jobs:
   build:
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
@@ -114,8 +118,9 @@ jobs:
           KERNEL_DIR="$GITHUB_WORKSPACE/kernel-source"
           echo "KERNEL_DIR=$KERNEL_DIR" >> "$GITHUB_ENV"
 
-          if [[ "${{ inputs.latest-tag }}" == "true" ]]; then
-            # Resolve the latest qcom-next-* tag from the remote without fetching all tags
+          # Resolve the latest qcom-next-* tag when explicitly requested or on
+          # scheduled runs (inputs are not available for schedule events).
+          if [[ "${{ inputs.latest-tag }}" == "true" || "${{ github.event_name }}" == "schedule" ]]; then
             KERNEL_REF=$(git ls-remote --tags "$KERNEL_URL" 'refs/tags/qcom-next-*' \
                          | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' \
                          | sort -V | tail -1)
