@@ -79,7 +79,7 @@ jobs:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.pkg-linux-qcom-ref }}
+          ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
 
       - name: Apply packaging PR (if specified)
         if: ${{ inputs.self-pr != '' }}
