@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Debian packaging for the Qualcomm ARM64 Linux kernel**
+**Debian packaging metadata, build tooling and CI workflows for the Qualcomm ARM64 Linux kernel**
 
 </div>
 
