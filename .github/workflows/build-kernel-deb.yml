@@ -14,7 +14,7 @@ on:
       latest-tag:
         description: 'Use latest qcom-next-* tag (ignores kernel-branch)'
         type: boolean
-        default: false
+        default: true
       localversion:
         description: 'LOCALVERSION suffix (e.g. qcom-next-20260312). Omit if the tree provides it via localversion* files.'
         required: false
