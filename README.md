@@ -73,48 +73,46 @@ Three versioned packages per build, named after the full kernel release string `
 
 ```mermaid
 flowchart TD
-    T1([🕘 Nightly · 05:00 UTC]) --> S0
-    T2([👤 Manual dispatch]) --> S0
+    T1([Nightly · 05:00 UTC]) --> S0
+    T2([Manual dispatch]) --> S0
 
-    S0["① Checkout pkg-linux-qcom\n@ qcom/debian/latest"] --> S1
-    S1["② Apply packaging PR\n(optional · self-pr input)"] --> S2
-    S2["③ Checkout docker-pkg-build"] --> S3
+    S0["① Checkout pkg-linux-qcom\n@ qcom/debian/latest\nprod runner"] --> S1
+    S1["② Apply packaging PR\n(optional · self-pr input)\nprod runner"] --> S2
+    S2["③ Checkout docker-pkg-build\n+ Build Docker image\ndocker_deb_build.py --rebuild -d DISTRO\nprod runner"] --> S3
 
-    S3["④ Build Docker image\ndocker_deb_build.py --rebuild\n🖥 prod runner"] --> S4
+    S3["④ Sync kernel source\ngit clone --depth 1\nprod runner"] --> S4
 
-    S4["⑤ Sync kernel source\ngit clone --depth 1\n🖥 prod runner"] --> S5
+    S4{"qcom-next-pr\nset?"} -->|yes| S5["⑤ Merge qcom-next PRs\ngit fetch + git merge\nprod runner"]
+    S4 -->|no| S6
 
-    S5{"qcom-next-pr\nset?"} -->|yes| S6["⑥ Merge qcom-next PRs\ngit fetch + git merge\n🖥 prod runner"]
-    S5 -->|no| S7
+    S5 --> S6{"kernel-topics-pr\nset?"}
+    S6 -->|yes| S7["⑥ Apply kernel-topics patches\nwget + git am\nprod runner"]
+    S6 -->|no| S8
 
-    S6 --> S7{"kernel-topics-pr\nset?"}
-    S7 -->|yes| S8["⑦ Apply kernel-topics patches\nwget + git am\n🖥 prod runner"]
-    S7 -->|no| S9
+    S7 --> S8["⑦ Prepare source\nprepare-source.sh\npkg-builder container"]
 
-    S8 --> S9["⑧ Prepare source\nprepare-source.sh\n🐳 pkg-builder container"]
+    S8 --> S9["⑧ Build kernel package\nbuild-kernel.sh on runner\ndpkg-buildpackage inside container"]
 
-    S9 --> S10["⑨ Build kernel package\nbuild-kernel.sh --skip-prepare\n🖥 runner → 🐳 dpkg-buildpackage"]
+    S9 --> S10["⑨ Upload to S3\nupload-private-artifact-action\nprod runner"]
 
-    S10 --> S11["⑩ Upload to S3\nupload-private-artifact-action"]
-
-    S11 --> OUT1[("📦 linux-image-*-qcom")]
-    S11 --> OUT2[("📦 linux-headers-*-qcom")]
-    S11 --> OUT3[("📦 linux-image-*-qcom-dbg")]
-    S11 --> OUT4[("🪣 S3 bucket")]
+    S10 --> OUT1[("linux-image-*-qcom")]
+    S10 --> OUT2[("linux-headers-*-qcom")]
+    S10 --> OUT3[("linux-image-*-qcom-dbg")]
+    S10 --> OUT4[("S3 bucket")]
 ```
 
 ### Execution Environments
 
 | Step | Runs on | What happens |
 |------|---------|-------------|
-| ①–③ Checkout & setup | 🖥 Prod runner | `git checkout`, env setup |
-| ④ Build docker image | 🖥 Prod runner | `docker_deb_build.py --rebuild` builds `ghcr.io/qualcomm-linux/pkg-builder:<distro>` |
-| ⑤ Sync kernel source | 🖥 Prod runner | `git clone --depth 1`; exports `KERNEL_DIR`, `KERNEL_REF`, `KERNEL_SHA` |
-| ⑥ Merge qcom-next PRs | 🖥 Prod runner | `git fetch` + `git merge --no-commit` per PR |
-| ⑦ Apply kernel-topics patches | 🖥 Prod runner | `wget .patch` + `git am` per PR |
-| ⑧ Prepare source | 🐳 Suite-matched container | `prepare-source.sh` inside `pkg-builder:<distro>` |
-| ⑨ Build kernel package | 🖥 Runner → 🐳 container | `build-kernel.sh --skip-prepare` on runner; `dpkg-buildpackage` inside container |
-| ⑩ Upload to S3 | 🖥 Prod runner | `upload-private-artifact-action@aws` |
+| ①–② Checkout & setup | Prod runner | `git checkout`, env setup |
+| ③ Checkout docker-pkg-build + Build docker image | Prod runner | `docker_deb_build.py --rebuild -d <distro>` builds `ghcr.io/qualcomm-linux/pkg-builder:<distro>` |
+| ④ Sync kernel source | Prod runner | `git clone --depth 1`; exports `KERNEL_DIR`, `KERNEL_REF`, `KERNEL_SHA` |
+| ⑤ Merge qcom-next PRs | Prod runner | `git fetch` + `git merge --no-commit` per PR |
+| ⑥ Apply kernel-topics patches | Prod runner | `wget .patch` + `git am` per PR |
+| ⑦ Prepare source | Suite-matched container | `prepare-source.sh` runs entirely inside `pkg-builder:<distro>` with workspace bind-mounted |
+| ⑧ Build kernel package | Prod runner → container | `build-kernel.sh --skip-prepare` invoked on runner; `dpkg-buildpackage` runs inside `pkg-builder:<distro>` container via `docker_deb_build.py` |
+| ⑨ Upload to S3 | Prod runner | `upload-private-artifact-action@aws` |
 
 ---
 
@@ -133,9 +131,9 @@ flowchart TD
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `kernel-branch` | `qcom-next` | Branch or tag to build |
-| `kernel-url` | *(qualcomm-linux/kernel)* | Custom kernel repo URL |
-| `latest-tag` | `false` | Resolve latest `qcom-next-*` tag automatically |
+| `kernel-branch` | `qcom-next` | Branch or tag to build (used when `latest-tag` is `false`) |
+| `kernel-url` | *(qualcomm-linux/kernel)* | Custom kernel repo URL; `latest-tag` resolves tags from this URL when set |
+| `latest-tag` | `true` | Resolve latest `qcom-next-*` tag automatically; set to `false` to build from a specific branch, tag, or custom repo |
 | `localversion` | *(auto)* | LOCALVERSION suffix (auto-detected from git tag) |
 | `kver-extra` | — | Extra suffix appended to package version (e.g. `-ci42`) |
 | `pkg-linux-qcom-ref` | `qcom/debian/latest` | Packaging branch/commit to use |
@@ -178,8 +176,10 @@ build-kernel.sh
   --skip-prepare          Skip prepare-source.sh call (CI mode)
   --latest-tag            Resolve latest qcom-next-* tag
   --branch / --tag        Specific branch or tag
+  --repo URL              Kernel repository URL (default: qualcomm-linux/kernel)
   --distro DISTRO         Target distro
   --build-mode MODE       docker | native | sbuild
+  --profiles PROFILES     DEB_BUILD_PROFILES (e.g. debug)
   --enable-configs LIST   Config fragments to activate
   --localversion / --kver-extra
 ```
@@ -219,10 +219,10 @@ s3://qli-prd-lecore-gh-artifacts/
 
 ```mermaid
 flowchart LR
-    A["✅ Native Debian packaging\ndpkg-buildpackage · 3 packages · 5 distros"] --> B
-    B["✅ Staged pipeline\nprepare-source.sh · --skip-prepare\ncontainerised prepare + build"] --> C
-    C["🔄 Source package generation\nprepare-source.sh --source-pkg\nconverge with generate-source-package"] --> D
-    D["🔮 Debusine integration\n.dsc + .changes → Debusine build\nbuild-kernel step retired from CI"]
+    A["Native Debian packaging\ndpkg-buildpackage · 3 packages · 5 distros"] --> B
+    B["Staged pipeline\nprepare-source.sh · --skip-prepare\ncontainerised prepare + build"] --> C
+    C["Source package generation\nprepare-source.sh --source-pkg\nconverge with generate-source-package"] --> D
+    D["Debusine integration\n.dsc + .changes to Debusine build\nbuild-kernel step retired from CI"]
 ```
 
 | Stage | Status | Description |
