@@ -81,10 +81,10 @@ flowchart TD
         S0["① Checkout pkg-linux-qcom\n   ref: qcom/debian/latest"]
         S1["② Apply packaging PR\n   optional · self-pr input"]
         S2["③ Checkout docker-pkg-build\n   + Build Docker image\n   docker_deb_build.py\n   --rebuild -d DISTRO"]
-        S3["④ Sync kernel source\n   git clone --depth 1\n   --branch KERNEL_REF\n   → KERNEL_DIR · KERNEL_SHA"]
-        S4{"⑤ qcom-next-pr set?"}
+        S3["④ Sync kernel source\n   latest qcom-next-* tag (default)\n   custom repo · branch · tag · commit"]
+        S4{"⑤ qcom-next-pr\nspace-sep PR list\nprovided?"}
         S5["⑥ Merge qcom-next PRs\n   git fetch pull/N/head\n   git merge --no-commit"]
-        S6{"⑦ kernel-topics-pr set?"}
+        S6{"⑦ kernel-topics-pr\nspace-sep PR list\nprovided?"}
         S7["⑧ Apply kernel-topics patches\n   wget pull/N.patch · git am"]
         S9["⑩ build-kernel.sh\n   --local-source KERNEL_DIR\n   --skip-prepare\n   --docker-build\n   docker_deb_build.py"]
         S10["⑫ Upload to S3\n   upload-private-artifact-action\n   → ORG/pkg/temp/REPO/\n     RUN_ID-ATTEMPT/"]
@@ -92,7 +92,7 @@ flowchart TD
 
     subgraph CONTAINER ["🐳  pkg-builder Container  ·  ghcr.io/qualcomm-linux/pkg-builder:DISTRO"]
         S8["⑨ prepare-source.sh\n   · Inject debian/ into source\n   · Activate config fragments\n   · debian/rules prepare\n     → debian/control\n     → debian/changelog"]
-        S11["⑪ dpkg-buildpackage -us -uc -b\n   · defconfig + config fragments\n   · make Image · modules · dtbs\n   · modules_install\n   · headers_install\n   · → kernel-build/DISTRO/*.deb"]
+        S11["⑪ dpkg-buildpackage -us -uc -b\n   · defconfig + config fragments\n   · make Image · modules · dtbs\n   · install modules + headers\n   · produce .deb packages"]
     end
 
     S0 --> S1 --> S2 --> S3 --> S4
