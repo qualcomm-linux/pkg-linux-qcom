@@ -72,6 +72,7 @@ Three versioned packages per build, named after the full kernel release string `
 ## CI Pipeline — `build-kernel-deb.yml`
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 40, 'rankSpacing': 60}}}%%
 flowchart TD
     T1([Nightly · 05:00 UTC]) --> S0
     T2([Manual dispatch]) --> S0
@@ -81,12 +82,12 @@ flowchart TD
         S1["② Apply packaging PR\n   optional · self-pr input"]
         S2["③ Checkout docker-pkg-build\n   + Build Docker image\n   docker_deb_build.py\n   --rebuild -d DISTRO"]
         S3["④ Sync kernel source\n   git clone --depth 1\n   --branch KERNEL_REF\n   → KERNEL_DIR · KERNEL_SHA"]
-        S4{"⑤ qcom-next-pr\nset?"}
+        S4{"⑤ qcom-next-pr set?"}
         S5["⑥ Merge qcom-next PRs\n   git fetch pull/N/head\n   git merge --no-commit"]
-        S6{"⑦ kernel-topics-pr\nset?"}
-        S7["⑧ Apply kernel-topics patches\n   wget pull/N.patch\n   git am"]
-        S9["⑩ build-kernel.sh\n   --local-source KERNEL_DIR\n   --skip-prepare\n   --docker-build docker_deb_build.py"]
-        S10["⑫ Upload to S3\n   upload-private-artifact-action@aws\n   → ORG/pkg/temp/REPO/\n     RUN_ID-ATTEMPT/"]
+        S6{"⑦ kernel-topics-pr set?"}
+        S7["⑧ Apply kernel-topics patches\n   wget pull/N.patch · git am"]
+        S9["⑩ build-kernel.sh\n   --local-source KERNEL_DIR\n   --skip-prepare\n   --docker-build\n   docker_deb_build.py"]
+        S10["⑫ Upload to S3\n   upload-private-artifact-action\n   → ORG/pkg/temp/REPO/\n     RUN_ID-ATTEMPT/"]
     end
 
     subgraph CONTAINER ["🐳  pkg-builder Container  ·  ghcr.io/qualcomm-linux/pkg-builder:DISTRO"]
@@ -101,7 +102,11 @@ flowchart TD
     S6 -->|no| S8
     S8 --> S9 --> S11 --> S10
 
-    S10 --> BUCKET[("s3://qli-prd-lecore-gh-artifacts/\nORG/pkg/temp/REPO/RUN_ID-ATTEMPT/\n\nlinux-image-KVER-qcom_1-1_arm64.deb\nlinux-headers-KVER-qcom_1-1_arm64.deb\nlinux-image-KVER-qcom-dbg_1-1_arm64.deb")]
+    S10 --> BUCKET[("s3://qli-prd-lecore-gh-artifacts/\nORG/pkg/temp/REPO/RUN_ID-ATTEMPT/\n\nlinux-image-KVER-qcom\nlinux-headers-KVER-qcom\nlinux-image-KVER-qcom-dbg\n_1-1_arm64.deb")]
+
+    classDef default min-width:320px
+    classDef bucket min-width:320px
+    class BUCKET bucket
 ```
 
 ### Execution Environments
