@@ -76,29 +76,32 @@ flowchart TD
     T1([Nightly · 05:00 UTC]) --> S0
     T2([Manual dispatch]) --> S0
 
-    S0["① Checkout pkg-linux-qcom\n@ qcom/debian/latest\nprod runner"] --> S1
-    S1["② Apply packaging PR\n(optional · self-pr input)\nprod runner"] --> S2
-    S2["③ Checkout docker-pkg-build\n+ Build Docker image\ndocker_deb_build.py --rebuild -d DISTRO\nprod runner"] --> S3
+    subgraph RUNNER ["🖥  Production Runner  ·  lecore-prd-u2404-arm64-xlrg"]
+        S0["① Checkout pkg-linux-qcom\n   ref: qcom/debian/latest"]
+        S1["② Apply packaging PR\n   optional · controlled by self-pr input"]
+        S2["③ Checkout docker-pkg-build  +  Build Docker image\n   docker_deb_build.py --rebuild -d DISTRO\n   → ghcr.io/qualcomm-linux/pkg-builder:DISTRO"]
+        S3["④ Sync kernel source\n   git clone --depth 1 --branch KERNEL_REF KERNEL_URL\n   exports: KERNEL_DIR · KERNEL_REF · KERNEL_SHA"]
+        S4{"⑤ qcom-next-pr\nset?"}
+        S5["⑥ Merge qcom-next PRs\n   for each PR:\n   git fetch pull/N/head\n   git merge --no-commit"]
+        S6{"⑦ kernel-topics-pr\nset?"}
+        S7["⑧ Apply kernel-topics patches\n   for each PR:\n   wget pull/N.patch\n   git am"]
+        S9["⑩ Invoke build-kernel.sh\n   --local-source KERNEL_DIR\n   --skip-prepare\n   --docker-build docker_deb_build.py"]
+        S10["⑫ Upload to S3\n   upload-private-artifact-action@aws\n   path: kernel-build/DISTRO/\n   dest: ORG/pkg/temp/REPO/RUN_ID-ATTEMPT/"]
+    end
 
-    S3["④ Sync kernel source\ngit clone --depth 1\nprod runner"] --> S4
+    subgraph CONTAINER ["🐳  pkg-builder Container  ·  ghcr.io/qualcomm-linux/pkg-builder:DISTRO  (workspace bind-mounted)"]
+        S8["⑨ prepare-source.sh\n   · Copy debian/ into kernel source tree\n   · Activate config fragments from debian/config/\n   · Run debian/rules prepare\n     → generates debian/control\n     → generates debian/changelog"]
+        S11["⑪ dpkg-buildpackage -us -uc -b\n   · make defconfig\n   · Apply config fragments  (qcom.config + debian/config/*.config)\n   · make Image  modules  dtbs\n   · make modules_install  headers_install\n   · Produce .deb packages into kernel-build/DISTRO/"]
+    end
 
-    S4{"qcom-next-pr\nset?"} -->|yes| S5["⑤ Merge qcom-next PRs\ngit fetch + git merge\nprod runner"]
+    S0 --> S1 --> S2 --> S3 --> S4
+    S4 -->|yes| S5 --> S6
     S4 -->|no| S6
-
-    S5 --> S6{"kernel-topics-pr\nset?"}
-    S6 -->|yes| S7["⑥ Apply kernel-topics patches\nwget + git am\nprod runner"]
+    S6 -->|yes| S7 --> S8
     S6 -->|no| S8
+    S8 --> S9 --> S11 --> S10
 
-    S7 --> S8["⑦ Prepare source\nprepare-source.sh\npkg-builder container"]
-
-    S8 --> S9["⑧ Build kernel package\nbuild-kernel.sh on runner\ndpkg-buildpackage inside container"]
-
-    S9 --> S10["⑨ Upload to S3\nupload-private-artifact-action\nprod runner"]
-
-    S10 --> OUT1[("linux-image-*-qcom")]
-    S10 --> OUT2[("linux-headers-*-qcom")]
-    S10 --> OUT3[("linux-image-*-qcom-dbg")]
-    S10 --> OUT4[("S3 bucket")]
+    S10 --> BUCKET[("s3://qli-prd-lecore-gh-artifacts/\nORG/pkg/temp/REPO/RUN_ID-ATTEMPT/\n─────────────────────────────────────────\nlinux-image-KVER-qcom_1-1_arm64.deb\nlinux-headers-KVER-qcom_1-1_arm64.deb\nlinux-image-KVER-qcom-dbg_1-1_arm64.deb")]
 ```
 
 ### Execution Environments
@@ -110,9 +113,9 @@ flowchart TD
 | ④ Sync kernel source | Prod runner | `git clone --depth 1`; exports `KERNEL_DIR`, `KERNEL_REF`, `KERNEL_SHA` |
 | ⑤ Merge qcom-next PRs | Prod runner | `git fetch` + `git merge --no-commit` per PR |
 | ⑥ Apply kernel-topics patches | Prod runner | `wget .patch` + `git am` per PR |
-| ⑦ Prepare source | Suite-matched container | `prepare-source.sh` runs entirely inside `pkg-builder:<distro>` with workspace bind-mounted |
-| ⑧ Build kernel package | Prod runner → container | `build-kernel.sh --skip-prepare` invoked on runner; `dpkg-buildpackage` runs inside `pkg-builder:<distro>` container via `docker_deb_build.py` |
-| ⑨ Upload to S3 | Prod runner | `upload-private-artifact-action@aws` |
+| ⑦ Prepare source | **pkg-builder container** | `prepare-source.sh` runs entirely inside the suite-matched container with workspace bind-mounted; injects `debian/`, activates config fragments, generates `debian/control` + `debian/changelog` |
+| ⑧ Build kernel package | Prod runner → **pkg-builder container** | `build-kernel.sh --skip-prepare` invoked on runner; dispatches `dpkg-buildpackage` inside the container via `docker_deb_build.py` |
+| ⑨ Upload to S3 | Prod runner | `upload-private-artifact-action@aws` uploads `kernel-build/<distro>/` |
 
 ---
 
