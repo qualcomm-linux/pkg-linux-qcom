@@ -78,20 +78,20 @@ flowchart TD
 
     subgraph RUNNER ["🖥  Production Runner  ·  lecore-prd-u2404-arm64-xlrg"]
         S0["① Checkout pkg-linux-qcom\n   ref: qcom/debian/latest"]
-        S1["② Apply packaging PR\n   optional · controlled by self-pr input"]
-        S2["③ Checkout docker-pkg-build  +  Build Docker image\n   docker_deb_build.py --rebuild -d DISTRO\n   → ghcr.io/qualcomm-linux/pkg-builder:DISTRO"]
-        S3["④ Sync kernel source\n   git clone --depth 1 --branch KERNEL_REF KERNEL_URL\n   exports: KERNEL_DIR · KERNEL_REF · KERNEL_SHA"]
+        S1["② Apply packaging PR\n   optional · self-pr input"]
+        S2["③ Checkout docker-pkg-build\n   + Build Docker image\n   docker_deb_build.py\n   --rebuild -d DISTRO"]
+        S3["④ Sync kernel source\n   git clone --depth 1\n   --branch KERNEL_REF\n   → KERNEL_DIR · KERNEL_SHA"]
         S4{"⑤ qcom-next-pr\nset?"}
-        S5["⑥ Merge qcom-next PRs\n   for each PR:\n   git fetch pull/N/head\n   git merge --no-commit"]
+        S5["⑥ Merge qcom-next PRs\n   git fetch pull/N/head\n   git merge --no-commit"]
         S6{"⑦ kernel-topics-pr\nset?"}
-        S7["⑧ Apply kernel-topics patches\n   for each PR:\n   wget pull/N.patch\n   git am"]
-        S9["⑩ Invoke build-kernel.sh\n   --local-source KERNEL_DIR\n   --skip-prepare\n   --docker-build docker_deb_build.py"]
-        S10["⑫ Upload to S3\n   upload-private-artifact-action@aws\n   path: kernel-build/DISTRO/\n   dest: ORG/pkg/temp/REPO/RUN_ID-ATTEMPT/"]
+        S7["⑧ Apply kernel-topics patches\n   wget pull/N.patch\n   git am"]
+        S9["⑩ build-kernel.sh\n   --local-source KERNEL_DIR\n   --skip-prepare\n   --docker-build docker_deb_build.py"]
+        S10["⑫ Upload to S3\n   upload-private-artifact-action@aws\n   → ORG/pkg/temp/REPO/\n     RUN_ID-ATTEMPT/"]
     end
 
-    subgraph CONTAINER ["🐳  pkg-builder Container  ·  ghcr.io/qualcomm-linux/pkg-builder:DISTRO  (workspace bind-mounted)"]
-        S8["⑨ prepare-source.sh\n   · Copy debian/ into kernel source tree\n   · Activate config fragments from debian/config/\n   · Run debian/rules prepare\n     → generates debian/control\n     → generates debian/changelog"]
-        S11["⑪ dpkg-buildpackage -us -uc -b\n   · make defconfig\n   · Apply config fragments  (qcom.config + debian/config/*.config)\n   · make Image  modules  dtbs\n   · make modules_install  headers_install\n   · Produce .deb packages into kernel-build/DISTRO/"]
+    subgraph CONTAINER ["🐳  pkg-builder Container  ·  ghcr.io/qualcomm-linux/pkg-builder:DISTRO"]
+        S8["⑨ prepare-source.sh\n   · Inject debian/ into source\n   · Activate config fragments\n   · debian/rules prepare\n     → debian/control\n     → debian/changelog"]
+        S11["⑪ dpkg-buildpackage -us -uc -b\n   · defconfig + config fragments\n   · make Image · modules · dtbs\n   · modules_install\n   · headers_install\n   · → kernel-build/DISTRO/*.deb"]
     end
 
     S0 --> S1 --> S2 --> S3 --> S4
@@ -101,7 +101,7 @@ flowchart TD
     S6 -->|no| S8
     S8 --> S9 --> S11 --> S10
 
-    S10 --> BUCKET[("s3://qli-prd-lecore-gh-artifacts/\nORG/pkg/temp/REPO/RUN_ID-ATTEMPT/\n─────────────────────────────────────────\nlinux-image-KVER-qcom_1-1_arm64.deb\nlinux-headers-KVER-qcom_1-1_arm64.deb\nlinux-image-KVER-qcom-dbg_1-1_arm64.deb")]
+    S10 --> BUCKET[("s3://qli-prd-lecore-gh-artifacts/\nORG/pkg/temp/REPO/RUN_ID-ATTEMPT/\n\nlinux-image-KVER-qcom_1-1_arm64.deb\nlinux-headers-KVER-qcom_1-1_arm64.deb\nlinux-image-KVER-qcom-dbg_1-1_arm64.deb")]
 ```
 
 ### Execution Environments
