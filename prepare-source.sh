@@ -138,7 +138,10 @@ _auto_localversion() {
 
 # ── Auto-detect LOCALVERSION from git tag (if not provided) ──────────────────
 if [[ -z "$LOCALVERSION" ]]; then
-    GIT_TAG=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)
+    # -c safe.directory= is required when running inside a container where the
+    # kernel source is bind-mounted from the host: git refuses to operate on
+    # directories owned by a different user unless explicitly trusted.
+    GIT_TAG=$(git -C "$SOURCE_DIR" -c safe.directory="$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)
     if [[ -n "$GIT_TAG" ]]; then
         LOCALVERSION="$(_auto_localversion "$GIT_TAG")"
         log_info "Auto-detected LOCALVERSION='$LOCALVERSION' from tag '$GIT_TAG'"
