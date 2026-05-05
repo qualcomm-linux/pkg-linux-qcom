@@ -132,7 +132,7 @@ jobs:
 
           echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
           echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
-          git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags "$KERNEL_URL" "$KERNEL_DIR"
+          git clone --depth 1 --single-branch --branch "$KERNEL_REF" "$KERNEL_URL" "$KERNEL_DIR"
 
           KERNEL_SHA=$(git -C "$KERNEL_DIR" rev-parse HEAD)
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
