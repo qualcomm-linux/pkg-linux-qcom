@@ -132,7 +132,15 @@ jobs:
 
           echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
           echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
-          git clone --depth 1 --single-branch --branch "$KERNEL_REF" "$KERNEL_URL" "$KERNEL_DIR"
+          # Tag-based builds: omit --no-tags so the tag ref is created locally,
+          # allowing prepare-source.sh to auto-detect LOCALVERSION via git describe.
+          # Branch tip builds: keep --no-tags to prevent tags on the tip from
+          # being picked up and incorrectly setting LOCALVERSION.
+          if [[ "${{ inputs.latest-tag }}" == "true" || "${{ github.event_name }}" == "schedule" ]]; then
+            git clone --depth 1 --single-branch --branch "$KERNEL_REF" "$KERNEL_URL" "$KERNEL_DIR"
+          else
+            git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags "$KERNEL_URL" "$KERNEL_DIR"
+          fi
 
           KERNEL_SHA=$(git -C "$KERNEL_DIR" rev-parse HEAD)
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
