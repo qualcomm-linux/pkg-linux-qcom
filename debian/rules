@@ -80,7 +80,7 @@ prepare:
 		VER=$$(grep '^VERSION = ' Makefile | awk '{print $$3}'); \
 		PATCH=$$(grep '^PATCHLEVEL = ' Makefile | awk '{print $$3}'); \
 		SUB=$$(grep '^SUBLEVEL = ' Makefile | awk '{print $$3}'); \
-		EXTRA=$$(grep '^EXTRAVERSION = ' Makefile | awk '{print $$3}'); \
+		EXTRA=$$(grep '^EXTRAVERSION = ' Makefile | awk '{print $$3}' || true); \
 		TREE_LOCALVER=$$(cat localversion* 2>/dev/null | tr -d '\n' || true); \
 		BASE_KVER="$${VER}.$${PATCH}.$${SUB}$${EXTRA}$${TREE_LOCALVER}"; \
 		KVER_RESOLVED="$${BASE_KVER}$(LOCALVERSION)"; \
