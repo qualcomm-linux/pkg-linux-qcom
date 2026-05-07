@@ -138,6 +138,40 @@ jobs:
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
           echo "Kernel HEAD SHA: $KERNEL_SHA"
 
+      - name: Resolve LOCALVERSION from kernel ref
+        run: |
+          # Derive LOCALVERSION directly from KERNEL_REF — no git describe needed.
+          # KERNEL_REF is already the resolved tag name from the Sync kernel source
+          # step, so we have all the information we need without touching the cloned
+          # tree or running git inside the container.
+          #
+          # Tag builds (latest-tag=true / scheduled):
+          #   KERNEL_REF = qcom-next-7.0-rc7-20260429 → LOCALVERSION = qcom-next-20260429
+          #   Captures the branch prefix and the date snapshot, dropping the kernel
+          #   version in the middle (already encoded in the base KVER).
+          #
+          # Branch-tip builds (latest-tag=false):
+          #   KERNEL_REF = qcom-next (branch name, does not match the tag pattern)
+          #   → LOCALVERSION = qcom-next-g<short-sha>
+          #   Uses the branch name + short commit SHA to uniquely identify the build.
+          #   Two tip builds from the same commit produce the same package name;
+          #   two tip builds from different commits are always distinguishable.
+          #
+          # An explicit localversion input always takes precedence (handled in the
+          # Prepare source step below).
+          LOCALVERSION=$(echo "$KERNEL_REF" | sed -E 's/^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$/\1-\2/')
+          if [[ "$LOCALVERSION" != "$KERNEL_REF" ]]; then
+            # Tag build: LOCALVERSION derived from tag name
+            echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
+            echo "Resolved LOCALVERSION='$LOCALVERSION' from tag '$KERNEL_REF'"
+          else
+            # Branch-tip build: use branch name + short SHA for uniqueness
+            SHORT_SHA=$(echo "$KERNEL_SHA" | cut -c1-12)
+            LOCALVERSION="${KERNEL_REF}-g${SHORT_SHA}"
+            echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
+            echo "Resolved LOCALVERSION='$LOCALVERSION' from branch tip '$KERNEL_REF' @ $SHORT_SHA"
+          fi
+
       - name: Merge qcom-next PR patches
         if: ${{ inputs.qcom-next-pr != '' }}
         run: |
@@ -196,7 +230,13 @@ jobs:
           # support to run dpkg-buildpackage -S for Debusine source packages.
           ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO")
 
-          [[ -n "${{ inputs.localversion }}" ]] && ARGS+=(--localversion "${{ inputs.localversion }}")
+          # Prefer an explicit localversion input; fall back to LOCALVERSION
+          # derived from KERNEL_REF in the Resolve LOCALVERSION step above.
+          # Passing it explicitly here means prepare-source.sh never needs to
+          # run git describe inside the container (no safe.directory concerns).
+          EFFECTIVE_LOCALVERSION="${{ inputs.localversion }}"
+          [[ -z "$EFFECTIVE_LOCALVERSION" && -n "$LOCALVERSION" ]] && EFFECTIVE_LOCALVERSION="$LOCALVERSION"
+          [[ -n "$EFFECTIVE_LOCALVERSION" ]] && ARGS+=(--localversion "$EFFECTIVE_LOCALVERSION")
           [[ -n "${{ inputs.kver-extra }}" ]]   && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
 
           if [[ "$BUILD_MODE" == "docker" ]]; then
