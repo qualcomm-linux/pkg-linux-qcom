@@ -218,16 +218,6 @@ s3://qli-prd-lecore-gh-artifacts/
 
 ---
 
-## Debusine Integration Roadmap
-
-```mermaid
-flowchart LR
-    A["Native Debian packaging\ndpkg-buildpackage · 3 packages · 5 distros"] --> B
-    B["Staged pipeline\nprepare-source.sh · --skip-prepare\ncontainerised prepare + build"] --> C
-    C["Source package generation\nprepare-source.sh --source-pkg\nconverge with generate-source-package"] --> D
-    D["Debusine integration\n.dsc + .changes to Debusine build\nbuild-kernel step retired from CI"]
-```
-
 ## Local Developer Usage
 
 ### Prerequisites
@@ -275,8 +265,8 @@ sudo dpkg -i kernel-build/trixie/linux-image-*-qcom-dbg_*.deb
 
 | Workflow | Trigger | Purpose | Status |
 |----------|---------|---------|--------|
-| `build-kernel-deb.yml` | Nightly 05:00 UTC + manual | **Primary** — staged pipeline, 3 packages, 5 distros | ✅ Active |
-| `build-kernel.yml` | Manual only | Legacy — single package, Ubuntu Noble, `qcom-build-utils` | ⚠️ Deprecated |
+| `build-kernel-deb.yml` | Nightly 05:00 UTC + manual | **Primary** - staged pipeline, build using debian metadata | ✅ Active |
+| `build-kernel.yml` | Manual only | Legacy - single package, build using `qcom-build-utils` | ⚠️ Deprecated |
 
 ---
 
