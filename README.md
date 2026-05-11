@@ -40,7 +40,7 @@ pkg-linux-qcom
 
 ## Packages Produced
 
-Three versioned packages per build, named after the full kernel release string `<KVER>` (e.g. `6.12.0-qcom-next-20260210`):
+Three versioned packages per build, named after the full kernel release string `<KVER>` (e.g. `7.0.0-rc7-qcom-next-20260420`):
 
 | Package | Contents | Install path |
 |---------|----------|-------------|
@@ -48,7 +48,7 @@ Three versioned packages per build, named after the full kernel release string `
 | `linux-headers-<KVER>-qcom` | Headers for out-of-tree modules (DKMS) | `/usr/src/linux-headers-<KVER>/` |
 | `linux-image-<KVER>-qcom-dbg` | `vmlinux` (unstripped) · per-module debug symbols | `/usr/lib/debug/lib/modules/<KVER>/` |
 
-> **KVER** = base kernel version + LOCALVERSION suffix, e.g. `6.12.0` + `-qcom-next-20260210` → `6.12.0-qcom-next-20260210`. The `-qcom` flavour suffix is appended by the packaging.
+> **KVER** = base kernel version + LOCALVERSION suffix, e.g. base=`7.0.0-rc7`, LOCALVERSION=`-qcom-next-20260420` → `7.0.0-rc7-qcom-next-20260420`. The `-qcom` flavour suffix is appended by the packaging.
 
 ---
 
@@ -228,15 +228,6 @@ flowchart LR
     D["Debusine integration\n.dsc + .changes to Debusine build\nbuild-kernel step retired from CI"]
 ```
 
-| Stage | Status | Description |
-|-------|--------|-------------|
-| Native Debian packaging | ✅ Done | `dpkg-buildpackage`, 3 packages, 5 distros, no external secrets |
-| Staged pipeline | ✅ Done | `prepare-source.sh` as first-class CI step; `--skip-prepare` in `build-kernel.sh` |
-| Source package generation | 🔄 In design | `--source-pkg` flag; convergence with [`generate-source-package`](https://github.com/qualcomm-linux/equivs-dummy/blob/qcom/debian/latest/ci/generate-source-package) — tracked follow-up from Kernel Deb & DTB Strategy Review (2026-04-15) |
-| Debusine integration | 🔮 Future | `.dsc` + `.changes` submitted to Debusine; `Build kernel package` step retired from CI; `build-kernel.sh` remains for developer use |
-
----
-
 ## Local Developer Usage
 
 ### Prerequisites
@@ -258,7 +249,7 @@ cd pkg-linux-qcom
 ./build-kernel.sh --latest-tag
 
 # Build from specific tag for Ubuntu Noble
-./build-kernel.sh --tag qcom-next-6.12.0-20260210 --distro noble
+./build-kernel.sh --tag qcom-next-7.0-rc7-20260420 --distro noble
 
 # Build with Docker support enabled
 ./build-kernel.sh --latest-tag --enable-configs docker,systemd-boot
