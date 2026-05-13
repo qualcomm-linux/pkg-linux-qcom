@@ -73,6 +73,12 @@ OPTIONS:
     --debian-dir DIR        Path to the debian/ packaging directory.
                             (default: $DEBIAN_DIR)
 
+  Debug:
+    --debug                 Enable debug build: copies arch/arm64/configs/debug.config
+                            from the kernel source into debian/config/ so it is
+                            applied as a config fragment during the build.
+                            No-op if debug.config is not present in the kernel tree.
+
   Misc:
     -h, --help              Show this help
 
@@ -97,7 +103,7 @@ EOF
 
 # Defaults
 SOURCE_DIR=""; DISTRO="$DEFAULT_DISTRO"
-LOCALVERSION=""; KVER_EXTRA=""; ENABLE_CONFIGS=""
+LOCALVERSION=""; KVER_EXTRA=""; ENABLE_CONFIGS=""; DEBUG=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -107,6 +113,7 @@ while [[ $# -gt 0 ]]; do
         --kver-extra)       KVER_EXTRA="$2";    shift 2 ;;
         --enable-configs)   ENABLE_CONFIGS="$2"; shift 2 ;;
         --debian-dir)       DEBIAN_DIR="$2";    shift 2 ;;
+        --debug)            DEBUG=true;         shift   ;;
         -h|--help)          usage ;;
         *) log_error "Unknown option: $1"; usage ;;
     esac
@@ -155,6 +162,7 @@ log_info "  Distro:        $DISTRO"
 [[ -n "$LOCALVERSION" ]]   && log_info "  LOCALVERSION:  $LOCALVERSION"
 [[ -n "$KVER_EXTRA" ]]     && log_info "  KVER_EXTRA:    $KVER_EXTRA"
 [[ -n "$ENABLE_CONFIGS" ]] && log_info "  Extra configs: $ENABLE_CONFIGS"
+[[ "$DEBUG" == true ]]     && log_info "  Debug build:   yes"
 echo
 
 # ── Inject debian/ ───────────────────────────────────────────────────────────
@@ -170,6 +178,22 @@ ACTUAL_DEBIAN_DIR="$DEBIAN_DIR"
 
 cp -r "$ACTUAL_DEBIAN_DIR" "$SOURCE_DIR/debian"
 log_info "Copied $ACTUAL_DEBIAN_DIR → $SOURCE_DIR/debian"
+
+# ── Debug config fragment ─────────────────────────────────────────────────────
+# When --debug is set, copy arch/arm64/configs/debug.config from the kernel
+# source into debian/config/ so it is applied as a standard config fragment
+# in override_dh_auto_configure Step 3 alongside squashfs.config.
+# This avoids any dependency on DEB_BUILD_PROFILES being passed through the
+# container boundary and works identically for CI, local developer, and Debusine.
+if [[ "$DEBUG" == true ]]; then
+    DEBUG_CONFIG="$SOURCE_DIR/arch/arm64/configs/debug.config"
+    if [[ -f "$DEBUG_CONFIG" ]]; then
+        cp "$DEBUG_CONFIG" "$SOURCE_DIR/debian/config/debug.config"
+        log_info "Copied arch/arm64/configs/debug.config into debian/config/"
+    else
+        log_warn "arch/arm64/configs/debug.config not found in kernel source — debug config will not be applied"
+    fi
+fi
 
 # ── Optional config fragments ────────────────────────────────────────────────
 if [[ -n "$ENABLE_CONFIGS" ]]; then
