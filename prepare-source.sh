@@ -186,12 +186,12 @@ log_info "Copied $ACTUAL_DEBIAN_DIR → $SOURCE_DIR/debian"
 # This avoids any dependency on DEB_BUILD_PROFILES being passed through the
 # container boundary and works identically for CI, local developer, and Debusine.
 if [[ "$DEBUG" == true ]]; then
-    DEBUG_CONFIG="$SOURCE_DIR/arch/arm64/configs/debug.config"
+    DEBUG_CONFIG="$SOURCE_DIR/kernel/configs/debug.config"
     if [[ -f "$DEBUG_CONFIG" ]]; then
         cp "$DEBUG_CONFIG" "$SOURCE_DIR/debian/config/debug.config"
-        log_info "Copied arch/arm64/configs/debug.config into debian/config/"
+        log_info "Copied kernel/configs/debug.config into debian/config/"
     else
-        log_warn "arch/arm64/configs/debug.config not found in kernel source — debug config will not be applied"
+        log_warn "kernel/configs/debug.config not found in kernel source — debug config will not be applied"
     fi
 fi
 
