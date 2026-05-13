@@ -15,6 +15,11 @@ on:
         description: 'Use latest qcom-next-* tag (ignores kernel-branch)'
         type: boolean
         default: true
+      debug-build:
+        description: 'Enable debug build'
+        type: boolean
+        required: false
+        default: false
       localversion:
         description: 'LOCALVERSION suffix (e.g. qcom-next-20260312). Omit if the tree provides it via localversion* files.'
         required: false
@@ -238,6 +243,20 @@ jobs:
           [[ -z "$EFFECTIVE_LOCALVERSION" && -n "$LOCALVERSION" ]] && EFFECTIVE_LOCALVERSION="$LOCALVERSION"
           [[ -n "$EFFECTIVE_LOCALVERSION" ]] && ARGS+=(--localversion "$EFFECTIVE_LOCALVERSION")
           [[ -n "${{ inputs.kver-extra }}" ]]   && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
+
+          # When debug-build is enabled, copy arch/arm64/configs/debug.config from
+          # the kernel source into debian/config/ so it is applied as a standard
+          # config fragment in override_dh_auto_configure Step 3. This avoids any
+          # dependency on DEB_BUILD_PROFILES being passed through the container
+          # boundary and works identically for CI, local developer, and Debusine.
+          if [[ "${{ inputs.debug-build }}" == "true" ]]; then
+            if [[ -f "$KERNEL_DIR/arch/arm64/configs/debug.config" ]]; then
+              cp "$KERNEL_DIR/arch/arm64/configs/debug.config" debian/config/debug.config
+              echo "Copied debug.config into debian/config/ for this build"
+            else
+              echo "WARNING: arch/arm64/configs/debug.config not found in kernel source — debug config will not be applied"
+            fi
+          fi
 
           if [[ "$BUILD_MODE" == "docker" ]]; then
             docker run -i --privileged --rm \
