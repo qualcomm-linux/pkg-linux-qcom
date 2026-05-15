@@ -70,8 +70,14 @@ on:
   schedule:
     - cron: '0 5 * * *'
 
+permissions:
+  contents: read
+  packages: read
+  id-token: write  # Required for Debusine OIDC authentication
+
 jobs:
-  build:
+  prepare:
+    name: Prepare kernel source
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
 
     env:
@@ -258,23 +264,31 @@ jobs:
             ./prepare-source.sh "${ARGS[@]}"
           fi
 
-      - name: Build kernel package
-        run: |
-          # Kernel source was cloned, patched, and prepared by the preceding
-          # workflow steps. Pass --local-source and --skip-prepare so
-          # build-kernel.sh goes directly to the build step.
-          ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" \
-                --local-source "$KERNEL_DIR" --skip-prepare)
-
-          if [[ "$BUILD_MODE" == "docker" ]]; then
-            ARGS+=(--docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py")
-          fi
-
-          ./build-kernel.sh "${ARGS[@]}"
-
-      - name: Upload kernel .deb package to S3
-        uses: qualcomm-linux/upload-private-artifact-action@aws
+      - name: Upload prepared source tree
+        # Upload the kernel source tree with debian/ injected as an artifact so
+        # the debusine-build job can download it as srcpkg/ and run
+        # generate-source-package without needing access to the self-hosted runner.
+        uses: actions/upload-artifact@v4
         with:
-          s3_bucket: qli-prd-lecore-gh-artifacts
-          path: ${{ github.workspace }}/kernel-build/${{ env.DISTRO }}
-          destination: ${{ env.ORG_NAME }}/pkg/temp/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          name: kernel-srcpkg
+          path: ${{ env.KERNEL_DIR }}
+          if-no-files-found: error
+
+  debusine-build:
+    name: Build in Debusine
+    needs: prepare
+    # TODO: update ref to @main once feat/reusable-workflow-srcpkg-artifact is merged
+    # into qualcomm-linux/qcom-build-utils.
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@feat/reusable-workflow-srcpkg-artifact
+    with:
+      # qcom-build-utils-ref is required by the reusable workflow but only used
+      # in the ubuntu-build job; for Debian/Debusine builds it is not consumed.
+      qcom-build-utils-ref: main
+      # debian-ref is used by the test job to obtain debian/control for the
+      # installability check; the srcpkg-artifact takes precedence for the build.
+      debian-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
+      suite: ${{ github.event.inputs.distro || 'trixie' }}
+      srcpkg-artifact: kernel-srcpkg
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
