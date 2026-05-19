@@ -265,13 +265,20 @@ jobs:
           fi
 
       - name: Upload prepared source tree
-        # Upload the kernel source tree with debian/ injected as an artifact so
-        # the debusine-build job can download it as srcpkg/ and run
-        # generate-source-package without needing access to the self-hosted runner.
+        # Archive the kernel source tree as a tar.gz before uploading so that
+        # file permissions (execute bits on kernel build scripts) are preserved.
+        # actions/upload-artifact uses zip format which strips execute bits;
+        # tar preserves them end-to-end.
+        run: |
+          tar czf /tmp/kernel-srcpkg.tar.gz \
+            -C "$(dirname "$KERNEL_DIR")" \
+            "$(basename "$KERNEL_DIR")"
+
+      - name: Upload prepared source tree artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-srcpkg
-          path: ${{ env.KERNEL_DIR }}
+          path: /tmp/kernel-srcpkg.tar.gz
           if-no-files-found: error
 
   debusine-build:
