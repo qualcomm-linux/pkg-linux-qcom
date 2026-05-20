@@ -296,6 +296,7 @@ jobs:
       debian-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
       suite: ${{ github.event.inputs.distro || 'trixie' }}
       srcpkg-artifact: kernel-srcpkg
+      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
