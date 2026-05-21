@@ -75,6 +75,10 @@ permissions:
   packages: read
   id-token: write  # Required for Debusine OIDC authentication
 
+env:
+  # TODO: update to main once feat/generate-source-package-non-gbp-quilt is merged.
+  DEBUSINE_ACTION_REF: feat/generate-source-package-non-gbp-quilt
+
 jobs:
   prepare:
     name: Prepare kernel source
@@ -300,3 +304,80 @@ jobs:
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+
+  upload-artifacts:
+    name: Download .deb from Debusine and upload to S3
+    needs: debusine-build
+    if: ${{ needs.debusine-build.result == 'success' }}
+    # No container: — the S3 upload action requires direct runner access.
+    # chdist runs inside the debusine-pkg-builder container via docker run
+    # with a bind-mount so downloaded .deb files land on the host filesystem.
+    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout debusine-action helpers
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/debusine-action
+          ref: ${{ env.DEBUSINE_ACTION_REF }}
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
+
+      - name: Generate Debusine apt configuration
+        env:
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          DEBUSINE_WORKSPACE: ${{ needs.debusine-build.outputs.workspace }}
+          SUITE: ${{ github.event.inputs.distro || 'trixie' }}
+        run: |
+          # generate-apt-config only needs curl; runs directly on the runner.
+          debusine-action/lib/generate-apt-config
+
+      - name: Download .deb packages from Debusine workspace
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/deb-artifacts"
+
+          # Write the chdist script to a file to avoid quoting issues when
+          # passing it to docker run.
+          cat > /tmp/download-debs.sh << 'SCRIPT'
+          #!/bin/bash
+          set -euxo pipefail
+          # Create an isolated apt environment pointing exclusively at the
+          # Debusine CI workspace so apt-cache search returns only the
+          # packages produced by this build.
+          chdist create debusine-workspace
+          rm -f ~/.chdist/debusine-workspace/etc/apt/sources.list
+          install -d ~/.chdist/debusine-workspace/etc/apt/sources.list.d
+          install -d ~/.chdist/debusine-workspace/etc/apt/auth.conf.d
+          install -m 0644 debusine-ci.sources \
+            ~/.chdist/debusine-workspace/etc/apt/sources.list.d/
+          install -m 0600 debusine-ci-auth.conf \
+            ~/.chdist/debusine-workspace/etc/apt/auth.conf.d/
+          chdist apt-get debusine-workspace update
+          packages=$(chdist apt-cache debusine-workspace search . | awk '{print $1}' | tr '\n' ' ')
+          echo "Packages to download: $packages"
+          cd deb-artifacts
+          chdist apt-get debusine-workspace download $packages
+          SCRIPT
+          chmod +x /tmp/download-debs.sh
+
+          docker run -i --rm \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            -v /tmp/download-debs.sh:/tmp/download-debs.sh \
+            --workdir="$GITHUB_WORKSPACE" \
+            "ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ github.event.inputs.distro || 'trixie' }}" \
+            /tmp/download-debs.sh
+
+      - name: Upload .deb packages to S3
+        uses: qualcomm-linux/upload-private-artifact-action@aws
+        with:
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: deb-artifacts
+          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ github.run_id }}-${{ github.run_attempt }}/
