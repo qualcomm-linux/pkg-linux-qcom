@@ -301,6 +301,7 @@ jobs:
       suite: ${{ github.event.inputs.distro || 'trixie' }}
       srcpkg-artifact: kernel-srcpkg
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
+      assemble-orig: true
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
