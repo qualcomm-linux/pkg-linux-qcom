@@ -309,9 +309,6 @@ jobs:
     name: Download .deb from Debusine and upload to S3
     needs: debusine-build
     if: ${{ needs.debusine-build.result == 'success' }}
-    # No container: — the S3 upload action requires direct runner access.
-    # chdist runs inside the debusine-pkg-builder container via docker run
-    # with a bind-mount so downloaded .deb files land on the host filesystem.
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     defaults:
       run:
@@ -342,13 +339,12 @@ jobs:
       - name: Download .deb packages from Debusine workspace
         run: |
           set -euxo pipefail
+
+          # chdist is provided by devscripts.
+          sudo apt-get install -y --no-install-recommends devscripts
+
           mkdir -p "$GITHUB_WORKSPACE/deb-artifacts"
 
-          # Write the chdist script to a file to avoid quoting issues when
-          # passing it to docker run.
-          cat > /tmp/download-debs.sh << 'SCRIPT'
-          #!/bin/bash
-          set -euxo pipefail
           # Create an isolated apt environment pointing exclusively at the
           # Debusine CI workspace so apt-cache search returns only the
           # packages produced by this build.
@@ -360,20 +356,14 @@ jobs:
             ~/.chdist/debusine-workspace/etc/apt/sources.list.d/
           install -m 0600 debusine-ci-auth.conf \
             ~/.chdist/debusine-workspace/etc/apt/auth.conf.d/
+
           chdist apt-get debusine-workspace update
+
           packages=$(chdist apt-cache debusine-workspace search . | awk '{print $1}' | tr '\n' ' ')
           echo "Packages to download: $packages"
-          cd deb-artifacts
-          chdist apt-get debusine-workspace download $packages
-          SCRIPT
-          chmod +x /tmp/download-debs.sh
 
-          docker run -i --rm \
-            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
-            -v /tmp/download-debs.sh:/tmp/download-debs.sh \
-            --workdir="$GITHUB_WORKSPACE" \
-            "ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ github.event.inputs.distro || 'trixie' }}" \
-            /tmp/download-debs.sh
+          cd "$GITHUB_WORKSPACE/deb-artifacts"
+          chdist apt-get debusine-workspace download $packages
 
       - name: Upload .deb packages to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws
