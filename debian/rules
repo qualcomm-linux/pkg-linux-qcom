@@ -104,8 +104,9 @@ override_dh_auto_configure:
 	#   1. ARM64 base defconfig
 	#   2. Disable CONFIG_LOCALVERSION_AUTO (must happen before any merges)
 	#   3. Config fragments — applied in a single unified pipeline:
-	#        a. arch/arm64/configs/qcom.config  (kernel-source fragment, if present)
-	#        b. debian/config/*.config           (packaging fragments, sorted order)
+	#        a. arch/arm64/configs/qcom.config   (kernel-source fragment, if present)
+	#        b. arch/arm64/configs/prune.config  (kernel-source fragment, if present)
+	#        c. debian/config/*.config            (packaging fragments, sorted order)
 	#      All fragments use the same mechanism: append to .config + olddefconfig.
 	#   4. Re-check CONFIG_LOCALVERSION_AUTO (merges may re-enable it)
 	#   5. arch/arm64/configs/debug.config — only when DEB_BUILD_PROFILES=debug
@@ -130,6 +131,7 @@ override_dh_auto_configure:
 	# Step 3: Unified config fragment pipeline.
 	# Fragments are collected in order and applied together:
 	#   - arch/arm64/configs/qcom.config first (kernel-source, present in qcom-next)
+	#   - arch/arm64/configs/prune.config second (kernel-source, prunes qcom.config options)
 	#   - then debian/config/*.config in sorted order (packaging repo fragments)
 	# All are applied via: append to .config → make olddefconfig.
 	# To add options: drop a *.config file in debian/config/ — no rules changes needed.
@@ -140,6 +142,12 @@ override_dh_auto_configure:
 		FRAGMENTS="arch/arm64/configs/qcom.config"; \
 	else \
 		echo "Note: arch/arm64/configs/qcom.config not found (not a qcom-next tree?)"; \
+	fi; \
+	if [ -f arch/arm64/configs/prune.config ]; then \
+		echo "Found kernel-source fragment: arch/arm64/configs/prune.config"; \
+		FRAGMENTS="$$FRAGMENTS arch/arm64/configs/prune.config"; \
+	else \
+		echo "Note: arch/arm64/configs/prune.config not found (skipping)"; \
 	fi; \
 	if [ -d debian/config ] && ls debian/config/*.config >/dev/null 2>&1; then \
 		for f in $$(ls debian/config/*.config | sort); do \
