@@ -276,7 +276,15 @@ override_dh_auto_install:
 	# Follows the upstream install-extmod-build approach (scripts/package/install-extmod-build):
 	#   Pass 1 (source tree): Makefile, include/, scripts/, arch/arm64/ headers
 	#   Pass 2 (build dir):   generated headers, compiled scripts, Module.symvers, .config
-	#   Pass 3 (make):        UAPI headers via headers_install (sanitised for user-space)
+	#
+	# Note: make headers_install (UAPI headers) is intentionally NOT run here.
+	# Running it overwrites kernel-internal headers in include/ with their UAPI
+	# counterparts. The critical corruption is include/asm-generic/bitsperlong.h:
+	# the kernel-internal version defines BITS_PER_LONG via #ifdef CONFIG_64BIT,
+	# while the UAPI version only defines __BITS_PER_LONG. This breaks every
+	# DKMS and out-of-tree module build with 'BITS_PER_LONG undeclared', which
+	# cascades into hundreds of further errors. UAPI headers are provided by
+	# linux-libc-dev, not by the kernel headers package.
 	HDRDIR="$$HDR_PKG/usr/src/linux-headers-$$BASE"; \
 	echo "Installing kernel headers to $$HDRDIR"; \
 	mkdir -p "$$HDRDIR"; \
@@ -309,11 +317,6 @@ override_dh_auto_install:
 		cp -a Module.symvers "$$HDRDIR/" 2>/dev/null || true; \
 		cp -a .config "$$HDRDIR/"; \
 	fi; \
-	\
-	# Pass 3: UAPI headers (sanitised for user-space, installed by headers_install).
-	# These overwrite the raw uapi/ files copied in Pass 1 with the sanitised versions.
-	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) headers_install \
-	    INSTALL_HDR_PATH=$$HDRDIR; \
 	\
 	# module.lds — generated linker script needed for out-of-tree module builds.
 	# It lives in the build directory; fall back to source tree for in-tree builds.
