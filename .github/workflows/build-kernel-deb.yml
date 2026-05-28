@@ -66,9 +66,26 @@ on:
         required: false
         default: ''
 
-  # Nightly run at 9:00 PM PST (05:00 UTC)
-  schedule:
-    - cron: '0 5 * * *'
+  # Nightly builds are driven by nightly.yml which reads ci/build-matrix.json
+  # and calls this workflow as a reusable workflow for each matrix entry.
+  workflow_call:
+    inputs:
+      distro:
+        description: Target distro (trixie, noble, questing, resolute, sid)
+        type: string
+        default: 'trixie'
+      latest-tag:
+        description: Use latest qcom-next-* tag
+        type: boolean
+        default: true
+      build-mode:
+        description: 'Build mode: docker or native'
+        type: string
+        default: 'docker'
+      pkg-linux-qcom-ref:
+        description: pkg-linux-qcom ref branch or commit
+        type: string
+        default: 'qcom/debian/latest'
 
 permissions:
   contents: read
@@ -96,7 +113,7 @@ jobs:
         id: classify
         shell: bash
         run: |
-          suite="${{ github.event.inputs.distro || 'trixie' }}"
+          suite="${{ inputs.distro || 'trixie' }}"
           case "$suite" in
             trixie|sid|unstable|bookworm|forky)
               family=debian ;;
@@ -111,10 +128,10 @@ jobs:
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
 
     env:
-      KERNEL_BRANCH: ${{ github.event.inputs.kernel-branch || 'qcom-next' }}
-      KERNEL_URL: ${{ github.event.inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
-      DISTRO: ${{ github.event.inputs.distro || 'trixie' }}
-      BUILD_MODE: ${{ github.event.inputs.build-mode || 'docker' }}
+      KERNEL_BRANCH: ${{ inputs.kernel-branch || 'qcom-next' }}
+      KERNEL_URL: ${{ inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
+      DISTRO: ${{ inputs.distro || 'trixie' }}
+      BUILD_MODE: ${{ inputs.build-mode || 'docker' }}
 
     steps:
       - name: Checkout pkg-linux-qcom
@@ -333,7 +350,7 @@ jobs:
       # debian-ref is used by the test job to obtain debian/control for the
       # installability check; the srcpkg-artifact takes precedence for the build.
       debian-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
-      suite: ${{ github.event.inputs.distro || 'trixie' }}
+      suite: ${{ inputs.distro || 'trixie' }}
       srcpkg-artifact: kernel-srcpkg
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
       assemble-orig: true
@@ -356,8 +373,8 @@ jobs:
     if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
-      distro: ${{ github.event.inputs.distro || 'resolute' }}
-      build-mode: ${{ github.event.inputs.build-mode || 'docker' }}
+      distro: ${{ inputs.distro || 'resolute' }}
+      build-mode: ${{ inputs.build-mode || 'docker' }}
       pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
 
   # ---------------------------------------------------------------------------
@@ -394,7 +411,7 @@ jobs:
           DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           DEBUSINE_WORKSPACE: ${{ needs.debusine-build.outputs.workspace }}
-          SUITE: ${{ github.event.inputs.distro || 'trixie' }}
+          SUITE: ${{ inputs.distro || 'trixie' }}
         run: |
           # generate-apt-config only needs curl; runs directly on the runner.
           debusine-action/lib/generate-apt-config
