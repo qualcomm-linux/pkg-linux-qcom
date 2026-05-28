@@ -430,4 +430,4 @@ jobs:
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: deb-artifacts
-          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.distro || 'trixie' }}/${{ github.run_id }}-${{ github.run_attempt }}/
