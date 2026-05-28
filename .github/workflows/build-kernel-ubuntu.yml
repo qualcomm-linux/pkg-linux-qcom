@@ -25,10 +25,6 @@ on:
         description: Target Ubuntu suite (noble, questing, resolute)
         type: string
         required: true
-      build-mode:
-        description: 'Build mode: docker (uses docker-pkg-build) or native (dpkg-buildpackage)'
-        type: string
-        default: 'docker'
       pkg-linux-qcom-ref:
         description: |
           pkg-linux-qcom ref to check out. Provides build-kernel.sh and the
@@ -48,7 +44,6 @@ jobs:
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     env:
       DISTRO: ${{ inputs.distro }}
-      BUILD_MODE: ${{ inputs.build-mode }}
     defaults:
       run:
         shell: bash
@@ -66,7 +61,6 @@ jobs:
       # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
       # is merged upstream.
       - name: Checkout docker-pkg-build
-        if: ${{ inputs.build-mode == 'docker' }}
         uses: actions/checkout@v4
         with:
           repository: qualcomm-linux/docker-pkg-build
@@ -74,7 +68,6 @@ jobs:
           path: docker-pkg-build
 
       - name: Build docker image
-        if: ${{ inputs.build-mode == 'docker' }}
         run: |
           # Rebuild the pkg-builder image for the target Ubuntu suite so that
           # docker_deb_build.py has a fresh local image to work with.
@@ -112,13 +105,12 @@ jobs:
           # debian/control, debian/changelog, and all config fragments are
           # already baked into the extracted source tree; no re-derivation
           # of LOCALVERSION, kver-extra, or debug config is needed here.
-          ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" \
-                --local-source "$KERNEL_DIR" --skip-prepare)
-          if [[ "$BUILD_MODE" == "docker" ]]; then
-            ARGS+=(--docker-build \
-              "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py")
-          fi
-          ./build-kernel.sh "${ARGS[@]}"
+          ./build-kernel.sh \
+            --build-mode docker \
+            --distro "$DISTRO" \
+            --local-source "$KERNEL_DIR" \
+            --skip-prepare \
+            --docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py"
 
       - name: Upload .deb packages to S3
         # github.repository_owner, github.run_id, and github.run_attempt
