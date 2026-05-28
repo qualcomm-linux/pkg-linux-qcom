@@ -1,0 +1,131 @@
+name: build-kernel-ubuntu
+
+# Reusable workflow: Ubuntu kernel build via build-kernel.sh.
+#
+# Called by build-kernel-deb.yml when the target suite is Ubuntu-family
+# (noble, questing, resolute). The kernel source has already been cloned,
+# patched, and prepared (debian/ injected, debian/control + debian/changelog
+# generated) by the prepare job in the caller workflow. This workflow
+# downloads the kernel-srcpkg artifact and runs build-kernel.sh --skip-prepare
+# to go directly to the build step.
+#
+# Artifact sharing: artifacts are scoped to github.run_id, which is shared
+# between the caller and this reusable workflow. The kernel-srcpkg artifact
+# uploaded by the caller's prepare job is therefore directly accessible here
+# via actions/download-artifact without any additional plumbing.
+#
+# Deprecation path: when Debusine gains Ubuntu support (or this path is
+# retired for any other reason), delete this file and remove the ubuntu-build
+# job from build-kernel-deb.yml. No other files need to change.
+
+on:
+  workflow_call:
+    inputs:
+      distro:
+        description: Target Ubuntu suite (noble, questing, resolute)
+        type: string
+        required: true
+      build-mode:
+        description: 'Build mode: docker (uses docker-pkg-build) or native (dpkg-buildpackage)'
+        type: string
+        default: 'docker'
+      pkg-linux-qcom-ref:
+        description: |
+          pkg-linux-qcom ref to check out. Provides build-kernel.sh and the
+          debian/ packaging tree. Should match the ref used by the caller's
+          prepare job so that build-kernel.sh is consistent with the prepared
+          source tree.
+        type: string
+        default: 'qcom/debian/latest'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: Build kernel package
+    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    env:
+      DISTRO: ${{ inputs.distro }}
+      BUILD_MODE: ${{ inputs.build-mode }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout pkg-linux-qcom
+        # Provides build-kernel.sh and prepare-source.sh. Must match the ref
+        # used by the caller's prepare job so that build-kernel.sh is
+        # consistent with the prepared source tree baked into the artifact.
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.pkg-linux-qcom-ref }}
+
+      # TODO: switch to qualcomm-linux/docker-pkg-build@main once
+      # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
+      # is merged upstream.
+      - name: Checkout docker-pkg-build
+        if: ${{ inputs.build-mode == 'docker' }}
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/docker-pkg-build
+          ref: main
+          path: docker-pkg-build
+
+      - name: Build docker image
+        if: ${{ inputs.build-mode == 'docker' }}
+        run: |
+          # Rebuild the pkg-builder image for the target Ubuntu suite so that
+          # docker_deb_build.py has a fresh local image to work with.
+          ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
+          docker image ls
+
+      - name: Download prepared source tree
+        # The kernel-srcpkg artifact was uploaded by the prepare job in the
+        # caller workflow. Artifacts are scoped to github.run_id, which is
+        # shared between the caller and this reusable workflow.
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-srcpkg
+          path: /tmp/srcpkg-artifact
+
+      - name: Extract prepared source tree
+        run: |
+          # The artifact is a tar.gz created by the prepare job to preserve
+          # Unix execute permissions on kernel build scripts. zip format (used
+          # by actions/upload-artifact) strips execute bits; tar does not.
+          # --strip-components=1 extracts the top-level directory directly into
+          # kernel-source/ without depending on its name inside the archive.
+          mkdir -p kernel-source
+          tar xzf /tmp/srcpkg-artifact/kernel-srcpkg.tar.gz \
+            -C kernel-source --strip-components=1
+          # Expose KERNEL_DIR so the build step mirrors the variable name used
+          # in the original (pre-Debusine) validated pipeline.
+          echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel-source" >> "$GITHUB_ENV"
+
+      - name: Build kernel package
+        run: |
+          # Kernel source was cloned, patched, and prepared by the caller's
+          # prepare job. Pass --local-source and --skip-prepare so
+          # build-kernel.sh goes directly to the build step.
+          # debian/control, debian/changelog, and all config fragments are
+          # already baked into the extracted source tree; no re-derivation
+          # of LOCALVERSION, kver-extra, or debug config is needed here.
+          ARGS=(--build-mode "$BUILD_MODE" --distro "$DISTRO" \
+                --local-source "$KERNEL_DIR" --skip-prepare)
+          if [[ "$BUILD_MODE" == "docker" ]]; then
+            ARGS+=(--docker-build \
+              "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py")
+          fi
+          ./build-kernel.sh "${ARGS[@]}"
+
+      - name: Upload .deb packages to S3
+        # github.repository_owner, github.run_id, and github.run_attempt
+        # refer to the caller's context in a reusable workflow, so the S3
+        # destination path is identical to the Debusine path in upload-artifacts.
+        uses: qualcomm-linux/upload-private-artifact-action@aws
+        with:
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: kernel-build
+          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ github.run_id }}-${{ github.run_attempt }}/
