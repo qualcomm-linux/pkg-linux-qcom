@@ -80,6 +80,32 @@ env:
   DEBUSINE_ACTION_REF: feat/generate-source-package-non-gbp-quilt
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # resolve: classify the target suite as 'debian' or 'ubuntu'.
+  #
+  # Debian suites (trixie, sid, unstable, bookworm, forky) → Debusine.
+  # Ubuntu suites (noble, questing, resolute) → docker build on self-hosted runner.
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve suite family
+    runs-on: ubuntu-latest
+    outputs:
+      family: ${{ steps.classify.outputs.family }}
+    steps:
+      - name: Classify suite
+        id: classify
+        shell: bash
+        run: |
+          suite="${{ github.event.inputs.distro || 'trixie' }}"
+          case "$suite" in
+            trixie|sid|unstable|bookworm|forky)
+              family=debian ;;
+            *)
+              family=ubuntu ;;
+          esac
+          echo "family=$family" >> "$GITHUB_OUTPUT"
+          echo "Suite '$suite' classified as family=$family"
+
   prepare:
     name: Prepare kernel source
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
@@ -285,9 +311,18 @@ jobs:
           path: /tmp/kernel-srcpkg.tar.gz
           if-no-files-found: error
 
+  # ---------------------------------------------------------------------------
+  # debusine-build: Debian suites only (trixie, sid).
+  #
+  # Downloads the kernel-srcpkg artifact produced by the prepare job and
+  # submits it to Debusine for distributed building. The reusable workflow
+  # handles source package generation (DEBUSINE_ASSEMBLE_ORIG=true) and
+  # Debusine submission.
+  # ---------------------------------------------------------------------------
   debusine-build:
     name: Build in Debusine
-    needs: prepare
+    needs: [resolve, prepare]
+    if: ${{ needs.resolve.outputs.family == 'debian' }}
     # TODO: update ref to @main once feat/reusable-workflow-srcpkg-artifact is merged
     # into qualcomm-linux/qcom-build-utils.
     uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@feat/reusable-workflow-srcpkg-artifact
@@ -306,10 +341,37 @@ jobs:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
 
+  # ---------------------------------------------------------------------------
+  # ubuntu-build: Ubuntu suites only (noble, questing, resolute).
+  #
+  # Delegates to build-kernel-ubuntu.yml, which encapsulates the full
+  # build-kernel.sh pipeline. Keeping this as a separate reusable workflow
+  # means the Ubuntu build path can be deprecated or replaced (e.g. when
+  # Debusine gains Ubuntu support) by deleting one file and one job — no
+  # surgery on the orchestrator logic below.
+  # ---------------------------------------------------------------------------
+  ubuntu-build:
+    name: Build (Ubuntu, docker)
+    needs: [resolve, prepare]
+    if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+    uses: ./.github/workflows/build-kernel-ubuntu.yml
+    with:
+      distro: ${{ github.event.inputs.distro || 'resolute' }}
+      build-mode: ${{ github.event.inputs.build-mode || 'docker' }}
+      pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
+
+  # ---------------------------------------------------------------------------
+  # upload-artifacts: Debian suites only.
+  #
+  # Runs after a successful debusine-build. Downloads the built .deb packages
+  # from the Debusine workspace via chdist and uploads them to S3.
+  # ---------------------------------------------------------------------------
   upload-artifacts:
     name: Download .deb from Debusine and upload to S3
-    needs: debusine-build
-    if: ${{ needs.debusine-build.result == 'success' }}
+    needs: [resolve, debusine-build]
+    if: >-
+      ${{ needs.resolve.outputs.family == 'debian' &&
+          needs.debusine-build.result == 'success' }}
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     defaults:
       run:
