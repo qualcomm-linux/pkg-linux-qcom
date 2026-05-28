@@ -36,14 +36,6 @@ on:
         description: 'pkg-linux-qcom PR number to apply before building (e.g. 42)'
         required: false
         default: ''
-      build-mode:
-        description: 'Build mode: docker (uses docker-pkg-build) or native (dpkg-buildpackage)'
-        required: false
-        default: 'docker'
-        type: choice
-        options:
-          - docker
-          - native
       distro:
         description: 'Target distro'
         required: false
@@ -78,10 +70,6 @@ on:
         description: Use latest qcom-next-* tag
         type: boolean
         default: true
-      build-mode:
-        description: 'Build mode: docker or native'
-        type: string
-        default: 'docker'
       pkg-linux-qcom-ref:
         description: pkg-linux-qcom ref branch or commit
         type: string
@@ -131,7 +119,6 @@ jobs:
       KERNEL_BRANCH: ${{ inputs.kernel-branch || 'qcom-next' }}
       KERNEL_URL: ${{ inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
       DISTRO: ${{ inputs.distro || 'trixie' }}
-      BUILD_MODE: ${{ inputs.build-mode || 'docker' }}
 
     steps:
       - name: Checkout pkg-linux-qcom
@@ -158,7 +145,6 @@ jobs:
       # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
       # is merged upstream.
       - name: Checkout docker-pkg-build
-        if: ${{ env.BUILD_MODE == 'docker' }}
         uses: actions/checkout@v4
         with:
           repository: qualcomm-linux/docker-pkg-build
@@ -166,7 +152,6 @@ jobs:
           path: docker-pkg-build
 
       - name: Build docker image
-        if: ${{ env.BUILD_MODE == 'docker' }}
         run: |
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
           docker image ls
@@ -302,14 +287,10 @@ jobs:
           # into debian/config/ so it is applied as a standard config fragment.
           [[ "${{ inputs.debug-build }}" == "true" ]] && ARGS+=(--debug)
 
-          if [[ "$BUILD_MODE" == "docker" ]]; then
-            docker run -i --privileged --rm \
-              -v "$PWD:$PWD" --workdir="$PWD" \
-              "ghcr.io/qualcomm-linux/pkg-builder:$DISTRO" \
-              ./prepare-source.sh "${ARGS[@]}"
-          else
+          docker run -i --privileged --rm \
+            -v "$PWD:$PWD" --workdir="$PWD" \
+            "ghcr.io/qualcomm-linux/pkg-builder:$DISTRO" \
             ./prepare-source.sh "${ARGS[@]}"
-          fi
 
       - name: Upload prepared source tree
         # Archive the kernel source tree as a tar.gz before uploading so that
@@ -374,7 +355,6 @@ jobs:
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
       distro: ${{ inputs.distro || 'resolute' }}
-      build-mode: ${{ inputs.build-mode || 'docker' }}
       pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
 
   # ---------------------------------------------------------------------------
