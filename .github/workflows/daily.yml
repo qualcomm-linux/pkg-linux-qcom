@@ -1,0 +1,105 @@
+name: daily
+
+# Daily kernel package builds across all supported distros.
+#
+# Schedule: runs daily at 3:00 PM PST (23:00 UTC) for every entry in
+# ci/build-matrix.json, producing parallel independent builds.
+#
+# Manual dispatch:
+#   - Check "Test Daily Build" to run the full matrix (identical to the
+#     scheduled daily build).
+#   - Leave it unchecked and pick a specific distro to run a single build.
+#
+# Matrix format (ci/build-matrix.json):
+#   [ { "distro": "<codename>" }, ... ]
+#
+# To add a new daily target, append an entry to ci/build-matrix.json.
+# No workflow changes are needed.
+
+on:
+  schedule:
+    # 3:00 PM PST == 23:00 UTC
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+    inputs:
+      run-full-matrix:
+        description: 'Test Daily Build (runs all matrix combinations, same as the scheduled daily build)'
+        type: boolean
+        required: false
+        default: false
+      distro:
+        description: 'Target distro (ignored when Test Daily Build is checked)'
+        required: false
+        default: 'trixie'
+        type: choice
+        options:
+          - trixie
+          - noble
+          - questing
+          - resolute
+          - sid
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write  # Required for Debusine OIDC authentication
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # configure-matrix: determine which distros to build.
+  #
+  # Schedule / Test Daily Build checked → full matrix from ci/build-matrix.json.
+  # Specific distro input               → single-entry matrix from the input.
+  #
+  # Mirrors the configure-matrix pattern used in qcom-distro-images.
+  # ---------------------------------------------------------------------------
+  configure-matrix:
+    name: Configure build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate build matrix
+        id: set-matrix
+        run: |
+          INPUT_DISTRO="${{ github.event.inputs.distro }}"
+          RUN_FULL="${{ github.event.inputs.run-full-matrix }}"
+
+          if [ "${{ github.event_name }}" == "schedule" ] || [ "$RUN_FULL" == "true" ]; then
+            echo "Source: ci/build-matrix.json (full matrix)"
+
+            if [ ! -f "./ci/build-matrix.json" ]; then
+              echo "::error::ci/build-matrix.json not found"
+              exit 1
+            fi
+
+            MATRIX=$(jq -c . < ./ci/build-matrix.json)
+          else
+            echo "Source: manual input (single target: $INPUT_DISTRO)"
+            MATRIX="[{\"distro\": \"$INPUT_DISTRO\"}]"
+          fi
+
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $MATRIX"
+
+  # ---------------------------------------------------------------------------
+  # build: one parallel job per matrix entry.
+  #
+  # Each entry calls build-kernel-deb.yml as a reusable workflow, which owns
+  # the full build pipeline (prepare → debusine-build or ubuntu-build →
+  # upload-artifacts). Jobs are independent; fail-fast is disabled so a
+  # failed trixie build does not cancel the resolute build.
+  # ---------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.distro }}
+    needs: configure-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/build-kernel-deb.yml
+    with:
+      distro: ${{ matrix.distro }}
+    secrets: inherit
