@@ -193,9 +193,10 @@ flowchart LR
 
 ### S3 Path
 
-```
-s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run_id>-<run_attempt>/
-```
+| Path | Build type |
+|---|---|
+| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/debusine/<repo>/<suite>/<run_id>-<run_attempt>/` | Debian (Debusine) — suite segment included |
+| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run_id>-<run_attempt>/` | Ubuntu (docker) — flat layout, no suite segment |
 
 ### Install
 
@@ -243,4 +244,4 @@ Zero changes to `build-kernel-deb.yml` orchestration logic, `prepare-source.sh`,
 
 ## License
 
-BSD-3-Clause. See [LICENSE.txt](LICENSE.txt).
+pkg-linux-kernel is licensed under the BSD-3-clause License. See LICENSE.txt for the full license text.

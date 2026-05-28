@@ -113,11 +113,12 @@ jobs:
             --docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py"
 
       - name: Upload .deb packages to S3
-        # github.repository_owner, github.run_id, and github.run_attempt
-        # refer to the caller's context in a reusable workflow, so the S3
-        # destination path is identical to the Debusine path in upload-artifacts.
+        # build-kernel.sh outputs to kernel-build/<distro>/ by default.
+        # Upload from that subdirectory directly so the suite name does not
+        # appear in the S3 path — downstream consumers (e.g. qcom-distro-images)
+        # expect the flat pkg/temp/<repo>/<run_id>-<attempt>/ layout.
         uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
-          path: kernel-build
+          path: kernel-build/${{ inputs.distro }}
           destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ github.run_id }}-${{ github.run_attempt }}/
