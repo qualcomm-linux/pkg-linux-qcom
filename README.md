@@ -25,8 +25,8 @@ flowchart TD
         C1["resolve\nClassify suite family"]
         C2["prepare\nClone · patch · prepare-source.sh\nUpload kernel-srcpkg artifact"]
         C3["debusine-build\nDebian suites only"]
-        C4["ubuntu-build\nUbuntu suites only"]
-        C5["upload-artifacts\nDebian suites only"]
+        C4["ubuntu-build\nUbuntu suites only\nbuild-kernel.sh via docker → S3"]
+        C5["upload-artifacts\nDebian suites only\nchdist download from Debusine → S3"]
     end
 
     subgraph Outputs
