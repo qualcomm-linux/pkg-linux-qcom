@@ -58,7 +58,7 @@ on:
         required: false
         default: ''
 
-  # Nightly builds are driven by nightly.yml which reads ci/build-matrix.json
+  # Daily builds are driven by daily.yml which reads ci/build-matrix.json
   # and calls this workflow as a reusable workflow for each matrix entry.
   workflow_call:
     inputs:
@@ -328,8 +328,11 @@ jobs:
       # qcom-build-utils-ref is required by the reusable workflow but only used
       # in the ubuntu-build job; for Debian/Debusine builds it is not consumed.
       qcom-build-utils-ref: main
-      # debian-ref is used by the test job to obtain debian/control for the
-      # installability check; the srcpkg-artifact takes precedence for the build.
+      # debian-ref is required by the reusable workflow's input schema but is
+      # NOT consumed on this srcpkg-artifact path: both the build and the test
+      # job read debian/ (including debian/control) from the extracted
+      # srcpkg-artifact, never from a debian-ref checkout. It is passed only to
+      # satisfy the schema's required: true constraint.
       debian-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
       suite: ${{ inputs.distro || 'trixie' }}
       srcpkg-artifact: kernel-srcpkg
