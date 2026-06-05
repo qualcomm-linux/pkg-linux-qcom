@@ -426,9 +426,29 @@ override_dh_auto_install:
 	            echo "       Refusing to ship linux-image-$$BASE-qcom without $${name}." >&2; \
 	            exit 1; \
 	        fi; \
+	        # Mirror the in-tree module treatment for each bundled .ko. In-tree, the
+	        # unstripped build-tree copy is the debug donor while modules_install
+	        # writes a separately stripped copy (INSTALL_MOD_STRIP=1, i.e. STRIP
+	        # --strip-debug). We have only the one dkms-built .ko, so both roles are
+	        # performed on it, in order:
+	        #   Stage 1 — copy its debug into the -dbg package's parallel debug tree
+	        #             (same path layout as the in-tree extraction above); a
+	        #             non-destructive read, so the shipped copy is untouched.
+	        #   Stage 2 — strip the shipped copy in place with `strip --strip-debug`,
+	        #             matching exactly what modules_install INSTALL_MOD_STRIP=1
+	        #             runs on the in-tree modules (the kernel's STRIP --strip-debug;
+	        #             plain strip on this native arm64 build). --strip-debug is
+	        #             required for kernel modules — a full strip drops the symtab
+	        #             and relocations needed to load. Must follow stage 1. (strip,
+	        #             not objcopy: objcopy's single-arg in-place form no-op'd here.)
 	        printf '%s\n' "$$kos" | while IFS= read -r ko; do \
-	            install -D -m 644 "$$ko" \
-	                "debian/linux-image-$$BASE-qcom/lib/modules/$$BASE/extra/$$(basename $$ko)"; \
+	            b=$$(basename "$$ko"); \
+	            dest="debian/linux-image-$$BASE-qcom/lib/modules/$$BASE/extra/$$b"; \
+	            dbg="$$DBG_PKG/usr/lib/debug/lib/modules/$$BASE/extra/$$b"; \
+	            install -D -m 644 "$$ko" "$$dest"; \
+	            mkdir -p "$${dbg%/*}"; \
+	            $(OBJCOPY) --only-keep-debug "$$dest" "$$dbg" 2>/dev/null || cp -a "$$dest" "$$dbg"; \
+	            strip --strip-debug "$$dest"; \
 	        done; \
 	        echo "Bundled $${name} modules into debian/linux-image-$$BASE-qcom"; \
 	    done; \
