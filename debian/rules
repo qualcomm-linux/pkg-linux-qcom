@@ -374,7 +374,39 @@ override_dh_auto_install:
 		       $$DBG_PKG/usr/lib/debug/vmlinux-$$BASE; \
 	else \
 		echo "Warning: vmlinux not found at $$VMLINUX_PATH — debug package will not contain vmlinux"; \
-	fi
+	fi; \
+	\
+	# ── DKMS module integration ──────────────────────────────────────────────────
+	# kgsl-dkms is a Build-Depends: dpkg-buildpackage installs it before any
+	# debian/rules target runs, placing the KGSL source at /usr/src/kgsl-<ver>/.
+	#
+	# linux-headers are NOT installed on the build host — they are staged at:
+	#   debian/linux-headers-<BASE>-qcom/usr/src/linux-headers-<BASE>/
+	# --kernelsourcedir must point at this staging path; /usr/src/ does not exist
+	# in the build environment (Docker container or Debusine chroot).
+	#
+	# --dkmstree redirects DKMS's working tree away from /var/lib/dkms, which is
+	# owned by root and not writable by the non-root dpkg-buildpackage process.
+	KGSL_VER=$$(dpkg-query -W -f='$${Version}' kgsl-dkms | cut -d- -f1); \
+	HDRDIR="$(CURDIR)/debian/linux-headers-$$BASE-qcom/usr/src/linux-headers-$$BASE"; \
+	DKMS_TREE=$$(mktemp -d); \
+	mkdir -p "$$DKMS_TREE/kgsl/$$KGSL_VER"; \
+	ln -sf "/usr/src/kgsl-$$KGSL_VER" "$$DKMS_TREE/kgsl/$$KGSL_VER/source"; \
+	echo "Building DKMS module kgsl/$$KGSL_VER for $$BASE"; \
+	echo "  kernelsourcedir: $$HDRDIR"; \
+	echo "  dkmstree:        $$DKMS_TREE"; \
+	dkms build kgsl/$$KGSL_VER \
+	    --kernelsourcedir "$$HDRDIR" \
+	    --dkmstree "$$DKMS_TREE" \
+	    -k "$$BASE" \
+	    --arch arm64; \
+	find "$$DKMS_TREE/kgsl/$$KGSL_VER/$$BASE" -name '*.ko' | \
+	    while IFS= read -r ko; do \
+	        install -D -m 644 "$$ko" \
+	            "debian/linux-image-$$BASE-qcom/lib/modules/$$BASE/extra/$$(basename $$ko)"; \
+	    done; \
+	rm -rf "$$DKMS_TREE"; \
+	echo "Bundled msm_kgsl.ko into debian/linux-image-$$BASE-qcom"
 
 # Skip automatic dh_installmodules - we'll call it manually in override_dh_installdeb
 override_dh_installmodules:
