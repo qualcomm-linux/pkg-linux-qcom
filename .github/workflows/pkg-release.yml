@@ -22,10 +22,10 @@ on:
           - sid
 
       debian-branch:
-        description: The debian branch to use to execute the release from. For example branch "debian/qcom-next"
+        description: The debian branch to use to execute the release from. For example branch "qcom/debian/latest"
         type: string
         required: false
-        default: debian/qcom-next
+        default: qcom/debian/latest
 
       test-run:
         description: |
@@ -41,7 +41,7 @@ permissions:
 jobs:
   release:
 
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-release-reusable-workflow.yml@main
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-release-reusable-workflow.yml@main
     with:
       qcom-build-utils-ref: main
       suite: ${{ github.event.inputs.suite }}
