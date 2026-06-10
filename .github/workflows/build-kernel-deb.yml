@@ -322,8 +322,8 @@ jobs:
     needs: [resolve, prepare]
     if: ${{ needs.resolve.outputs.family == 'debian' }}
     # TODO: update ref to @main once feat/reusable-workflow-srcpkg-artifact is merged
-    # into qualcomm-linux/qcom-build-utils.
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/qcom-build-pkg-reusable-workflow.yml@feat/reusable-workflow-srcpkg-artifact
+    # into qualcomm-linux/qcom-build-utils (workflow renamed to pkg-build-reusable-workflow.yml).
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@feat/reusable-workflow-srcpkg-artifact
     with:
       # qcom-build-utils-ref is required by the reusable workflow but only used
       # in the ubuntu-build job; for Debian/Debusine builds it is not consumed.
