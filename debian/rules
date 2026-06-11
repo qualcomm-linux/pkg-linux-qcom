@@ -409,21 +409,36 @@ override_dh_auto_install:
 	    HDRDIR="$(CURDIR)/debian/linux-headers-$$BASE-qcom/usr/src/linux-headers-$$BASE"; \
 	    DKMS_TREE=$$(mktemp -d); \
 	    for name in $(DKMS_MODULES); do \
-	        VER=$$(dpkg-query -W -f='$${Version}' "$${name}-dkms" | cut -d- -f1); \
-	        mkdir -p "$$DKMS_TREE/$${name}/$$VER"; \
-	        ln -sf "/usr/src/$${name}-$$VER" "$$DKMS_TREE/$${name}/$$VER/source"; \
-	        echo "Building DKMS module $${name}/$$VER for $$BASE"; \
+	        # Resolve the module from the package manager rather than by globbing
+	        # /usr/src: <name>-dkms ships exactly one /usr/src/<dir>/dkms.conf
+	        # (dh_dkms layout) and dpkg -L is authoritative about where, so a
+	        # look-alike directory from another package can never be picked up.
+	        # dkms.conf is then the authority on the dkms name/version tokens
+	        # (they drive the dkms tree layout and the build call); its values
+	        # are read literally, as installed by dh_dkms.
+	        conf=$$(dpkg -L "$${name}-dkms" 2>/dev/null | grep -E '^/usr/src/[^/]+/dkms\.conf$$' || true); \
+	        [ -n "$$conf" ] || { echo "ERROR: $${name}-dkms is not installed or ships no /usr/src/<dir>/dkms.conf (is it in Build-Depends?)" >&2; exit 1; }; \
+	        [ $$(printf '%s\n' "$$conf" | wc -l) -eq 1 ] || { echo "ERROR: $${name}-dkms ships multiple dkms.conf files:" >&2; printf '%s\n' "$$conf" >&2; exit 1; }; \
+	        SRC=$${conf%/dkms.conf}; \
+	        PKG_NAME=$$(sed -n 's/^[[:space:]]*PACKAGE_NAME=//p' "$$conf" | tail -1 | tr -d '"'); \
+	        PKG_VER=$$(sed -n 's/^[[:space:]]*PACKAGE_VERSION=//p' "$$conf" | tail -1 | tr -d '"'); \
+	        { [ -n "$$PKG_NAME" ] && [ -n "$$PKG_VER" ]; } || { echo "ERROR: PACKAGE_NAME/PACKAGE_VERSION not found in $$conf" >&2; exit 1; }; \
+	        [ ! -e "$$DKMS_TREE/$$PKG_NAME/$$PKG_VER" ] || { echo "ERROR: duplicate dkms module $$PKG_NAME/$$PKG_VER (already prepared by an earlier manifest entry)" >&2; exit 1; }; \
+	        mkdir -p "$$DKMS_TREE/$$PKG_NAME/$$PKG_VER"; \
+	        ln -sf "$$SRC" "$$DKMS_TREE/$$PKG_NAME/$$PKG_VER/source"; \
+	        echo "Building DKMS module $$PKG_NAME/$$PKG_VER for $$BASE"; \
+	        echo "  source:          $$SRC"; \
 	        echo "  kernelsourcedir: $$HDRDIR"; \
 	        echo "  dkmstree:        $$DKMS_TREE"; \
-	        dkms build "$${name}/$$VER" \
+	        dkms build "$$PKG_NAME/$$PKG_VER" \
 	            --kernelsourcedir "$$HDRDIR" \
 	            --dkmstree "$$DKMS_TREE" \
 	            -k "$$BASE" \
 	            --arch $(DKMS_ARCH); \
-	        kos=$$(find "$$DKMS_TREE/$${name}/$$VER/$$BASE" -name '*.ko' 2>/dev/null || true); \
+	        kos=$$(find "$$DKMS_TREE/$$PKG_NAME/$$PKG_VER/$$BASE" -name '*.ko' 2>/dev/null || true); \
 	        if [ -z "$$kos" ]; then \
-	            echo "ERROR: $${name}/$$VER produced no .ko for kernel $$BASE." >&2; \
-	            echo "       Refusing to ship linux-image-$$BASE-qcom without $${name}." >&2; \
+	            echo "ERROR: $$PKG_NAME/$$PKG_VER produced no .ko for kernel $$BASE." >&2; \
+	            echo "       Refusing to ship linux-image-$$BASE-qcom without $$PKG_NAME." >&2; \
 	            exit 1; \
 	        fi; \
 	        # Mirror the in-tree module treatment for each bundled .ko. In-tree, the
@@ -450,7 +465,7 @@ override_dh_auto_install:
 	            $(OBJCOPY) --only-keep-debug "$$dest" "$$dbg" 2>/dev/null || cp -a "$$dest" "$$dbg"; \
 	            strip --strip-debug "$$dest"; \
 	        done; \
-	        echo "Bundled $${name} modules into debian/linux-image-$$BASE-qcom"; \
+	        echo "Bundled $$PKG_NAME modules into debian/linux-image-$$BASE-qcom"; \
 	    done; \
 	    rm -rf "$$DKMS_TREE"; \
 	else \
