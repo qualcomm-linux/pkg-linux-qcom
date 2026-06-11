@@ -30,6 +30,11 @@ PARALLEL ?= $(shell nproc)
 # Prefer the aarch64 cross-compiler's objcopy; fall back to the host objcopy.
 OBJCOPY ?= $(shell which aarch64-linux-gnu-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo objcopy)
 
+# dkms identifies architectures in uname -m vocabulary (aarch64), unlike the
+# kbuild ARCH token above (arm64). The distinction matters for dkms.conf
+# BUILD_EXCLUSIVE_ARCH gates, which match against this value.
+DKMS_ARCH ?= aarch64
+
 
 # File that caches the kernelrelease (BASE, i.e., uname -r)
 KREL_FILE := debian/kernel.release
@@ -414,7 +419,7 @@ override_dh_auto_install:
 	            --kernelsourcedir "$$HDRDIR" \
 	            --dkmstree "$$DKMS_TREE" \
 	            -k "$$BASE" \
-	            --arch arm64; \
+	            --arch $(DKMS_ARCH); \
 	        kos=$$(find "$$DKMS_TREE/$${name}/$$VER/$$BASE" -name '*.ko' 2>/dev/null || true); \
 	        if [ -z "$$kos" ]; then \
 	            echo "ERROR: $${name}/$$VER produced no .ko for kernel $$BASE." >&2; \
