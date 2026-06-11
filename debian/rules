@@ -408,6 +408,7 @@ override_dh_auto_install:
 	if [ -n "$(DKMS_MODULES)" ]; then \
 	    HDRDIR="$(CURDIR)/debian/linux-headers-$$BASE-qcom/usr/src/linux-headers-$$BASE"; \
 	    DKMS_TREE=$$(mktemp -d); \
+	    trap 'rm -rf "$$DKMS_TREE"' EXIT; \
 	    for name in $(DKMS_MODULES); do \
 	        # Resolve the module from the package manager rather than by globbing
 	        # /usr/src: <name>-dkms ships exactly one /usr/src/<dir>/dkms.conf
@@ -430,15 +431,46 @@ override_dh_auto_install:
 	        echo "  source:          $$SRC"; \
 	        echo "  kernelsourcedir: $$HDRDIR"; \
 	        echo "  dkmstree:        $$DKMS_TREE"; \
+	        dkms_rc=0; \
 	        dkms build "$$PKG_NAME/$$PKG_VER" \
 	            --kernelsourcedir "$$HDRDIR" \
 	            --dkmstree "$$DKMS_TREE" \
 	            -k "$$BASE" \
-	            --arch $(DKMS_ARCH); \
+	            --arch $(DKMS_ARCH) || dkms_rc=$$?; \
+	        # Judge the outcome by artifacts, not by dkms exit-code conventions
+	        # (those vary across dkms versions; a skip can exit 0): a .ko under
+	        # <tree>/<name>/<ver>/<kernel>/ means success. Otherwise dkms's own
+	        # make.log separates the two failure modes: it exists only when a
+	        # build was attempted (and failed); a BUILD_EXCLUSIVE skip never
+	        # creates it. The log is printed inline because the private dkms
+	        # tree is deleted on exit, so it is the only surviving record in CI.
 	        kos=$$(find "$$DKMS_TREE/$$PKG_NAME/$$PKG_VER/$$BASE" -name '*.ko' 2>/dev/null || true); \
-	        if [ -z "$$kos" ]; then \
-	            echo "ERROR: $$PKG_NAME/$$PKG_VER produced no .ko for kernel $$BASE." >&2; \
-	            echo "       Refusing to ship linux-image-$$BASE-qcom without $$PKG_NAME." >&2; \
+	        if [ "$$dkms_rc" -ne 0 ] || [ -z "$$kos" ]; then \
+	            mklog=$$(find "$$DKMS_TREE/$$PKG_NAME/$$PKG_VER" -name make.log 2>/dev/null | head -1 || true); \
+	            if [ -n "$$mklog" ]; then \
+	                echo "ERROR: dkms build failed for $$PKG_NAME/$$PKG_VER on kernel $$BASE (dkms exit $$dkms_rc); make.log tail:" >&2; \
+	                tail -n 300 "$$mklog" | sed 's/^/  | /' >&2; \
+	            else \
+	                echo "ERROR: $$PKG_NAME/$$PKG_VER produced no module for kernel $$BASE; dkms attempted no build (dkms exit $$dkms_rc)." >&2; \
+	                gates=$$(grep -E '^[[:space:]]*BUILD_EXCLUSIVE' "$$conf" 2>/dev/null || true); \
+	                if [ -n "$$gates" ]; then \
+	                    echo "  BUILD_EXCLUSIVE gates declared by $$conf:" >&2; \
+	                    printf '%s\n' "$$gates" | sed 's/^[[:space:]]*/  | /' >&2; \
+	                    for c in $$(printf '%s\n' "$$gates" | sed -n 's/^[[:space:]]*BUILD_EXCLUSIVE_CONFIG=//p' | tr -d '"'); do \
+	                        if grep -q "^$$c=[ym]" "$$PKG/boot/config-$$BASE" 2>/dev/null; then \
+	                            echo "  | $$c is set in this kernel's config" >&2; \
+	                        else \
+	                            echo "  | $$c is NOT set in this kernel's config" >&2; \
+	                        fi; \
+	                    done; \
+	                    echo "  This kernel: $$BASE, dkms arch $(DKMS_ARCH)." >&2; \
+	                else \
+	                    echo "  No BUILD_EXCLUSIVE gates are declared in $$conf; see the dkms output above." >&2; \
+	                fi; \
+	                comp=$$(find "$$DKMS_TREE/$$PKG_NAME/$$PKG_VER/$$BASE" \( -name '*.ko.gz' -o -name '*.ko.xz' -o -name '*.ko.zst' \) 2>/dev/null | head -1 || true); \
+	                [ -z "$$comp" ] || echo "  Note: found compressed module output ($$comp); compressed dkms output is not supported." >&2; \
+	            fi; \
+	            echo "Refusing to ship linux-image-$$BASE-qcom without $$PKG_NAME." >&2; \
 	            exit 1; \
 	        fi; \
 	        # Mirror the in-tree module treatment for each bundled .ko. In-tree, the
@@ -467,9 +499,8 @@ override_dh_auto_install:
 	        done; \
 	        echo "Bundled $$PKG_NAME modules into debian/linux-image-$$BASE-qcom"; \
 	    done; \
-	    rm -rf "$$DKMS_TREE"; \
 	else \
-	    echo "No DKMS modules listed in debian/dkms-modules — skipping"; \
+	    echo "No DKMS modules listed in debian/dkms-modules; skipping"; \
 	fi
 
 # Skip automatic dh_installmodules - we'll call it manually in override_dh_installdeb
