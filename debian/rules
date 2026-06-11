@@ -415,11 +415,16 @@ override_dh_auto_install:
 	            --dkmstree "$$DKMS_TREE" \
 	            -k "$$BASE" \
 	            --arch arm64; \
-	        find "$$DKMS_TREE/$${name}/$$VER/$$BASE" -name '*.ko' | \
-	            while IFS= read -r ko; do \
-	                install -D -m 644 "$$ko" \
-	                    "debian/linux-image-$$BASE-qcom/lib/modules/$$BASE/extra/$$(basename $$ko)"; \
-	            done; \
+	        kos=$$(find "$$DKMS_TREE/$${name}/$$VER/$$BASE" -name '*.ko' 2>/dev/null || true); \
+	        if [ -z "$$kos" ]; then \
+	            echo "ERROR: $${name}/$$VER produced no .ko for kernel $$BASE." >&2; \
+	            echo "       Refusing to ship linux-image-$$BASE-qcom without $${name}." >&2; \
+	            exit 1; \
+	        fi; \
+	        printf '%s\n' "$$kos" | while IFS= read -r ko; do \
+	            install -D -m 644 "$$ko" \
+	                "debian/linux-image-$$BASE-qcom/lib/modules/$$BASE/extra/$$(basename $$ko)"; \
+	        done; \
 	        echo "Bundled $${name} modules into debian/linux-image-$$BASE-qcom"; \
 	    done; \
 	    rm -rf "$$DKMS_TREE"; \
