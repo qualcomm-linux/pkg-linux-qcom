@@ -321,18 +321,18 @@ jobs:
     name: Build in Debusine
     needs: [resolve, prepare]
     if: ${{ needs.resolve.outputs.family == 'debian' }}
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@main
+    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@development
     with:
       # qcom-build-utils-ref is required by the reusable workflow but only used
       # in the ubuntu-build job; for Debian/Debusine builds it is not consumed.
-      qcom-build-utils-ref: main
+      qcom-build-utils-ref: development
       # debian-ref is required by the reusable workflow's input schema but is
       # NOT consumed on this srcpkg-artifact path: both the build and the test
       # job read debian/ (including debian/control) from the extracted
       # srcpkg-artifact, never from a debian-ref checkout. It is passed only to
       # satisfy the schema's required: true constraint.
       debian-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
-      suite: ${{ inputs.distro || 'trixie' }}
+      #suite: ${{ inputs.distro || 'trixie' }}
       srcpkg-artifact: kernel-srcpkg
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
       assemble-orig: true
