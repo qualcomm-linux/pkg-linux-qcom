@@ -78,9 +78,11 @@ on:
 permissions:
   contents: read
   packages: read
-  id-token: write  # Required for Debusine OIDC authentication
 
 env:
+  # DEBUSINE_ACTION_REF is consumed by build-kernel-debusine.yml, not here.
+  # Kept as a workflow-level env so it remains visible alongside the
+  # other Debusine-related configuration in this orchestrator.
   DEBUSINE_ACTION_REF: main
 
 jobs:
@@ -312,30 +314,18 @@ jobs:
   # ---------------------------------------------------------------------------
   # debusine-build: Debian suites only (trixie, sid).
   #
-  # Downloads the kernel-srcpkg artifact produced by the prepare job and
-  # submits it to Debusine for distributed building. The reusable workflow
-  # handles source package generation (DEBUSINE_ASSEMBLE_ORIG=true) and
-  # Debusine submission.
+  # Delegates to build-kernel-debusine.yml which owns the complete Debian build
+  # path end-to-end: source package generation, Debusine submission, and
+  # publishing the built .deb files to S3.
   # ---------------------------------------------------------------------------
   debusine-build:
     name: Build in Debusine
     needs: [resolve, prepare]
     if: ${{ needs.resolve.outputs.family == 'debian' }}
-    uses: qualcomm-linux/qcom-build-utils/.github/workflows/pkg-build-reusable-workflow.yml@main
+    uses: ./.github/workflows/build-kernel-debusine.yml
     with:
-      # qcom-build-utils-ref is required by the reusable workflow but only used
-      # in the ubuntu-build job; for Debian/Debusine builds it is not consumed.
-      qcom-build-utils-ref: main
-      # debian-ref is required by the reusable workflow's input schema but is
-      # NOT consumed on this srcpkg-artifact path: both the build and the test
-      # job read debian/ (including debian/control) from the extracted
-      # srcpkg-artifact, never from a debian-ref checkout. It is passed only to
-      # satisfy the schema's required: true constraint.
-      debian-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
       suite: ${{ inputs.distro || 'trixie' }}
-      srcpkg-artifact: kernel-srcpkg
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
-      assemble-orig: true
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
@@ -357,78 +347,3 @@ jobs:
     with:
       distro: ${{ inputs.distro || 'resolute' }}
       pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
-
-  # ---------------------------------------------------------------------------
-  # upload-artifacts: Debian suites only.
-  #
-  # Runs after a successful debusine-build. Downloads the built .deb packages
-  # from the Debusine workspace via chdist and uploads them to S3.
-  # ---------------------------------------------------------------------------
-  upload-artifacts:
-    name: Download .deb from Debusine and upload to S3
-    needs: [resolve, debusine-build]
-    if: >-
-      ${{ needs.resolve.outputs.family == 'debian' &&
-          needs.debusine-build.result == 'success' }}
-    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout debusine-action helpers
-        uses: actions/checkout@v5
-        with:
-          repository: qualcomm-linux/debusine-action
-          ref: ${{ env.DEBUSINE_ACTION_REF }}
-          path: debusine-action
-          fetch-depth: 1
-          sparse-checkout: |
-            lib
-
-      - name: Generate Debusine apt configuration
-        env:
-          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
-          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
-          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
-          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
-          DEBUSINE_WORKSPACE: ${{ needs.debusine-build.outputs.workspace }}
-          SUITE: ${{ inputs.distro || 'trixie' }}
-        run: |
-          # generate-apt-config only needs curl; runs directly on the runner.
-          debusine-action/lib/generate-apt-config
-
-      - name: Download .deb packages from Debusine workspace
-        run: |
-          set -euxo pipefail
-
-          # chdist is provided by devscripts.
-          sudo apt-get install -y --no-install-recommends devscripts
-
-          mkdir -p "$GITHUB_WORKSPACE/deb-artifacts"
-
-          # Create an isolated apt environment pointing exclusively at the
-          # Debusine CI workspace so apt-cache search returns only the
-          # packages produced by this build.
-          chdist create debusine-workspace
-          rm -f ~/.chdist/debusine-workspace/etc/apt/sources.list
-          install -d ~/.chdist/debusine-workspace/etc/apt/sources.list.d
-          install -d ~/.chdist/debusine-workspace/etc/apt/auth.conf.d
-          install -m 0644 debusine-ci.sources \
-            ~/.chdist/debusine-workspace/etc/apt/sources.list.d/
-          install -m 0600 debusine-ci-auth.conf \
-            ~/.chdist/debusine-workspace/etc/apt/auth.conf.d/
-
-          chdist apt-get debusine-workspace update
-
-          packages=$(chdist apt-cache debusine-workspace search . | awk '{print $1}' | tr '\n' ' ')
-          echo "Packages to download: $packages"
-
-          cd "$GITHUB_WORKSPACE/deb-artifacts"
-          chdist apt-get debusine-workspace download $packages
-
-      - name: Upload .deb packages to S3
-        uses: qualcomm-linux/upload-private-artifact-action@aws
-        with:
-          s3_bucket: qli-prd-lecore-gh-artifacts
-          path: deb-artifacts
-          destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.distro || 'trixie' }}/${{ github.run_id }}-${{ github.run_attempt }}/
