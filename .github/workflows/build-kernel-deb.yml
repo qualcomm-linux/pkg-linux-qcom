@@ -307,6 +307,7 @@ jobs:
           name: kernel-srcpkg
           path: /tmp/kernel-srcpkg.tar.gz
           if-no-files-found: error
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # debusine-build: Debian suites only (trixie, sid).
