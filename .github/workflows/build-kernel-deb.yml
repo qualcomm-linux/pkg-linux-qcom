@@ -121,7 +121,7 @@ jobs:
 
     steps:
       - name: Checkout pkg-linux-qcom
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
 
@@ -144,7 +144,7 @@ jobs:
       # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
       # is merged upstream.
       - name: Checkout docker-pkg-build
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: qualcomm-linux/docker-pkg-build
           ref: main
@@ -302,7 +302,7 @@ jobs:
             "$(basename "$KERNEL_DIR")"
 
       - name: Upload prepared source tree artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kernel-srcpkg
           path: /tmp/kernel-srcpkg.tar.gz
@@ -375,7 +375,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout debusine-action helpers
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: qualcomm-linux/debusine-action
           ref: ${{ env.DEBUSINE_ACTION_REF }}

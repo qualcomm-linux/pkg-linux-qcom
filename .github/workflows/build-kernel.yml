@@ -43,7 +43,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Extract org, repo and branch name
         run: |
@@ -57,7 +57,7 @@ jobs:
           echo "REPO_NAME=$REPO_NAME"
       
       - name: Checkout qcom-build-utils
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: qualcomm-linux/qcom-build-utils
           ref: ${{ inputs.qcom-build-utils-ref }}

@@ -53,7 +53,7 @@ jobs:
         # Provides build-kernel.sh and prepare-source.sh. Must match the ref
         # used by the caller's prepare job so that build-kernel.sh is
         # consistent with the prepared source tree baked into the artifact.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.pkg-linux-qcom-ref }}
 
@@ -61,7 +61,7 @@ jobs:
       # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
       # is merged upstream.
       - name: Checkout docker-pkg-build
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: qualcomm-linux/docker-pkg-build
           ref: main
