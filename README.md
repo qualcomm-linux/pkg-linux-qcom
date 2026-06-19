@@ -24,9 +24,8 @@ flowchart TD
     subgraph build-kernel-deb.yml
         C1["resolve\nClassify suite family"]
         C2["prepare\nClone · patch · prepare-source.sh\nUpload kernel-srcpkg artifact"]
-        C3["debusine-build\nDebian suites only"]
-        C4["ubuntu-build\nUbuntu suites only\nbuild-kernel.sh via docker → S3"]
-        C5["upload-artifacts\nDebian suites only\nchdist download from Debusine → S3"]
+        C3["debusine-build\nDebian suites only\nbuild-kernel-debusine.yml → S3"]
+        C4["ubuntu-build\nUbuntu suites only\nbuild-kernel-ubuntu.yml → S3"]
     end
 
     subgraph Outputs
@@ -42,8 +41,7 @@ flowchart TD
 
     C1 --> C2
     C2 --> C3 & C4
-    C3 --> C5
-    C5 --> D1
+    C3 --> D1
     C4 --> D1
 ```
 
@@ -58,7 +56,7 @@ flowchart LR
     R -->|trixie · sid\nunstable · bookworm| DEB["family = debian"]
     R -->|noble · questing\nresolute| UBU["family = ubuntu"]
 
-    DEB --> DB["debusine-build\nqcom-build-utils reusable workflow\nGenerates .dsc → submits to Debusine\nDownloads .deb via chdist → S3"]
+    DEB --> DB["debusine-build\nbuild-kernel-debusine.yml\nGenerates .dsc → submits to Debusine\nchdist download from Debusine → S3"]
     UBU --> UB["ubuntu-build\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh --skip-prepare\ndocker pkg-builder:suite → S3"]
 ```
 
@@ -69,8 +67,9 @@ flowchart LR
 | File | Role | Trigger |
 |---|---|---|
 | `daily.yml` | Daily orchestrator — reads matrix, spawns parallel builds | `schedule` · `workflow_dispatch` |
-| `build-kernel-deb.yml` | Main build pipeline — 5 jobs, dual-path routing | `workflow_dispatch` · `workflow_call` |
-| `build-kernel-ubuntu.yml` | Ubuntu build module — `build-kernel.sh` path | `workflow_call` only |
+| `build-kernel-deb.yml` | Main pipeline — resolve + prepare, then delegates to family modules | `workflow_dispatch` · `workflow_call` |
+| `build-kernel-debusine.yml` | Debian build module — source package generation, Debusine submission, publish to S3 | `workflow_call` only |
+| `build-kernel-ubuntu.yml` | Ubuntu build module — `build-kernel.sh` path, publish to S3 | `workflow_call` only |
 
 ---
 
@@ -146,20 +145,28 @@ flowchart LR
 
 ## Debian Path — Debusine
 
+`build-kernel-debusine.yml` owns the complete Debian path end-to-end across two jobs:
+
 ```mermaid
 flowchart LR
     ART["kernel-srcpkg artifact"] --> GSP
 
-    GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\n① tar czf .orig.tar.gz\n   (excludes debian/ .git/)\n② dpkg-buildpackage -S\n   → .dsc + .debian.tar.xz"] --> DEB
+    subgraph build job
+        GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\n① tar czf .orig.tar.gz\n   (excludes debian/ .git/)\n② dpkg-buildpackage -S\n   → .dsc + .debian.tar.xz"] --> DEB
+        DEB["Debusine\ndebusine.qualcomm.com\nDistributed build service"] --> WS
+        WS["workspace ID output"]
+    end
 
-    DEB["Debusine\nDistributed build service\nstage.debusine.qualcomm.com"] --> WS
-
-    WS["Debusine workspace\nBuilt .deb packages"] --> CHDIST
-
-    CHDIST["chdist + apt-get download\nIsolated apt env\nNo installation"] --> S3
+    subgraph publish job
+        WS --> CHDIST
+        CHDIST["chdist + apt-get download\nHermetic authenticated apt env\nNo installation, no host side-effects"] --> S3
+    end
 
     S3["S3\nqli-prd-lecore-gh-artifacts"]
 ```
+
+> **`build` job** runs inside `ghcr.io/qualcomm-linux/debusine-pkg-builder:SUITE` (all tooling pre-installed).
+> **`publish` job** runs on the self-hosted runner — direct IAM access required for S3 upload.
 
 ---
 
@@ -215,22 +222,22 @@ sudo dpkg -i linux-headers-<kver>-qcom_<ver>_arm64.deb
 
 | Variable | Value | Used by |
 |---|---|---|
-| `DEBUSINE_HOST` | `stage.debusine.qualcomm.com` | `debusine-build`, `upload-artifacts` |
-| `DEBUSINE_SCOPE` | `qualcomm` | `debusine-build`, `upload-artifacts` |
-| `DEBUSINE_PARENT_WORKSPACE` | `qli-ci` | `debusine-build` |
+| `DEBUSINE_HOST` | `debusine.qualcomm.com` | `build-kernel-debusine.yml` |
+| `DEBUSINE_SCOPE` | `qualcomm` | `build-kernel-debusine.yml` |
+| `DEBUSINE_PARENT_WORKSPACE` | `qli-ci` | `build-kernel-debusine.yml` |
 
 ### Secrets (`secrets.*`)
 
 | Secret | Used by |
 |---|---|
-| `DEBUSINE_USER` | `debusine-build`, `upload-artifacts` |
-| `DEBUSINE_TOKEN` | `debusine-build`, `upload-artifacts` |
+| `DEBUSINE_USER` | `build-kernel-debusine.yml` |
+| `DEBUSINE_TOKEN` | `build-kernel-debusine.yml` |
 
 ---
 
 ## Deprecation Path
 
-When Debusine gains Ubuntu support:
+**When Debusine gains Ubuntu support:**
 
 ```
 1. Delete  .github/workflows/build-kernel-ubuntu.yml
@@ -238,7 +245,14 @@ When Debusine gains Ubuntu support:
 3. Update  ci/build-matrix.json  (change resolute entry if needed)
 ```
 
-Zero changes to `build-kernel-deb.yml` orchestration logic, `prepare-source.sh`, or `debian/`.
+**When the Debian/Debusine path is replaced:**
+
+```
+1. Delete  .github/workflows/build-kernel-debusine.yml
+2. Remove  debusine-build job from build-kernel-deb.yml  (3 lines)
+```
+
+Zero changes to `build-kernel-deb.yml` orchestration logic, `prepare-source.sh`, or `debian/` in either case.
 
 ---
 
