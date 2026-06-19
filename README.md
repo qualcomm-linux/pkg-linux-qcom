@@ -1,7 +1,7 @@
 # pkg-linux-qcom
 
 Debian/Ubuntu kernel packaging for `qualcomm-linux/kernel` on ARM64 Qualcomm platforms.
-Produces installable `.deb` packages via a dual-path CI pipeline — **Debusine** for Debian suites, **docker** for Ubuntu suites.
+Produces installable `.deb` packages via a dual-path CI pipeline: **Debusine** for Debian suites, **docker** for Ubuntu suites.
 
 ---
 
@@ -15,21 +15,21 @@ flowchart TD
         A3["🖱 build-kernel-deb.yml\nManual dispatch"]
     end
 
-    subgraph daily.yml
+    subgraph daily["daily.yml"]
         B1["configure-matrix\nReads ci/build-matrix.json"]
         B2["build · trixie"]
         B3["build · resolute"]
     end
 
-    subgraph build-kernel-deb.yml
+    subgraph orchestrator["build-kernel-deb.yml"]
         C1["resolve\nClassify suite family"]
-        C2["prepare\nClone · patch · prepare-source.sh\nUpload kernel-srcpkg artifact"]
-        C3["debusine-build\nDebian suites only\nbuild-kernel-debusine.yml → S3"]
-        C4["ubuntu-build\nUbuntu suites only\nbuild-kernel-ubuntu.yml → S3"]
+        C2["prepare\nClone kernel\nRun prepare-source.sh\nUpload kernel-srcpkg"]
+        C3["debusine-build\nDebian suites only\nbuild-kernel-debusine.yml"]
+        C4["ubuntu-build\nUbuntu suites only\nbuild-kernel-ubuntu.yml"]
     end
 
-    subgraph Outputs
-        D1["S3 · linux-image · linux-headers · dbg"]
+    subgraph out["Outputs"]
+        D1["S3\nlinux-image\nlinux-headers\ndbg"]
     end
 
     A1 --> B1
@@ -53,11 +53,11 @@ flowchart TD
 flowchart LR
     IN["distro input"] --> R{resolve job}
 
-    R -->|trixie · sid\nunstable · bookworm| DEB["family = debian"]
-    R -->|noble · questing\nresolute| UBU["family = ubuntu"]
+    R -->|"trixie · sid\nunstable · bookworm"| DEB["family = debian"]
+    R -->|"noble · questing\nresolute"| UBU["family = ubuntu"]
 
-    DEB --> DB["debusine-build\nbuild-kernel-debusine.yml\nGenerates .dsc → submits to Debusine\nchdist download from Debusine → S3"]
-    UBU --> UB["ubuntu-build\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh --skip-prepare\ndocker pkg-builder:suite → S3"]
+    DEB --> DB["debusine-build\nbuild-kernel-debusine.yml\nGenerates .dsc\nSubmits to Debusine\nchdist download\nPublish to S3"]
+    UBU --> UB["ubuntu-build\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh\ndocker pkg-builder\nPublish to S3"]
 ```
 
 ---
@@ -66,10 +66,10 @@ flowchart LR
 
 | File | Role | Trigger |
 |---|---|---|
-| `daily.yml` | Daily orchestrator — reads matrix, spawns parallel builds | `schedule` · `workflow_dispatch` |
-| `build-kernel-deb.yml` | Main pipeline — resolve + prepare, then delegates to family modules | `workflow_dispatch` · `workflow_call` |
-| `build-kernel-debusine.yml` | Debian build module — source package generation, Debusine submission, publish to S3 | `workflow_call` only |
-| `build-kernel-ubuntu.yml` | Ubuntu build module — `build-kernel.sh` path, publish to S3 | `workflow_call` only |
+| `daily.yml` | Daily orchestrator: reads matrix, spawns parallel builds | `schedule` · `workflow_dispatch` |
+| `build-kernel-deb.yml` | Main pipeline: resolve + prepare, delegates to family modules | `workflow_dispatch` · `workflow_call` |
+| `build-kernel-debusine.yml` | Debian build module: source package generation, Debusine submission, publish to S3 | `workflow_call` only |
+| `build-kernel-ubuntu.yml` | Ubuntu build module: `build-kernel.sh` via docker, upload to S3 | `workflow_call` only |
 
 ---
 
@@ -90,8 +90,8 @@ flowchart LR
 
 | Input | Type | Behaviour |
 |---|---|---|
-| `run-full-matrix` ☑ | boolean | Runs all matrix entries — identical to scheduled daily build |
-| `run-full-matrix` ☐ + `distro` | choice | Runs a single distro build |
+| `run-full-matrix` checked | boolean | Runs all matrix entries, identical to scheduled daily build |
+| `run-full-matrix` unchecked + `distro` | choice | Runs a single distro build |
 
 ---
 
@@ -106,12 +106,12 @@ flowchart LR
 | `kernel-branch` | `qcom-next` | Branch/tag when `latest-tag=false` |
 | `kernel-url` | qualcomm-linux/kernel | Custom kernel repo URL |
 | `pkg-linux-qcom-ref` | `qcom/debian/latest` | Packaging metadata ref |
-| `localversion` | — | Override LOCALVERSION suffix |
-| `kver-extra` | — | Extra suffix appended to package version |
+| `localversion` | | Override LOCALVERSION suffix |
+| `kver-extra` | | Extra suffix appended to package version |
 | `debug-build` | `false` | Copies `debug.config` into `debian/config/` |
-| `self-pr` | — | Apply a pkg-linux-qcom PR before building |
-| `qcom-next-pr` | — | Space-separated qcom-next PR numbers to merge |
-| `kernel-topics-pr` | — | Space-separated kernel-topics PR numbers to apply |
+| `self-pr` | | Apply a pkg-linux-qcom PR before building |
+| `qcom-next-pr` | | Space-separated qcom-next PR numbers to merge |
+| `kernel-topics-pr` | | Space-separated kernel-topics PR numbers to apply |
 
 ### `workflow_call` (called by `daily.yml`)
 
@@ -123,18 +123,18 @@ flowchart LR
 
 ---
 
-## Prepare Stage — Source Tree Assembly
+## Prepare Stage
 
 ```mermaid
 flowchart LR
     K["qualcomm-linux/kernel\nlatest qcom-next-* tag"] --> PS
     M["pkg-linux-qcom\ndebian/ metadata"] --> PS
 
-    PS["prepare-source.sh\ninside pkg-builder:DISTRO container\n\n① Inject debian/\n② Activate config fragments\n③ debian/rules prepare\n   → debian/control\n   → debian/changelog"] --> TAR
+    PS["prepare-source.sh\npkg-builder:DISTRO container\n\nInject debian/\nActivate config fragments\nGenerate debian/control\nGenerate debian/changelog"] --> TAR
 
-    TAR["tar czf kernel-srcpkg.tar.gz\nPreserves execute permissions\n(zip strips them)"] --> ART
+    TAR["tar czf kernel-srcpkg.tar.gz\nPreserves execute permissions"] --> ART
 
-    ART["GitHub Actions Artifact\nkernel-srcpkg\nShared across jobs via run_id"]
+    ART["GitHub Actions Artifact\nkernel-srcpkg\nShared via run_id"]
 ```
 
 > **Why `tar.gz`?** `actions/upload-artifact` uses zip internally, which strips Unix execute bits.
@@ -143,42 +143,38 @@ flowchart LR
 
 ---
 
-## Debian Path — Debusine
-
-`build-kernel-debusine.yml` owns the complete Debian path end-to-end across two jobs:
+## Debian Path
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg artifact"] --> GSP
+    ART["kernel-srcpkg\nartifact"] --> GSP
 
-    subgraph build job
-        GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\n① tar czf .orig.tar.gz\n   (excludes debian/ .git/)\n② dpkg-buildpackage -S\n   → .dsc + .debian.tar.xz"] --> DEB
-        DEB["Debusine\ndebusine.qualcomm.com\nDistributed build service"] --> WS
-        WS["workspace ID output"]
+    subgraph build["build job (debusine-pkg-builder container)"]
+        GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\nCreate .orig.tar.gz\nRun dpkg-buildpackage -S\nProduce .dsc"] --> DEB
+        DEB["Debusine\ndebusine.qualcomm.com\nDistributed build"] --> WS
+        WS["workspace ID"]
     end
 
-    subgraph publish job
+    subgraph pub["publish job (self-hosted runner)"]
         WS --> CHDIST
-        CHDIST["chdist + apt-get download\nHermetic authenticated apt env\nNo installation, no host side-effects"] --> S3
+        CHDIST["generate-apt-config\nchdist hermetic apt env\napt-get download\nNo installation"] --> S3
     end
 
     S3["S3\nqli-prd-lecore-gh-artifacts"]
 ```
 
-> **`build` job** runs inside `ghcr.io/qualcomm-linux/debusine-pkg-builder:SUITE` (all tooling pre-installed).
-> **`publish` job** runs on the self-hosted runner — direct IAM access required for S3 upload.
-
 ---
 
-## Ubuntu Path — Docker
+## Ubuntu Path
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg artifact"] --> EXT
+    ART["kernel-srcpkg\nartifact"] --> EXT
 
-    EXT["tar xzf --strip-components=1\nRestore execute permissions\nkernel-source/"] --> BK
-
-    BK["build-kernel.sh\n--skip-prepare\n--local-source kernel-source/\n--build-mode docker\n\ndocker run pkg-builder:DISTRO\ndpkg-buildpackage -b"] --> S3
+    subgraph build["build job (self-hosted runner)"]
+        EXT["Extract source tree\n--strip-components=1"] --> BK
+        BK["build-kernel.sh\n--skip-prepare\n--local-source\n--build-mode docker\ndpkg-buildpackage -b"] --> S3
+    end
 
     S3["S3\nqli-prd-lecore-gh-artifacts"]
 ```
@@ -202,8 +198,8 @@ flowchart LR
 
 | Path | Build type |
 |---|---|
-| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/debusine/<repo>/<suite>/<run_id>-<run_attempt>/` | Debian (Debusine) — suite segment included |
-| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run_id>-<run_attempt>/` | Ubuntu (docker) — flat layout, no suite segment |
+| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/debusine/<repo>/<suite>/<run_id>-<run_attempt>/` | Debian (Debusine) |
+| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run_id>-<run_attempt>/` | Ubuntu (docker) |
 
 ### Install
 
@@ -216,43 +212,42 @@ sudo dpkg -i linux-headers-<kver>-qcom_<ver>_arm64.deb
 
 ---
 
-## Repository Variables and Secrets
+## Credentials and Variables
 
-### Repository Variables (`vars.*`)
-
-| Variable | Value | Used by |
-|---|---|---|
-| `DEBUSINE_HOST` | `debusine.qualcomm.com` | `build-kernel-debusine.yml` |
-| `DEBUSINE_SCOPE` | `qualcomm` | `build-kernel-debusine.yml` |
-| `DEBUSINE_PARENT_WORKSPACE` | `qli-ci` | `build-kernel-debusine.yml` |
-
-### Secrets (`secrets.*`)
-
-| Secret | Used by |
-|---|---|
-| `DEBUSINE_USER` | `build-kernel-debusine.yml` |
-| `DEBUSINE_TOKEN` | `build-kernel-debusine.yml` |
-
----
-
-## Deprecation Path
-
-**When Debusine gains Ubuntu support:**
+The Debusine path requires three repository variables and two secrets.
+Here is how they flow through the full call stack:
 
 ```
-1. Delete  .github/workflows/build-kernel-ubuntu.yml
-2. Remove  ubuntu-build job from build-kernel-deb.yml  (3 lines)
-3. Update  ci/build-matrix.json  (change resolute entry if needed)
+daily.yml
+  secrets: inherit                        # passes all repo secrets to callee
+
+  └── build-kernel-deb.yml (workflow_call)
+        vars.DEBUSINE_PARENT_WORKSPACE    # read directly, passed as input
+        secrets.DEBUSINE_USER  ─────────────────────────────────────────┐
+        secrets.DEBUSINE_TOKEN ─────────────────────────────────────────┤
+                                                                         │ explicit forward
+        └── build-kernel-debusine.yml (workflow_call)                   │
+              inputs.debusine-parent-workspace ◄─ vars.DEBUSINE_PARENT_WORKSPACE
+              secrets.DEBUSINE_USER  ◄──────────────────────────────────┘
+              secrets.DEBUSINE_TOKEN ◄──────────────────────────────────┘
+
+              build job:
+                vars.DEBUSINE_HOST    # read directly from repo vars
+                vars.DEBUSINE_SCOPE   # read directly from repo vars
+                secrets.DEBUSINE_TOKEN → authenticates to Debusine API
+
+              publish job:
+                vars.DEBUSINE_HOST    # read directly from repo vars
+                vars.DEBUSINE_SCOPE   # read directly from repo vars
+                secrets.DEBUSINE_USER  → generate-apt-config (netrc)
+                secrets.DEBUSINE_TOKEN → generate-apt-config (netrc)
 ```
 
-**When the Debian/Debusine path is replaced:**
-
-```
-1. Delete  .github/workflows/build-kernel-debusine.yml
-2. Remove  debusine-build job from build-kernel-deb.yml  (3 lines)
-```
-
-Zero changes to `build-kernel-deb.yml` orchestration logic, `prepare-source.sh`, or `debian/` in either case.
+`vars.*` are repo-level variables inherited automatically by all jobs and
+`workflow_call` callees — no explicit forwarding needed.
+`secrets.*` do not inherit across `workflow_call` boundaries unless
+explicitly forwarded; `build-kernel-deb.yml` forwards only the two
+Debusine secrets, keeping the interface minimal.
 
 ---
 
