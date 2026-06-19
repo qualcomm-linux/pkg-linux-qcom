@@ -14,9 +14,8 @@ name: build-kernel-ubuntu
 # uploaded by the caller's prepare job is therefore directly accessible here
 # via actions/download-artifact without any additional plumbing.
 #
-# Deprecation path: when Debusine gains Ubuntu support (or this path is
-# retired for any other reason), delete this file and remove the ubuntu-build
-# job from build-kernel-deb.yml. No other files need to change.
+# Single job: build and S3 upload run together on the self-hosted runner,
+# which has direct IAM access throughout.
 
 on:
   workflow_call:
@@ -91,10 +90,8 @@ jobs:
           # --strip-components=1 extracts the top-level directory directly into
           # kernel-source/ without depending on its name inside the archive.
           mkdir -p kernel-source
-          tar xzf /tmp/srcpkg-artifact/kernel-srcpkg.tar.gz \
+          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
             -C kernel-source --strip-components=1
-          # Expose KERNEL_DIR so the build step mirrors the variable name used
-          # in the original (pre-Debusine) validated pipeline.
           echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel-source" >> "$GITHUB_ENV"
 
       - name: Build kernel package
