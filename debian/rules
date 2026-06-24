@@ -380,7 +380,6 @@ override_dh_auto_install:
 	else \
 		echo "Warning: vmlinux not found at $$VMLINUX_PATH — debug package will not contain vmlinux"; \
 	fi; \
-	; \
 	\
 	# ── DKMS module integration ──────────────────────────────────────────────────
 	# Delegated to debian/scripts/bundle-dkms-modules.sh.
