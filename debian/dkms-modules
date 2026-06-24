@@ -8,5 +8,5 @@
 #   2. Add <name>-dkms (>= <version>) to Build-Depends in debian/control.in.
 #
 # To disable a module temporarily: comment out the line with #.
-# debian/rules is untouched in either case.
+# debian/rules and debian/scripts/bundle-dkms-modules.sh are untouched in either case.
 kgsl
