@@ -132,11 +132,18 @@ OPTIONAL:
 
 PREREQUISITES (developer standalone use):
   1. The -dkms package for each module in the manifest must be installed.
+     Module source is resolved via 'dpkg -L <name>-dkms', so a Debian-family
+     host with a populated dpkg database is required.
   2. --headers-dir must point to a fully staged kernel headers tree.
   3. --image-pkg-dir must contain lib/modules/<kver>/kernel/ (in-tree modules)
      and boot/config-<kver> (kernel .config).
   4. --dbg-pkg-dir must exist (can be empty; subdirs are created as needed).
   5. --headers-dir must be an absolute path.
+  6. This script does NOT cross-compile: dkms builds each module with the host
+     toolchain (no ARCH/CROSS_COMPILE is plumbed). Run it on a native arm64
+     host (or an arm64 chroot / qemu-user environment) so the produced .ko
+     matches the target kernel. --arch only sets the dkms architecture label
+     used for BUILD_EXCLUSIVE_ARCH gate matching, not the compiler.
 
 MANIFEST FORMAT (debian/dkms-modules):
   One module name per line (without the -dkms suffix).
@@ -174,17 +181,22 @@ EOF
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+# require_val "$@" fails cleanly when a value-taking flag is the last argument,
+# instead of tripping `set -u` with a raw "$2: unbound variable".
+require_val() { [[ $# -ge 2 ]] || { log_error "$1 requires a value"; exit 1; }; }
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --kver)              KVER="$2";              shift 2 ;;
-        --headers-dir)       HEADERS_DIR="$2";       shift 2 ;;
-        --image-pkg-dir)     IMAGE_PKG_DIR="$2";     shift 2 ;;
-        --dbg-pkg-dir)       DBG_PKG_DIR="$2";       shift 2 ;;
-        --modules-manifest)  MODULES_MANIFEST="$2";  shift 2 ;;
-        --arch)              DKMS_ARCH="$2";         shift 2 ;;
-        --objcopy)           OBJCOPY="$2";           shift 2 ;;
+        --kver)              require_val "$@"; KVER="$2";              shift 2 ;;
+        --headers-dir)       require_val "$@"; HEADERS_DIR="$2";       shift 2 ;;
+        --image-pkg-dir)     require_val "$@"; IMAGE_PKG_DIR="$2";     shift 2 ;;
+        --dbg-pkg-dir)       require_val "$@"; DBG_PKG_DIR="$2";       shift 2 ;;
+        --modules-manifest)  require_val "$@"; MODULES_MANIFEST="$2";  shift 2 ;;
+        --arch)              require_val "$@"; DKMS_ARCH="$2";         shift 2 ;;
+        --objcopy)           require_val "$@"; OBJCOPY="$2";           shift 2 ;;
         -h|--help)           usage ;;
-        *) log_error "Unknown option: $1"; usage ;;
+        # Unknown option: report on stderr and fail. Do not fall into usage(),
+        # which exits 0 and would mask the misuse as success.
+        *) log_error "Unknown option: $1"; log_error "Run with --help for usage."; exit 1 ;;
     esac
 done
 
