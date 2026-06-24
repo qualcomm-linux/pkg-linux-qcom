@@ -5,7 +5,8 @@ Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 Standards-Version: 4.6.2
 Build-Depends: debhelper-compat (= 13),
                bc, bison, flex, libssl-dev, libelf-dev, dwarves,
-               python3, kmod, cpio, rsync, pkg-config, gcc, make
+               python3, kmod, cpio, rsync, pkg-config, gcc, make,
+               kgsl-dkms (>= 1.0.2), dkms
 Homepage: https://kernel.org
 Rules-Requires-Root: binary-targets
 
