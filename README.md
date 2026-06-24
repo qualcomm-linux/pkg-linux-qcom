@@ -51,6 +51,9 @@ pkg-linux-qcom/
 │   │   ├── qcom-imsdk.config   ← DMABUF heaps for Qualcomm IMSDK/GStreamer
 │   │   ├── qemu-boot.config    ← virtio drivers for QEMU testing
 │   │   └── usb-can.config      ← USB CAN adapters
+│   ├── dkms-modules            ← Manifest of out-of-tree modules to bundle at build time
+│   └── scripts/
+│       └── bundle-dkms-modules.sh  ← DKMS build-and-bundle tool (called by rules; standalone-capable)
 ├── .gitignore
 └── README.md
 ```
@@ -70,6 +73,8 @@ pkg-linux-qcom/
 | `debian/linux-image.postrm` | ✅ Committed | Post-remove maintainer script |
 | `debian/config/*.config` | ✅ Committed | Always-applied config fragments |
 | `debian/config-available/*.config` | ✅ Committed | Optional fragment library |
+| `debian/dkms-modules` | ✅ Committed | Manifest of out-of-tree DKMS modules to bundle |
+| `debian/scripts/bundle-dkms-modules.sh` | ✅ Committed | DKMS build-and-bundle tool |
 | `debian/control` | 🔄 Generated | Produced by `make -f debian/rules prepare KVER=...` |
 | `debian/changelog` | 🔄 Generated | Produced by `make -f debian/rules prepare KVER=...` |
 | `debian/kernel.release` | 🔄 Generated | Produced during `dpkg-buildpackage` |
@@ -307,6 +312,65 @@ Virtual packages provided: `linux-image-dbg`
 
 ---
 
+## DKMS module bundling
+
+Out-of-tree kernel modules listed in `debian/dkms-modules` are built at
+`dpkg-buildpackage` time and bundled directly into `linux-image-<KVER>-qcom`.
+The target device receives the pre-built `.ko` without needing a compiler,
+kernel headers, or DKMS tooling installed.
+
+### How it works
+
+`debian/rules` calls `debian/scripts/bundle-dkms-modules.sh` at the end of
+`override_dh_auto_install`, after the kernel image, modules, headers, and debug
+packages have been staged. The script:
+
+1. Reads the module list from `debian/dkms-modules` (one name per line, without
+   the `-dkms` suffix; comments and blank lines ignored).
+2. Resolves each module's source tree via `dpkg -L <name>-dkms` (authoritative;
+   no `/usr/src/` globbing).
+3. Reads `PACKAGE_NAME` / `PACKAGE_VERSION` from the package's `dkms.conf`.
+4. Builds with `dkms build` against the staged kernel headers, using a private
+   `--dkmstree` (`mktemp`) to avoid writing to the root-owned `/var/lib/dkms/`.
+5. Judges the outcome by `.ko` artifact presence, not `dkms` exit code.
+   On failure: prints `make.log` tail (compile error) or `BUILD_EXCLUSIVE` gate
+   analysis (skip), then hard-fails — a manifest entry is a presence contract.
+6. For each produced `.ko`: collision-checks against already-bundled and in-tree
+   modules; installs to `lib/modules/<KVER>/extra/`; extracts debug symbols via
+   `objcopy --only-keep-debug` into the `-dbg` package; strips with
+   `strip --strip-debug` (required for kernel modules — a full strip drops the
+   symtab and relocations needed by the module loader).
+
+### `debian/dkms-modules` manifest
+
+```
+# One module name per line (without the -dkms suffix).
+# A corresponding Build-Depends entry must exist in debian/control.in.
+kgsl
+```
+
+To add a module: append its name and add `<name>-dkms (>= <version>)` to
+`Build-Depends` in `debian/control.in`. To disable temporarily: comment out
+the line. `debian/rules` and `bundle-dkms-modules.sh` are untouched in either case.
+
+### Standalone developer use
+
+`bundle-dkms-modules.sh` can be invoked directly after a manual build has staged
+the kernel trees, without re-running the full `dpkg-buildpackage`:
+
+```bash
+debian/scripts/bundle-dkms-modules.sh \
+  --kver        6.12.0-qcom-next-20260210 \
+  --headers-dir /path/to/kernel-source/debian/linux-headers-6.12.0-qcom-next-20260210-qcom/usr/src/linux-headers-6.12.0-qcom-next-20260210 \
+  --image-pkg-dir /path/to/kernel-source/debian/linux-image-6.12.0-qcom-next-20260210-qcom \
+  --dbg-pkg-dir   /path/to/kernel-source/debian/linux-image-6.12.0-qcom-next-20260210-qcom-dbg
+```
+
+Run `debian/scripts/bundle-dkms-modules.sh --help` for full usage, prerequisites,
+and all available options (`--arch`, `--objcopy`, `--modules-manifest`).
+
+---
+
 ## The `build` and `source` symlinks
 
 `/lib/modules/<KVER>/build` and `/lib/modules/<KVER>/source` are symlinks
@@ -481,3 +545,9 @@ Merges `arch/arm64/configs/debug.config` from the kernel source if present.
 | Ubuntu 26.04 | `resolute` | |
 | Debian 13 | `trixie` | Default |
 | Debian unstable | `sid` | |
+
+---
+
+## License
+
+pkg-linux-qcom is licensed under the BSD-3-Clause License. See [LICENSE.txt](LICENSE.txt) for the full license text.
