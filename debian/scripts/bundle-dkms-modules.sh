@@ -211,32 +211,37 @@ fi
     exit 1
 }
 
-# Resolve manifest path to absolute (so it works regardless of cwd)
-MODULES_MANIFEST="$(cd "$(dirname "$MODULES_MANIFEST")" 2>/dev/null && pwd)/$(basename "$MODULES_MANIFEST")"
-
 # ---------------------------------------------------------------------------
 # Read and parse the manifest
 # ---------------------------------------------------------------------------
-# Strip comments (# to end of line), blank lines, and CR line endings.
-# Result is a space-separated list of module names.
-DKMS_MODULES=""
-if [[ -f "$MODULES_MANIFEST" ]]; then
-    DKMS_MODULES="$(sed -e 's/#.*//' -e 's/\r$//' "$MODULES_MANIFEST" \
-                    | tr -s ' \t\n' ' ' | sed 's/^ //;s/ $//')"
+# A missing manifest is a misconfiguration, not an empty module set: fail
+# loudly rather than silently shipping a kernel without its declared modules
+# (the manifest is a presence contract). An existing-but-empty or comment-only
+# manifest is a legitimate "no modules" and skips below.
+if [[ ! -f "$MODULES_MANIFEST" ]]; then
+    log_error "Modules manifest not found: $MODULES_MANIFEST"
+    log_error "Pass --modules-manifest <file>, or create debian/dkms-modules."
+    exit 1
 fi
 
+# Resolve manifest path to absolute (so it works regardless of cwd). Safe to
+# drop the cd error-suppression here: the file is confirmed to exist above, so
+# its parent directory exists and the cd cannot fail.
+MODULES_MANIFEST="$(cd "$(dirname "$MODULES_MANIFEST")" && pwd)/$(basename "$MODULES_MANIFEST")"
+
+# Strip comments (# to end of line), blank lines, and CR line endings.
+# Result is a space-separated list of module names.
+DKMS_MODULES="$(sed -e 's/#.*//' -e 's/\r$//' "$MODULES_MANIFEST" \
+                | tr -s ' \t\n' ' ' | sed 's/^ //;s/ $//')"
+
 if [[ -z "$DKMS_MODULES" ]]; then
-    log_info "No DKMS modules listed in $MODULES_MANIFEST; skipping"
+    log_info "Manifest $MODULES_MANIFEST lists no modules; nothing to bundle."
     exit 0
 fi
 
 # ---------------------------------------------------------------------------
 # Validate prerequisites
 # ---------------------------------------------------------------------------
-[[ -f "$MODULES_MANIFEST" ]] || {
-    log_error "Modules manifest not found: $MODULES_MANIFEST"
-    exit 1
-}
 [[ -d "$HEADERS_DIR" ]] || {
     log_error "--headers-dir does not exist: $HEADERS_DIR"
     log_error "The kernel headers must be staged before calling this script."
