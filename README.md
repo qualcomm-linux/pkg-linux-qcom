@@ -9,7 +9,7 @@ The same pipeline is used in two modes:
 
 ```mermaid
 graph TD
-  A[Manual run GitHub UI] --> B[workflow dispatch]
+  A[Manual run GitHub UI] --> B[workflow dispatch]ascacac
   S[Nightly run 9PM PST] --> T[schedule event]
 
   B --> C[Manual inputs]
