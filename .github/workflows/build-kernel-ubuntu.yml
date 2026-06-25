@@ -114,7 +114,7 @@ jobs:
         # Upload from that subdirectory directly so the suite name does not
         # appear in the S3 path — downstream consumers (e.g. qcom-distro-images)
         # expect the flat pkg/temp/<repo>/<run_id>-<attempt>/ layout.
-        uses: qualcomm-linux/upload-private-artifact-action@aws
+        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: kernel-build/${{ inputs.distro }}

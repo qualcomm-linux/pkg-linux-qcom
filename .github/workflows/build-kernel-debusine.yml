@@ -227,7 +227,7 @@ jobs:
           chdist apt-get debusine-workspace download $packages
 
       - name: Upload .deb packages to S3
-        uses: qualcomm-linux/upload-private-artifact-action@aws
+        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: deb-artifacts
