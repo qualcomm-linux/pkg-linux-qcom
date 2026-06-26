@@ -281,7 +281,7 @@ jobs:
           EFFECTIVE_LOCALVERSION="${{ inputs.localversion }}"
           [[ -z "$EFFECTIVE_LOCALVERSION" && -n "$LOCALVERSION" ]] && EFFECTIVE_LOCALVERSION="$LOCALVERSION"
           [[ -n "$EFFECTIVE_LOCALVERSION" ]] && ARGS+=(--localversion "$EFFECTIVE_LOCALVERSION")
-          [[ -n "${{ inputs.kver-extra }}" ]]   && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
+          [[ -n "${{ inputs.kver-extra }}" ]] && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
 
           # Pass --debug to prepare-source.sh when debug-build is enabled.
           # prepare-source.sh handles copying arch/arm64/configs/debug.config

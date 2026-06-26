@@ -53,7 +53,7 @@ flowchart TD
 flowchart LR
     IN["distro input"] --> R{resolve job}
 
-    R -->|"trixie · sid\nunstable · bookworm"| DEB["family = debian"]
+    R -->|"trixie · sid\nunstable · bookworm · forky"| DEB["family = debian"]
     R -->|"noble · questing\nresolute"| UBU["family = ubuntu"]
 
     DEB --> DB["debusine-build\nbuild-kernel-debusine.yml\nGenerates .dsc\nSubmits to Debusine\nchdist download\nPublish to S3"]

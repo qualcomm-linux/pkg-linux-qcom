@@ -42,7 +42,6 @@ on:
 permissions:
   contents: read
   packages: read
-  id-token: write  # Required for Debusine OIDC authentication
 
 jobs:
   # ---------------------------------------------------------------------------
