@@ -79,12 +79,6 @@ permissions:
   contents: read
   packages: read
 
-env:
-  # DEBUSINE_ACTION_REF is consumed by build-kernel-debusine.yml, not here.
-  # Kept as a workflow-level env so it remains visible alongside the
-  # other Debusine-related configuration in this orchestrator.
-  DEBUSINE_ACTION_REF: main
-
 jobs:
   # ---------------------------------------------------------------------------
   # resolve: classify the target suite as 'debian' or 'ubuntu'.

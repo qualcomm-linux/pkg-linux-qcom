@@ -147,7 +147,9 @@ jobs:
           DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
           SUITE: ${{ inputs.suite }}
         run: |
-          set -euxo pipefail
+          # No -x here: this step has DEBUSINE_TOKEN in its env, so keep xtrace
+          # off so a future edit cannot echo a secret onto the trace.
+          set -euo pipefail
           debusine-action/lib/build
           cat output >> "$GITHUB_OUTPUT"
           workspace=$(sed -n 's/^workspace=//p' output)
@@ -221,6 +223,7 @@ jobs:
           chdist apt-get debusine-workspace update
 
           packages=$(chdist apt-cache debusine-workspace search . | awk '{print $1}' | tr '\n' ' ')
+          [[ -n "$packages" ]] || { echo "ERROR: no packages found in Debusine workspace (auth or update issue?)"; exit 1; }
           echo "Packages to download: $packages"
 
           cd "$GITHUB_WORKSPACE/deb-artifacts"
