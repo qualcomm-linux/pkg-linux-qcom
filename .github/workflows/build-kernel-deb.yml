@@ -164,11 +164,16 @@ jobs:
 
           # Resolve the latest qcom-next-* tag when explicitly requested or on
           # scheduled runs (inputs are not available for schedule events).
+          # Pick by the trailing YYYYMMDD date snapshot, not by `sort -V`: version
+          # sort keys on the base kernel version first, so an older-dated rc would
+          # outrank a newer final (and rc sorts after its final in -V). Keying on
+          # the date makes the newest snapshot win across the whole tag namespace.
           if [[ "${{ inputs.latest-tag }}" == "true" || "${{ github.event_name }}" == "schedule" ]]; then
             KERNEL_REF=$(git ls-remote --tags "$KERNEL_URL" 'refs/tags/qcom-next-*' \
                          | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' \
-                         | sort -V | tail -1)
-            [[ -n "$KERNEL_REF" ]] || { echo "ERROR: No qcom-next-* tags found in $KERNEL_URL"; exit 1; }
+                         | grep -E -- '-[0-9]{8}$' \
+                         | awk -F- '{print $NF"\t"$0}' | sort -k1,1n | tail -1 | cut -f2-)
+            [[ -n "$KERNEL_REF" ]] || { echo "ERROR: No qcom-next-*-YYYYMMDD tags found in $KERNEL_URL"; exit 1; }
             echo "Resolved latest tag: $KERNEL_REF"
           else
             KERNEL_REF="$KERNEL_BRANCH"
