@@ -84,8 +84,8 @@ S3 destinations:
 
 | Path | Build type |
 |---|---|
-| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/debusine/<repo>/<suite>/<run_id>-<run_attempt>/` | Debian (Debusine) |
-| `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run_id>-<run_attempt>/` | Ubuntu (docker) |
+| `s3://<artifact-bucket>/<org>/pkg/debusine/<repo>/<suite>/<run_id>-<run_attempt>/` | Debian (Debusine) |
+| `s3://<artifact-bucket>/<org>/pkg/temp/<repo>/<run_id>-<run_attempt>/` | Ubuntu (docker) |
 
 ---
 
@@ -181,7 +181,7 @@ flowchart LR
 
     subgraph build["build job (debusine-pkg-builder container)"]
         GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\nCreate .orig.tar.gz\nRun dpkg-buildpackage -S\nProduce .dsc"] --> DEB
-        DEB["Debusine\ndebusine.qualcomm.com\nDistributed build"] --> WS
+        DEB["Debusine\nDistributed build"] --> WS
         WS["workspace ID"]
     end
 
@@ -190,7 +190,7 @@ flowchart LR
         CHDIST["generate-apt-config\nchdist hermetic apt env\napt-get download\nNo installation"] --> S3
     end
 
-    S3["S3\nqli-prd-lecore-gh-artifacts"]
+    S3["S3\n<artifact-bucket>"]
 ```
 
 ### Ubuntu path
@@ -204,48 +204,29 @@ flowchart LR
         BK["build-kernel.sh\n--skip-prepare\n--local-source\n--build-mode docker\ndpkg-buildpackage -b"] --> S3
     end
 
-    S3["S3\nqli-prd-lecore-gh-artifacts"]
+    S3["S3\n<artifact-bucket>"]
 ```
 
 > `--skip-prepare` is safe because `prepare-source.sh` already ran in the `prepare` job.
 > `debian/control`, `debian/changelog`, and all config fragments are baked into the artifact.
 
-### Credentials and variables
+### Required configuration
 
-The Debusine path requires three repository variables and two secrets.
-Here is how they flow through the full call stack:
+Set these in the repository (or organization) settings. The Debusine path needs
+all of them; the docker path needs only `ARTIFACT_S3_BUCKET`.
 
-```
-daily.yml
-  secrets: inherit                        # passes all repo secrets to callee
+| Type | Name | Purpose |
+|---|---|---|
+| Variable | `ARTIFACT_S3_BUCKET` | S3 bucket the built packages are uploaded to |
+| Variable | `DEBUSINE_HOST` | Debusine instance host |
+| Variable | `DEBUSINE_SCOPE` | Debusine scope |
+| Variable | `DEBUSINE_PARENT_WORKSPACE` | Parent workspace for the CI child workspace |
+| Secret | `DEBUSINE_USER` | Debusine API user |
+| Secret | `DEBUSINE_TOKEN` | Debusine API token |
 
-  └── build-kernel-deb.yml (workflow_call)
-        vars.DEBUSINE_PARENT_WORKSPACE    # read directly, passed as input
-        secrets.DEBUSINE_USER  ─────────────────────────────────────────┐
-        secrets.DEBUSINE_TOKEN ─────────────────────────────────────────┤
-                                                                         │ explicit forward
-        └── build-kernel-debusine.yml (workflow_call)                   │
-              inputs.debusine-parent-workspace ◄─ vars.DEBUSINE_PARENT_WORKSPACE
-              secrets.DEBUSINE_USER  ◄──────────────────────────────────┘
-              secrets.DEBUSINE_TOKEN ◄──────────────────────────────────┘
-
-              build job:
-                vars.DEBUSINE_HOST    # read directly from repo vars
-                vars.DEBUSINE_SCOPE   # read directly from repo vars
-                secrets.DEBUSINE_TOKEN → authenticates to Debusine API
-
-              publish job:
-                vars.DEBUSINE_HOST    # read directly from repo vars
-                vars.DEBUSINE_SCOPE   # read directly from repo vars
-                secrets.DEBUSINE_USER  → generate-apt-config (netrc)
-                secrets.DEBUSINE_TOKEN → generate-apt-config (netrc)
-```
-
-`vars.*` are repo-level variables inherited automatically by all jobs and
-`workflow_call` callees, with no explicit forwarding needed.
-`secrets.*` do not inherit across `workflow_call` boundaries unless
-explicitly forwarded; `build-kernel-deb.yml` forwards only the two
-Debusine secrets, keeping the interface minimal.
+`vars.*` are available to all jobs (including `workflow_call` callees) without
+forwarding. `secrets.*` do not cross a `workflow_call` boundary unless forwarded,
+so `build-kernel-deb.yml` forwards only the two Debusine secrets.
 
 ---
 
