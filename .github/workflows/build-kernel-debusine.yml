@@ -203,6 +203,6 @@ jobs:
       - name: Upload .deb packages to S3
         uses: qualcomm-linux/upload-private-artifact-action@aws-v4
         with:
-          s3_bucket: qli-prd-lecore-gh-artifacts
+          s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: deb-artifacts
           destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
