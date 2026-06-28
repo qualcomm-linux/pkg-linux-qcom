@@ -142,7 +142,7 @@ jobs:
 
       - name: Extract org and repo name
         run: |
-          # Extract org (owner) and repo name from GITHUB_REPOSITORY (format: org/repo)
+          # split GITHUB_REPOSITORY (org/repo)
           echo "ORG_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
 
@@ -192,25 +192,12 @@ jobs:
 
       - name: Resolve LOCALVERSION from kernel ref
         run: |
-          # Derive LOCALVERSION directly from KERNEL_REF — no git describe needed.
-          # KERNEL_REF is already the resolved tag name from the Sync kernel source
-          # step, so we have all the information we need without touching the cloned
-          # tree or running git inside the container.
-          #
-          # Tag builds (latest-tag=true / scheduled):
-          #   KERNEL_REF = qcom-next-7.0-rc7-20260429 → LOCALVERSION = qcom-next-20260429
-          #   Captures the branch prefix and the date snapshot, dropping the kernel
-          #   version in the middle (already encoded in the base KVER).
-          #
-          # Branch-tip builds (latest-tag=false):
-          #   KERNEL_REF = qcom-next (branch name, does not match the tag pattern)
-          #   → LOCALVERSION = qcom-next-g<short-sha>
-          #   Uses the branch name + short commit SHA to uniquely identify the build.
-          #   Two tip builds from the same commit produce the same package name;
-          #   two tip builds from different commits are always distinguishable.
-          #
-          # An explicit localversion input always takes precedence (handled in the
-          # Prepare source step below).
+          # Derive LOCALVERSION from KERNEL_REF (already resolved above), so no
+          # git describe is needed inside the container:
+          #   tag build:        qcom-next-7.0-rc7-20260429 -> qcom-next-20260429
+          #                     (prefix + date; the version is already in KVER)
+          #   branch-tip build: qcom-next -> qcom-next-g<short-sha>
+          # An explicit localversion input wins (applied in Prepare source below).
           LOCALVERSION=$(echo "$KERNEL_REF" | sed -E 's/^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$/\1-\2/')
           if [[ "$LOCALVERSION" != "$KERNEL_REF" ]]; then
             # Tag build: LOCALVERSION derived from tag name
@@ -277,31 +264,21 @@ jobs:
 
       - name: Prepare source
         run: |
-          # Inject debian/ packaging metadata, activate config fragments, and
-          # run 'debian/rules prepare' to generate debian/control and
-          # debian/changelog from *.in templates.
-          #
-          # In docker mode the entire prepare-source.sh is executed inside the
-          # distro-matched pkg-builder container for a controlled, reproducible
-          # environment. The workspace is bind-mounted (-v $PWD:$PWD) so all
-          # generated files are written back to the host filesystem.
-          #
-          # A subsequent commit will extend prepare-source.sh with --source-pkg
-          # support to run dpkg-buildpackage -S for Debusine source packages.
+          # Inject debian/, activate config fragments, and run 'debian/rules
+          # prepare' (generates debian/control + debian/changelog from *.in),
+          # inside the distro-matched pkg-builder container for reproducibility.
           ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO")
 
-          # Prefer an explicit localversion input; fall back to LOCALVERSION
-          # derived from KERNEL_REF in the Resolve LOCALVERSION step above.
-          # Passing it explicitly here means prepare-source.sh never needs to
-          # run git describe inside the container (no safe.directory concerns).
+          # Prefer an explicit localversion input; else the LOCALVERSION derived
+          # above. Passing it explicitly avoids git describe (and safe.directory
+          # issues) inside the container.
           EFFECTIVE_LOCALVERSION="${{ inputs.localversion }}"
           [[ -z "$EFFECTIVE_LOCALVERSION" && -n "$LOCALVERSION" ]] && EFFECTIVE_LOCALVERSION="$LOCALVERSION"
           [[ -n "$EFFECTIVE_LOCALVERSION" ]] && ARGS+=(--localversion "$EFFECTIVE_LOCALVERSION")
           [[ -n "${{ inputs.kver-extra }}" ]] && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
 
-          # Pass --debug to prepare-source.sh when debug-build is enabled.
-          # prepare-source.sh handles copying arch/arm64/configs/debug.config
-          # into debian/config/ so it is applied as a standard config fragment.
+          # --debug makes prepare-source.sh add arch/arm64/configs/debug.config
+          # as a standard config fragment.
           [[ "${{ inputs.debug-build }}" == "true" ]] && ARGS+=(--debug)
 
           docker run -i --rm \
@@ -310,10 +287,8 @@ jobs:
             ./prepare-source.sh "${ARGS[@]}"
 
       - name: Upload prepared source tree
-        # Archive the kernel source tree as a tar.gz before uploading so that
-        # file permissions (execute bits on kernel build scripts) are preserved.
-        # actions/upload-artifact uses zip format which strips execute bits;
-        # tar preserves them end-to-end.
+        # Archive as tar.gz so upload-artifact's zip does not strip the execute
+        # bits on kernel build scripts (see README).
         run: |
           tar czf /tmp/kernel-srcpkg.tar.gz \
             -C "$(dirname "$KERNEL_DIR")" \
@@ -352,7 +327,7 @@ jobs:
   # Delegates to build-kernel-ubuntu.yml, which encapsulates the full
   # build-kernel.sh pipeline. Keeping this as a separate reusable workflow
   # means the Ubuntu build path can be deprecated or replaced (e.g. when
-  # Debusine gains Ubuntu support) by deleting one file and one job — no
+  # Debusine gains Ubuntu support) by deleting one file and one job, no
   # surgery on the orchestrator logic below.
   # ---------------------------------------------------------------------------
   ubuntu-build:

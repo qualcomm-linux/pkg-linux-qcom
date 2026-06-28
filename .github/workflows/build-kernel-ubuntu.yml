@@ -9,13 +9,8 @@ name: build-kernel-ubuntu
 # downloads the kernel-srcpkg artifact and runs build-kernel.sh --skip-prepare
 # to go directly to the build step.
 #
-# Artifact sharing: artifacts are scoped to github.run_id, which is shared
-# between the caller and this reusable workflow. The kernel-srcpkg artifact
-# uploaded by the caller's prepare job is therefore directly accessible here
-# via actions/download-artifact without any additional plumbing.
-#
-# Single job: build and S3 upload run together on the self-hosted runner,
-# which has direct IAM access throughout.
+# The artifact is shared from the caller via github.run_id. Build and S3 upload
+# run on the self-hosted runner, which has direct IAM access.
 
 on:
   workflow_call:
@@ -49,9 +44,7 @@ jobs:
 
     steps:
       - name: Checkout pkg-linux-qcom
-        # Provides build-kernel.sh and prepare-source.sh. Must match the ref
-        # used by the caller's prepare job so that build-kernel.sh is
-        # consistent with the prepared source tree baked into the artifact.
+        # build-kernel.sh; ref must match the caller's prepare job.
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.pkg-linux-qcom-ref }}
@@ -67,15 +60,11 @@ jobs:
 
       - name: Build docker image
         run: |
-          # Rebuild the pkg-builder image for the target Ubuntu suite so that
-          # docker_deb_build.py has a fresh local image to work with.
+          # --rebuild forces a fresh suite-matched pkg-builder image.
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
           docker image ls
 
       - name: Download prepared source tree
-        # The kernel-srcpkg artifact was uploaded by the prepare job in the
-        # caller workflow. Artifacts are scoped to github.run_id, which is
-        # shared between the caller and this reusable workflow.
         uses: actions/download-artifact@v4
         with:
           name: kernel-srcpkg
@@ -83,11 +72,8 @@ jobs:
 
       - name: Extract prepared source tree
         run: |
-          # The artifact is a tar.gz created by the prepare job to preserve
-          # Unix execute permissions on kernel build scripts. zip format (used
-          # by actions/upload-artifact) strips execute bits; tar does not.
-          # --strip-components=1 extracts the top-level directory directly into
-          # kernel-source/ without depending on its name inside the archive.
+          # tar.gz preserves the execute bits that upload-artifact's zip would
+          # strip (see README); --strip-components=1 drops the archive's top dir.
           mkdir -p kernel-source
           tar xzf /tmp/srcpkg-artifact/*.tar.gz \
             -C kernel-source --strip-components=1
@@ -111,7 +97,7 @@ jobs:
       - name: Upload .deb packages to S3
         # build-kernel.sh outputs to kernel-build/<distro>/ by default.
         # Upload from that subdirectory directly so the suite name does not
-        # appear in the S3 path — downstream consumers (e.g. qcom-distro-images)
+        # appear in the S3 path; downstream consumers (e.g. qcom-distro-images)
         # expect the flat pkg/temp/<repo>/<run_id>-<attempt>/ layout.
         uses: qualcomm-linux/upload-private-artifact-action@aws-v4
         with:

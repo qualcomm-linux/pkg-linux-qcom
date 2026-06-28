@@ -1,48 +1,21 @@
 name: build-debusine
 
-# Reusable workflow: Debusine kernel build and artifact publishing.
+# Reusable workflow: Debian kernel build via Debusine, then publish to S3.
+# The Debian counterpart of build-kernel-ubuntu.yml; called by
+# build-kernel-deb.yml for Debian-family suites (trixie, sid). The kernel
+# source is already prepared by the caller's prepare job and shared as the
+# kernel-srcpkg artifact (via github.run_id).
 #
-# Called by build-kernel-deb.yml when the target suite is Debian-family
-# (trixie, sid). The kernel source has already been cloned, patched, and
-# prepared (debian/ injected, debian/control + debian/changelog generated)
-# by the prepare job in the caller workflow, and uploaded as the
-# kernel-srcpkg artifact.
+#   build job   (debusine-pkg-builder container): assembles the Debian source
+#               package and submits it to Debusine for a distributed build.
+#               Uses DEBUSINE_ASSEMBLE_ORIG=true to bypass gbp and build the
+#               .orig.tar.gz directly, since this tree has no upstream tag,
+#               pristine-tar branch, or gbp.conf (it is assembled at CI time).
+#   publish job (self-hosted runner, for direct IAM): downloads the built .deb
+#               files from the private Debusine workspace with chdist (hermetic,
+#               authenticated apt, no host pollution) and uploads them to S3.
 #
-# This workflow owns the complete Debian build path end-to-end:
-#
-#   build job  — runs inside ghcr.io/qualcomm-linux/debusine-pkg-builder
-#                container on a GitHub-hosted runner:
-#                  1. Downloads and extracts the kernel-srcpkg artifact
-#                  2. Generates the Debian source package (.dsc) via
-#                     debusine-action/lib/generate-source-package with
-#                     DEBUSINE_ASSEMBLE_ORIG=true (bypasses gbp; creates
-#                     .orig.tar.gz directly from the assembled source tree)
-#                  3. Submits the .dsc to Debusine for distributed building
-#                     via debusine-action/lib/build
-#                  4. Outputs the Debusine workspace ID
-#
-#   publish job — runs on the self-hosted ARM64 runner (direct IAM access
-#                 required for S3 upload):
-#                  1. Generates authenticated apt configuration for the
-#                     Debusine workspace via debusine-action/lib/generate-apt-config
-#                  2. Downloads the built .deb files from the private Debusine
-#                     workspace using chdist (hermetic, authenticated apt
-#                     environment — no host pollution, no installation)
-#                  3. Uploads the .deb files to S3
-#
-# Artifact sharing: artifacts are scoped to github.run_id, which is shared
-# between the caller (build-kernel-deb.yml) and this reusable workflow. The
-# kernel-srcpkg artifact uploaded by the caller's prepare job is therefore
-# directly accessible in the build job via actions/download-artifact without
-# any additional plumbing.
-#
-# Symmetry: this workflow is the Debian counterpart of build-kernel-ubuntu.yml.
-# Both are local reusable workflows called by build-kernel-deb.yml, each owning
-# their build path end-to-end including the S3 upload.
-#
-# Deprecation path: if this workflow is ever retired or replaced, delete this
-# file and remove the debusine-build job from build-kernel-deb.yml. No other
-# files need to change.
+# To retire this path, delete this file and its job in build-kernel-deb.yml.
 
 on:
   workflow_call:
@@ -110,12 +83,8 @@ jobs:
 
       - name: Extract prepared source tree
         run: |
-          # The artifact is a tar.gz created by the prepare job to preserve
-          # Unix execute permissions on kernel build scripts. zip format (used
-          # by actions/upload-artifact) strips execute bits; tar does not.
-          # --strip-components=1 extracts the top-level directory directly into
-          # srcpkg/ without depending on its name inside the archive. The
-          # artifact contains exactly one *.tar.gz so the glob is unambiguous.
+          # tar.gz preserves the execute bits that upload-artifact's zip would
+          # strip (see README); --strip-components=1 drops the archive's top dir.
           mkdir srcpkg
           tar xzf /tmp/srcpkg-artifact/*.tar.gz \
             -C srcpkg --strip-components=1
@@ -130,7 +99,7 @@ jobs:
           # debian/ and .git/) and invokes dpkg-buildpackage -S to produce
           # the .dsc, .debian.tar.xz, and .changes files.
           # Required because pkg-linux-qcom has no upstream tag, no
-          # pristine-tar branch, and no debian/gbp.conf — the source tree
+          # pristine-tar branch, and no debian/gbp.conf; the source tree
           # is assembled at CI time from separate kernel and packaging repos.
           SUITE="$SUITE" debusine-action/lib/generate-source-package
 
@@ -165,7 +134,7 @@ jobs:
   # Runs on the self-hosted runner (not in a container) because the S3 upload
   # action requires direct IAM credentials available on the runner. chdist
   # creates a hermetic, authenticated apt environment pointing exclusively at
-  # the Debusine workspace — no host pollution, no package installation.
+  # the Debusine workspace (no host pollution, no package installation).
   # ---------------------------------------------------------------------------
   publish:
     name: Publish Debusine artifacts
