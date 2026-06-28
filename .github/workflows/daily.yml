@@ -1,20 +1,11 @@
 name: daily
 
-# Daily kernel package builds across all supported distros.
+# Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
+# build per entry in ci/build-matrix.json. Manual dispatch can run the full
+# matrix ("Test Daily Build") or a single distro.
 #
-# Schedule: runs daily at 3:00 PM PST (23:00 UTC) for every entry in
-# ci/build-matrix.json, producing parallel independent builds.
-#
-# Manual dispatch:
-#   - Check "Test Daily Build" to run the full matrix (identical to the
-#     scheduled daily build).
-#   - Leave it unchecked and pick a specific distro to run a single build.
-#
-# Matrix format (ci/build-matrix.json):
-#   [ { "distro": "<codename>" }, ... ]
-#
-# To add a new daily target, append an entry to ci/build-matrix.json.
-# No workflow changes are needed.
+# To add a daily target, append { "distro": "<codename>" } to
+# ci/build-matrix.json; no workflow change is needed.
 
 on:
   schedule:
