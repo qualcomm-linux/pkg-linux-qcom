@@ -196,6 +196,8 @@ jobs:
           echo "Packages to download: $packages"
 
           cd "$GITHUB_WORKSPACE/deb-artifacts"
+          # word-split is intentional: each package name is a separate argument.
+          # shellcheck disable=SC2086
           chdist apt-get debusine-workspace download $packages
 
       - name: Upload .deb packages to S3
