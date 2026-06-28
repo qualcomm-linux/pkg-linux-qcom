@@ -121,6 +121,12 @@ jobs:
       KERNEL_URL: ${{ inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
       DISTRO: ${{ inputs.distro || 'trixie' }}
 
+    # bash with -e -o pipefail for every run step (parity with the family
+    # modules; guarantees pipefail for the tag-resolution pipeline below).
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
@@ -131,10 +137,14 @@ jobs:
         if: ${{ inputs.self-pr != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          SELF_PR: ${{ inputs.self-pr }}
         run: |
-          echo "Applying pkg-linux-qcom PR #${{ inputs.self-pr }}..."
-          git fetch origin pull/${{ inputs.self-pr }}/head:pr-${{ inputs.self-pr }}
-          git checkout pr-${{ inputs.self-pr }}
+          # Dereference the input via env and validate it is numeric before it
+          # reaches a git refspec, rather than splicing the raw input into shell.
+          [[ "$SELF_PR" =~ ^[0-9]+$ ]] || { echo "ERROR: self-pr must be numeric (got '$SELF_PR')"; exit 1; }
+          echo "Applying pkg-linux-qcom PR #$SELF_PR..."
+          git fetch origin "pull/$SELF_PR/head:pr-$SELF_PR"
+          git checkout "pr-$SELF_PR"
 
       - name: Extract org and repo name
         run: |
@@ -222,14 +232,20 @@ jobs:
 
       - name: Merge qcom-next PR patches
         if: ${{ inputs.qcom-next-pr != '' }}
+        env:
+          QCOM_NEXT_PR: ${{ inputs.qcom-next-pr }}
         run: |
           cd "$KERNEL_DIR"
-          echo "Merging qcom-next PR(s): ${{ inputs.qcom-next-pr }}"
-          for pr in ${{ inputs.qcom-next-pr }}; do
+          echo "Merging qcom-next PR(s): $QCOM_NEXT_PR"
+          for pr in $QCOM_NEXT_PR; do
+            [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid qcom-next PR number: $pr"; exit 1; }
             echo "::group::Merging qcom-next PR #$pr"
             git fetch --no-tags origin "pull/$pr/head:pr-$pr"
 
-            if ! git merge "pr-$pr" --no-commit; then
+            # --no-ff so the --no-commit semantics hold even for a fast-forwardable
+            # PR; otherwise git would fast-forward HEAD and the branch below would
+            # mislabel a real merge as "nothing to merge".
+            if ! git merge --no-ff --no-commit "pr-$pr"; then
               echo "ERROR: Merge conflict while merging PR #$pr. Aborting."
               git merge --abort || true
               exit 1
@@ -239,18 +255,20 @@ jobs:
               git commit -m "Merged qcom-next PR #$pr"
               echo "PR #$pr merged successfully."
             else
-              echo "Nothing to commit for PR #$pr (already merged or fast-forwarded)."
-              git merge --abort 2>/dev/null || true
+              echo "PR #$pr already present; nothing to merge."
             fi
             echo "::endgroup::"
           done
 
       - name: Apply kernel-topics PR patches
         if: ${{ inputs.kernel-topics-pr != '' }}
+        env:
+          KERNEL_TOPICS_PR: ${{ inputs.kernel-topics-pr }}
         run: |
           cd "$KERNEL_DIR"
-          echo "Applying kernel-topics PR patch(es): ${{ inputs.kernel-topics-pr }}"
-          for pr in ${{ inputs.kernel-topics-pr }}; do
+          echo "Applying kernel-topics PR patch(es): $KERNEL_TOPICS_PR"
+          for pr in $KERNEL_TOPICS_PR; do
+            [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid kernel-topics PR number: $pr"; exit 1; }
             echo "::group::Applying kernel-topics PR #$pr"
             wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
 
@@ -292,7 +310,7 @@ jobs:
           # into debian/config/ so it is applied as a standard config fragment.
           [[ "${{ inputs.debug-build }}" == "true" ]] && ARGS+=(--debug)
 
-          docker run -i --privileged --rm \
+          docker run -i --rm \
             -v "$PWD:$PWD" --workdir="$PWD" \
             "ghcr.io/qualcomm-linux/pkg-builder:$DISTRO" \
             ./prepare-source.sh "${ARGS[@]}"
