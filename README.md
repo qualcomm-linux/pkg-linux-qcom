@@ -253,4 +253,4 @@ Debusine secrets, keeping the interface minimal.
 
 ## License
 
-pkg-linux-kernel is licensed under the BSD-3-clause License. See LICENSE.txt for the full license text.
+pkg-linux-qcom is licensed under the BSD-3-clause License. See LICENSE.txt for the full license text.

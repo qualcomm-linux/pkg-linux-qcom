@@ -142,9 +142,8 @@ jobs:
           echo "ORG_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
 
-      # TODO: switch to qualcomm-linux/docker-pkg-build@main once
-      # https://github.com/abickett/docker-pkg-build/tree/dev/kernel-native-build
-      # is merged upstream.
+      # Pinned to @main while native kernel-build support is still landing
+      # upstream in qualcomm-linux/docker-pkg-build.
       - name: Checkout docker-pkg-build
         uses: actions/checkout@v4
         with:
