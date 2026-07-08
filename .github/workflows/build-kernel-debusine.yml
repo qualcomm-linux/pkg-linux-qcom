@@ -120,6 +120,7 @@ jobs:
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
           SUITE: ${{ inputs.suite }}
+          EXTRA_BUILD_DEP_WORKSPACES: qli
         run: |
           # No -x here: DEBUSINE_TOKEN is in env, keep xtrace off.
           set -euo pipefail
