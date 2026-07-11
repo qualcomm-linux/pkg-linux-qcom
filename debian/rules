@@ -30,6 +30,11 @@ PARALLEL ?= $(shell nproc)
 # Prefer the aarch64 cross-compiler's objcopy; fall back to the host objcopy.
 OBJCOPY ?= $(shell which aarch64-linux-gnu-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo objcopy)
 
+# dkms identifies architectures in uname -m vocabulary (aarch64), unlike the
+# kbuild ARCH token above (arm64). The distinction matters for dkms.conf
+# BUILD_EXCLUSIVE_ARCH gates, which match against this value.
+DKMS_ARCH ?= aarch64
+
 
 # File that caches the kernelrelease (BASE, i.e., uname -r)
 KREL_FILE := debian/kernel.release
@@ -374,7 +379,22 @@ override_dh_auto_install:
 		       $$DBG_PKG/usr/lib/debug/vmlinux-$$BASE; \
 	else \
 		echo "Warning: vmlinux not found at $$VMLINUX_PATH — debug package will not contain vmlinux"; \
-	fi
+	fi; \
+	\
+	# ── DKMS module integration ──────────────────────────────────────────────────
+	# Delegated to debian/scripts/bundle-dkms-modules.sh.
+	# The script reads debian/dkms-modules, builds each listed module against the
+	# staging headers produced earlier in this same dpkg-buildpackage run, and
+	# bundles the resulting .ko files into the linux-image and -dbg staging trees.
+	# It can also be invoked directly by a developer — see the script's --help.
+	$(CURDIR)/debian/scripts/bundle-dkms-modules.sh \
+	    --kver            "$$BASE" \
+	    --headers-dir     "$(CURDIR)/debian/linux-headers-$$BASE-qcom/usr/src/linux-headers-$$BASE" \
+	    --image-pkg-dir   "$(CURDIR)/$$PKG" \
+	    --dbg-pkg-dir     "$(CURDIR)/$$DBG_PKG" \
+	    --arch            "$(DKMS_ARCH)" \
+	    --objcopy         "$(OBJCOPY)" \
+	    --modules-manifest "$(CURDIR)/debian/dkms-modules"
 
 # Skip automatic dh_installmodules - we'll call it manually in override_dh_installdeb
 override_dh_installmodules:
