@@ -120,8 +120,10 @@ jobs:
           # off so a future edit cannot echo a secret onto the trace.
           set -euo pipefail
           debusine-action/lib/build
-          cat output >> "$GITHUB_OUTPUT"
-          workspace=$(sed -n 's/^workspace=//p' output)
+          # debusine-action/lib/build writes workspace/workflow_id directly to
+          # $GITHUB_OUTPUT (it no longer produces a separate 'output' file), so
+          # read the workspace back out of there to derive workspace_url.
+          workspace=$(sed -n 's/^workspace=//p' "$GITHUB_OUTPUT")
           echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
 
       - name: Note Debusine workspace URL
