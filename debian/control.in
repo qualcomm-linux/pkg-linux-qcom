@@ -1,4 +1,4 @@
-Source: linux-image-@KVER@-qcom
+Source: @SRCPKG@
 Section: kernel
 Priority: optional
 Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
@@ -9,56 +9,61 @@ Build-Depends: debhelper-compat (= 13),
 Homepage: https://kernel.org
 Rules-Requires-Root: binary-targets
 
-Package: linux-image-@KVER@-qcom
+Package: linux-image-@KVER@
 Architecture: arm64
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Recommends: initramfs-tools | dracut | linux-initramfs-tool
-Suggests: linux-headers-@KVER@-qcom
+Suggests: linux-headers-@KVER@
 Provides: linux-image, linux-image-arm64
-Description: Qualcomm ARM64 Linux kernel @KVER@
- Installs the built kernel Image, .config, all DTBs, and modules under
- versioned paths keyed to the kernel's release version.
+Description: Qualcomm ARM64 Linux kernel image @KVER@
+ Kernel image, modules, and DTBs for kernel release @KVER@ on ARM64
+ Qualcomm platforms.
  .
- This package contains kernel version @KVER@ with all necessary components
- for booting and running the kernel on ARM64 systems.
- .
- Files are installed to:
+ Files installed:
   - /boot/vmlinuz-@KVER@
   - /boot/config-@KVER@
   - /lib/modules/@KVER@/
-  - /usr/lib/linux-image-@KVER@/
+  - /usr/lib/linux-image-@KVER@/ (DTBs)
+  - /usr/lib/firmware/@KVER@/device-tree (Ubuntu flash-kernel symlink)
 
-Package: linux-headers-@KVER@-qcom
+Package: @BINPKG@
+Architecture: arm64
+Depends: linux-image-@KVER@, ${misc:Depends}
+Description: Qualcomm ARM64 Linux kernel image (meta-package)
+ This meta-package always depends on the latest @BINPKG@ kernel image
+ for ARM64 Qualcomm platforms. Installing this package ensures that
+ apt upgrade will automatically install new kernel releases.
+
+Package: linux-headers-@KVER@
 Architecture: arm64
 Depends: ${misc:Depends}
 Provides: linux-headers, linux-headers-arm64
 Description: Qualcomm ARM64 Linux kernel headers @KVER@
- This package provides the kernel headers for building out-of-tree modules
- and other kernel development tasks for kernel version @KVER@.
+ Kernel headers for building out-of-tree modules (DKMS, etc.) against
+ kernel release @KVER@.
  .
- Headers are installed under /usr/src/linux-headers-@KVER@/ and include
- the necessary build infrastructure for compiling external modules.
- .
- Installing this package also fixes the /lib/modules/@KVER@/build symlink
- to point to /usr/src/linux-headers-@KVER@/.
+ Headers are installed under /usr/src/linux-headers-@KVER@/ and the
+ /lib/modules/@KVER@/build symlink is pointed there.
 
-Package: linux-image-@KVER@-qcom-dbg
+Package: @HDRPKG@
+Architecture: arm64
+Depends: linux-headers-@KVER@, ${misc:Depends}
+Description: Qualcomm ARM64 Linux kernel headers (meta-package)
+ This meta-package always depends on the latest @HDRPKG@ kernel headers
+ for ARM64 Qualcomm platforms.
+
+Package: linux-image-@KVER@-dbg
 Architecture: arm64
 Section: debug
 Priority: optional
-Depends: ${misc:Depends}, linux-image-@KVER@-qcom (= ${binary:Version})
+Depends: ${misc:Depends}, linux-image-@KVER@ (= ${binary:Version})
 Provides: linux-image-dbg
-Description: Qualcomm ARM64 Linux kernel debugging symbols @KVER@
- This package provides debugging symbols for the Qualcomm ARM64 kernel
- version @KVER@, following the standard GNU debuglink layout used by the
- upstream kernel builddeb script.
- .
- Debug symbols are installed under /usr/lib/debug/ and do not conflict
- with the main linux-image package. Both packages can be installed
- simultaneously.
+Description: Qualcomm ARM64 Linux kernel debug symbols @KVER@
+ Debug symbols for kernel release @KVER@, following the GNU debuglink
+ layout used by the upstream kernel builddeb script.
  .
  Files installed:
-  - /usr/lib/debug/lib/modules/@KVER@/  (per-module .ko debug symbols)
-  - /usr/lib/debug/lib/modules/@KVER@/vmlinux  (unstripped vmlinux, for perf/crash)
-  - /usr/lib/debug/boot/vmlinux-@KVER@  (symlink, for systemtap)
-  - /usr/lib/debug/vmlinux-@KVER@  (symlink, for kdump-tools)
+  - /usr/lib/debug/lib/modules/@KVER@/ (per-module .ko debug symbols)
+  - /usr/lib/debug/lib/modules/@KVER@/vmlinux (unstripped vmlinux)
+  - /usr/lib/debug/boot/vmlinux-@KVER@ (symlink for systemtap)
+  - /usr/lib/debug/vmlinux-@KVER@ (symlink for kdump-tools)

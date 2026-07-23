@@ -1,8 +1,8 @@
-linux-image-@KVER@-qcom (1-1) @DISTRO@; urgency=medium
+@SRCPKG@ (@PKGVER@) @DISTRO@; urgency=medium
 
   * Qualcomm ARM64 Linux kernel package
   * Kernel version: @KVER@
-  * Includes kernel image, modules, DTBs, and headers
-  * Supports multiple kernel installations via versioned package names
+  * Source: @GITCLONE@ @BRANCH@
+  * Includes kernel image, modules, DTBs, headers, and debug symbols
 
  -- Bjordis Collaku <bcollaku@qti.qualcomm.com>  Fri, 14 Nov 2025 10:00:00 -0800
