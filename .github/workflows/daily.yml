@@ -1,11 +1,17 @@
 name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
-# build per entry in ci/build-matrix.json. Manual dispatch can run the full
-# matrix ("Test Daily Build") or a single distro.
+# build per Daily entry in ci/build-matrix.json after suite flattening.
+# Manual dispatch can run the full Daily matrix or a single suite.
 #
-# To add a daily target, append { "distro": "<codename>" } to
-# ci/build-matrix.json; no workflow change is needed.
+# Matrix schema: ci/build-matrix.json
+#   Each row with "type": "Daily" is expanded by ci/scripts/resolve-matrix.sh:
+#   the "suites" array is flattened into one job per suite. All other fields
+#   (srcpkg, binpkg, kernel_config, debian_revision, git_clone, branch_or_tag)
+#   are passed through to build-kernel-deb.yml as inputs.
+#
+# To add a daily build target: add a row to ci/build-matrix.json with
+# "type": "Daily". No workflow changes needed.
 
 on:
   schedule:
@@ -14,17 +20,18 @@ on:
   workflow_dispatch:
     inputs:
       run-full-matrix:
-        description: 'Test Daily Build (runs all matrix combinations, same as the scheduled daily build)'
+        description: 'Test Daily Build (runs all Daily matrix entries, same as scheduled)'
         type: boolean
         required: false
         default: false
-      distro:
-        description: 'Target distro (ignored when Test Daily Build is checked)'
+      suite:
+        description: 'Single suite to build (ignored when Test Daily Build is checked)'
         required: false
         default: 'trixie'
         type: choice
         options:
           - trixie
+          - forky
           - noble
           - questing
           - resolute
@@ -36,12 +43,12 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: determine which distros to build.
+  # configure-matrix: flatten the Daily rows from ci/build-matrix.json.
   #
-  # Schedule / Test Daily Build checked → full matrix from ci/build-matrix.json.
-  # Specific distro input               → single-entry matrix from the input.
-  #
-  # Mirrors the configure-matrix pattern used in qcom-distro-images.
+  # Delegates to ci/scripts/resolve-matrix.sh which filters type=Daily rows
+  # and expands each row's "suites" array into one flat entry per suite.
+  # For manual dispatch of a single suite, passes --single-suite to restrict
+  # the output to that suite only.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -54,36 +61,32 @@ jobs:
       - name: Generate build matrix
         id: set-matrix
         run: |
-          INPUT_DISTRO="${{ github.event.inputs.distro }}"
+          set -euo pipefail
+
           RUN_FULL="${{ github.event.inputs.run-full-matrix }}"
+          INPUT_SUITE="${{ github.event.inputs.suite }}"
 
-          if [ "${{ github.event_name }}" == "schedule" ] || [ "$RUN_FULL" == "true" ]; then
-            echo "Source: ci/build-matrix.json (full matrix)"
-
-            if [ ! -f "./ci/build-matrix.json" ]; then
-              echo "::error::ci/build-matrix.json not found"
-              exit 1
-            fi
-
-            MATRIX=$(jq -c . < ./ci/build-matrix.json)
+          if [[ "${{ github.event_name }}" == "schedule" || "$RUN_FULL" == "true" ]]; then
+            echo "Source: ci/build-matrix.json (full Daily matrix)"
+            MATRIX=$(ci/scripts/resolve-matrix.sh --type Daily)
           else
-            echo "Source: manual input (single target: $INPUT_DISTRO)"
-            MATRIX="[{\"distro\": \"$INPUT_DISTRO\"}]"
+            echo "Source: ci/build-matrix.json (single suite: $INPUT_SUITE)"
+            MATRIX=$(ci/scripts/resolve-matrix.sh --type Daily --single-suite "$INPUT_SUITE")
           fi
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Matrix: $MATRIX"
+          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per matrix entry.
+  # build: one parallel job per flat matrix entry.
   #
-  # Each entry calls build-kernel-deb.yml as a reusable workflow, which owns
-  # the full build pipeline (prepare → debusine-build or ubuntu-build →
-  # upload-artifacts). Jobs are independent; fail-fast is disabled so a
-  # failed trixie build does not cancel the resolute build.
+  # Each entry calls build-kernel-deb.yml as a reusable workflow. The full
+  # set of matrix fields (suite, srcpkg, binpkg, kernel_config, etc.) is
+  # threaded through as inputs. fail-fast is disabled so a failed trixie
+  # build does not cancel the forky build.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.distro }}
+    name: ${{ matrix.suite }}
     needs: configure-matrix
     strategy:
       fail-fast: false
@@ -91,5 +94,10 @@ jobs:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
     uses: ./.github/workflows/build-kernel-deb.yml
     with:
-      distro: ${{ matrix.distro }}
+      suite: ${{ matrix.suite }}
+      git-clone: ${{ matrix.git_clone }}
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      debian-revision: ${{ matrix.debian_revision }}
     secrets: inherit
