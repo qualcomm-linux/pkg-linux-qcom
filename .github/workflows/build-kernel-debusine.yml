@@ -58,7 +58,7 @@ jobs:
     name: Build (Debusine)
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ inputs.suite }}
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
@@ -196,7 +196,7 @@ jobs:
     if: ${{ needs.build.result == 'success' && inputs.target-workspace != '' }}
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ inputs.suite }}
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
       options: --user 0:0
       credentials:
         username: ${{ github.actor }}
