@@ -172,6 +172,24 @@ jobs:
         with:
           ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
 
+      - name: Checkout CI scripts
+        # ci/scripts/ lives on the CI branch (main), not on the packaging branch
+        # (qcom/debian/latest). Check out the CI branch into a separate path so
+        # resolve-kernel-ref.sh and derive-localversion.sh are available.
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .ci-branch
+          sparse-checkout: ci/scripts
+          fetch-depth: 1
+
+      - name: Install CI scripts into workspace
+        run: |
+          mkdir -p ci/scripts
+          cp .ci-branch/ci/scripts/*.sh ci/scripts/
+          chmod +x ci/scripts/*.sh
+          rm -rf .ci-branch
+
       - name: Apply packaging PR (if specified)
         if: ${{ inputs.self-pr != '' }}
         env:
