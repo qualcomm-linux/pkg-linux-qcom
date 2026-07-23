@@ -115,6 +115,8 @@ jobs:
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
           SUITE: ${{ inputs.suite }}
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+          EXTRA_BUILD_DEP_WORKSPACES: qli
         run: |
           # No -x here: this step has DEBUSINE_TOKEN in its env, so keep xtrace
           # off so a future edit cannot echo a secret onto the trace.
