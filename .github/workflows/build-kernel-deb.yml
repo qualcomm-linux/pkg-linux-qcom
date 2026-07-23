@@ -161,6 +161,11 @@ jobs:
     env:
       KERNEL_URL: ${{ inputs.git-clone || inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
       DISTRO: ${{ inputs.suite || 'trixie' }}
+      # For Debian-family suites (trixie, forky, sid) use trixie as the docker
+      # image distro: docker-pkg-build and pkg-builder only support trixie for
+      # Debian. Debusine handles the actual suite-specific build internally.
+      # For Ubuntu-family suites (noble, questing, resolute) use the real suite.
+      DOCKER_DISTRO: ${{ (inputs.suite == 'forky' || inputs.suite == 'sid' || inputs.suite == 'unstable') && 'trixie' || inputs.suite || 'trixie' }}
 
     defaults:
       run:
@@ -210,7 +215,7 @@ jobs:
 
       - name: Build docker image
         run: |
-          ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
+          ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DOCKER_DISTRO"
           docker image ls
 
       - name: Resolve kernel ref
@@ -322,7 +327,7 @@ jobs:
 
           docker run -i --rm \
             -v "$PWD:$PWD" --workdir="$PWD" \
-            "ghcr.io/qualcomm-linux/pkg-builder:$DISTRO" \
+            "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
             ./prepare-source.sh "${ARGS[@]}"
 
       - name: Upload prepared source tree
