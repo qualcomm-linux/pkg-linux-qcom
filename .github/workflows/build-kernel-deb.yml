@@ -3,75 +3,123 @@ name: build-kernel-deb
 on:
   workflow_dispatch:
     inputs:
+      suite:
+        description: 'Target suite'
+        required: false
+        default: 'trixie'
+        type: choice
+        options:
+          - trixie
+          - forky
+          - noble
+          - questing
+          - resolute
+          - sid
+      latest-tag:
+        description: 'Use latest qcom-next-* tag (ignores kernel-branch)'
+        type: boolean
+        default: true
       kernel-branch:
-        description: 'Kernel branch or tag to build'
+        description: 'Kernel branch or tag when latest-tag=false'
         required: false
         default: 'qcom-next'
       kernel-url:
         description: 'Custom kernel repo URL (leave empty for qualcomm-linux/kernel)'
         required: false
         default: ''
-      latest-tag:
-        description: 'Use latest qcom-next-* tag (ignores kernel-branch)'
-        type: boolean
-        default: true
-      debug-build:
-        description: 'Enable debug build'
-        type: boolean
+      srcpkg:
+        description: 'Source package name'
         required: false
-        default: false
+        default: 'linux-qcom-next'
+      binpkg:
+        description: 'Binary metapackage name'
+        required: false
+        default: 'linux-image-qcom-next'
+      kernel-config:
+        description: 'Comma-separated config fragments from debian/config-available/ to activate'
+        required: false
+        default: 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can'
+      debian-revision:
+        description: 'Debian revision component of the package version (e.g. 0qcom1)'
+        required: false
+        default: '0qcom1'
+      target-workspace:
+        description: 'Debusine target workspace for release promotion (leave empty for daily/S3 path)'
+        required: false
+        default: ''
       localversion:
-        description: 'LOCALVERSION suffix (e.g. qcom-next-20260312). Omit if the tree provides it via localversion* files.'
+        description: 'Override LOCALVERSION suffix (auto-derived from tag if not set)'
         required: false
         default: ''
       kver-extra:
         description: 'Extra suffix appended to the package version (e.g. -ci42)'
         required: false
         default: ''
+      debug-build:
+        description: 'Enable debug build'
+        type: boolean
+        required: false
+        default: false
       pkg-linux-qcom-ref:
-        description: pkg-linux-qcom ref branch or commit
+        description: 'pkg-linux-qcom packaging ref (branch or commit)'
         required: false
         default: 'qcom/debian/latest'
       self-pr:
         description: 'pkg-linux-qcom PR number to apply before building (e.g. 42)'
         required: false
         default: ''
-      distro:
-        description: 'Target distro'
-        required: false
-        default: 'trixie'
-        type: choice
-        options:
-          - trixie
-          - noble
-          - questing
-          - resolute
-          - sid
       qcom-next-pr:
         description: 'Space-separated PR numbers to merge from qcom-next (e.g. "42 43")'
         type: string
         required: false
         default: ''
       kernel-topics-pr:
-        description: 'Space-separated PR numbers from kernel-topics to apply as patches (e.g. "7 8")'
+        description: 'Space-separated PR numbers from kernel-topics to apply as patches'
         type: string
         required: false
         default: ''
 
-  # Daily builds are driven by daily.yml which reads ci/build-matrix.json
-  # and calls this workflow as a reusable workflow for each matrix entry.
+  # Called by daily.yml and release.yml as a reusable workflow.
   workflow_call:
     inputs:
-      distro:
-        description: Target distro (trixie, noble, questing, resolute, sid)
+      suite:
+        description: 'Target suite (trixie, forky, noble, questing, resolute, sid)'
         type: string
         default: 'trixie'
       latest-tag:
-        description: Use latest qcom-next-* tag
+        description: 'Use latest qcom-next-* tag'
         type: boolean
         default: true
+      kernel-branch:
+        description: 'Kernel branch or tag when latest-tag=false'
+        type: string
+        default: 'qcom-next'
+      git-clone:
+        description: 'Kernel repository URL'
+        type: string
+        default: 'https://github.com/qualcomm-linux/kernel'
+      srcpkg:
+        description: 'Source package name'
+        type: string
+        default: 'linux-qcom-next'
+      binpkg:
+        description: 'Binary metapackage name'
+        type: string
+        default: 'linux-image-qcom-next'
+      kernel-config:
+        description: 'Comma-separated config fragments to activate from debian/config-available/'
+        type: string
+        default: 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can'
+      debian-revision:
+        description: 'Debian revision component of the package version'
+        type: string
+        default: '0qcom1'
+      target-workspace:
+        description: 'Debusine target workspace for release promotion (empty = daily/S3 path)'
+        type: string
+        default: ''
       pkg-linux-qcom-ref:
-        description: pkg-linux-qcom ref branch or commit
+        description: 'pkg-linux-qcom packaging ref'
         type: string
         default: 'qcom/debian/latest'
 
@@ -82,9 +130,6 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # resolve: classify the target suite as 'debian' or 'ubuntu'.
-  #
-  # Debian suites (trixie, sid, unstable, bookworm, forky) → Debusine.
-  # Ubuntu suites (noble, questing, resolute) → docker build on self-hosted runner.
   # ---------------------------------------------------------------------------
   resolve:
     name: Resolve suite family
@@ -96,9 +141,9 @@ jobs:
         id: classify
         shell: bash
         run: |
-          suite="${{ inputs.distro || 'trixie' }}"
+          suite="${{ inputs.suite || 'trixie' }}"
           case "$suite" in
-            trixie|sid|unstable|bookworm|forky)
+            trixie|forky|sid|unstable|bookworm)
               family=debian ;;
             *)
               family=ubuntu ;;
@@ -106,17 +151,17 @@ jobs:
           echo "family=$family" >> "$GITHUB_OUTPUT"
           echo "Suite '$suite' classified as family=$family"
 
+  # ---------------------------------------------------------------------------
+  # prepare: clone kernel source, inject packaging, run prepare-source.sh.
+  # ---------------------------------------------------------------------------
   prepare:
     name: Prepare kernel source
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
 
     env:
-      KERNEL_BRANCH: ${{ inputs.kernel-branch || 'qcom-next' }}
-      KERNEL_URL: ${{ inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
-      DISTRO: ${{ inputs.distro || 'trixie' }}
+      KERNEL_URL: ${{ inputs.git-clone || inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
+      DISTRO: ${{ inputs.suite || 'trixie' }}
 
-    # bash with -e -o pipefail for every run step (parity with the family
-    # modules; guarantees pipefail for the tag-resolution pipeline below).
     defaults:
       run:
         shell: bash
@@ -133,21 +178,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SELF_PR: ${{ inputs.self-pr }}
         run: |
-          # Dereference the input via env and validate it is numeric before it
-          # reaches a git refspec, rather than splicing the raw input into shell.
           [[ "$SELF_PR" =~ ^[0-9]+$ ]] || { echo "ERROR: self-pr must be numeric (got '$SELF_PR')"; exit 1; }
           echo "Applying pkg-linux-qcom PR #$SELF_PR..."
           git fetch origin "pull/$SELF_PR/head:pr-$SELF_PR"
           git checkout "pr-$SELF_PR"
 
-      - name: Extract org and repo name
-        run: |
-          # split GITHUB_REPOSITORY (org/repo)
-          echo "ORG_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
-          echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
-
-      # Pinned to @main while native kernel-build support is still landing
-      # upstream in qualcomm-linux/docker-pkg-build.
       - name: Checkout docker-pkg-build
         uses: actions/checkout@v4
         with:
@@ -160,55 +195,47 @@ jobs:
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
           docker image ls
 
-      - name: Sync kernel source
+      - name: Resolve kernel ref
+        id: kernel-ref
         run: |
-          KERNEL_DIR="$GITHUB_WORKSPACE/kernel-source"
-          echo "KERNEL_DIR=$KERNEL_DIR" >> "$GITHUB_ENV"
+          set -euo pipefail
+          USE_LATEST="${{ inputs.latest-tag }}"
+          BRANCH="${{ inputs.kernel-branch || 'qcom-next' }}"
 
-          # Resolve the latest qcom-next-* tag when explicitly requested or on
-          # scheduled runs (inputs are not available for schedule events).
-          # Pick by the trailing YYYYMMDD date snapshot, not by `sort -V`: version
-          # sort keys on the base kernel version first, so an older-dated rc would
-          # outrank a newer final (and rc sorts after its final in -V). Keying on
-          # the date makes the newest snapshot win across the whole tag namespace.
-          if [[ "${{ inputs.latest-tag }}" == "true" || "${{ github.event_name }}" == "schedule" ]]; then
-            KERNEL_REF=$(git ls-remote --tags "$KERNEL_URL" 'refs/tags/qcom-next-*' \
-                         | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' \
-                         | grep -E -- '-[0-9]{8}$' \
-                         | awk -F- '{print $NF"\t"$0}' | sort -k1,1n | tail -1 | cut -f2-)
-            [[ -n "$KERNEL_REF" ]] || { echo "ERROR: No qcom-next-*-YYYYMMDD tags found in $KERNEL_URL"; exit 1; }
-            echo "Resolved latest tag: $KERNEL_REF"
+          # For scheduled runs and daily builds, always resolve latest tag.
+          if [[ "${{ github.event_name }}" == "schedule" || "$USE_LATEST" == "true" ]]; then
+            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh --url "$KERNEL_URL" --latest)
           else
-            KERNEL_REF="$KERNEL_BRANCH"
+            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh --url "$KERNEL_URL" --ref "$BRANCH")
           fi
 
           echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
-          echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
-          git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags "$KERNEL_URL" "$KERNEL_DIR"
+          echo "Resolved kernel ref: $KERNEL_REF"
 
+      - name: Clone kernel source
+        run: |
+          KERNEL_DIR="$GITHUB_WORKSPACE/kernel-source"
+          echo "KERNEL_DIR=$KERNEL_DIR" >> "$GITHUB_ENV"
+          echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
+          git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags \
+            "$KERNEL_URL" "$KERNEL_DIR"
           KERNEL_SHA=$(git -C "$KERNEL_DIR" rev-parse HEAD)
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
           echo "Kernel HEAD SHA: $KERNEL_SHA"
 
-      - name: Resolve LOCALVERSION from kernel ref
+      - name: Derive LOCALVERSION
         run: |
-          # Derive LOCALVERSION from KERNEL_REF (already resolved above), so no
-          # git describe is needed inside the container:
-          #   tag build:        qcom-next-7.0-rc7-20260429 -> qcom-next-20260429
-          #                     (prefix + date; the version is already in KVER)
-          #   branch-tip build: qcom-next -> qcom-next-g<short-sha>
-          # An explicit localversion input wins (applied in Prepare source below).
-          LOCALVERSION=$(echo "$KERNEL_REF" | sed -E 's/^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$/\1-\2/')
-          if [[ "$LOCALVERSION" != "$KERNEL_REF" ]]; then
-            # Tag build: LOCALVERSION derived from tag name
-            echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
-            echo "Resolved LOCALVERSION='$LOCALVERSION' from tag '$KERNEL_REF'"
+          set -euo pipefail
+          OVERRIDE_LV="${{ inputs.localversion }}"
+          if [[ -n "$OVERRIDE_LV" ]]; then
+            echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
+            echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
           else
-            # Branch-tip build: use branch name + short SHA for uniqueness
-            SHORT_SHA=$(echo "$KERNEL_SHA" | cut -c1-12)
-            LOCALVERSION="${KERNEL_REF}-g${SHORT_SHA}"
+            LOCALVERSION=$(ci/scripts/derive-localversion.sh \
+              --ref "$KERNEL_REF" \
+              --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
             echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
-            echo "Resolved LOCALVERSION='$LOCALVERSION' from branch tip '$KERNEL_REF' @ $SHORT_SHA"
+            echo "Derived LOCALVERSION: $LOCALVERSION"
           fi
 
       - name: Merge qcom-next PR patches
@@ -222,16 +249,11 @@ jobs:
             [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid qcom-next PR number: $pr"; exit 1; }
             echo "::group::Merging qcom-next PR #$pr"
             git fetch --no-tags origin "pull/$pr/head:pr-$pr"
-
-            # --no-ff so the --no-commit semantics hold even for a fast-forwardable
-            # PR; otherwise git would fast-forward HEAD and the branch below would
-            # mislabel a real merge as "nothing to merge".
             if ! git merge --no-ff --no-commit "pr-$pr"; then
               echo "ERROR: Merge conflict while merging PR #$pr. Aborting."
               git merge --abort || true
               exit 1
             fi
-
             if ! git diff --cached --quiet; then
               git commit -m "Merged qcom-next PR #$pr"
               echo "PR #$pr merged successfully."
@@ -252,7 +274,6 @@ jobs:
             [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid kernel-topics PR number: $pr"; exit 1; }
             echo "::group::Applying kernel-topics PR #$pr"
             wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
-
             if ! git am "$pr.patch"; then
               echo "ERROR: Patch application failed for PR #$pr. Aborting."
               git am --abort || true
@@ -264,22 +285,22 @@ jobs:
 
       - name: Prepare source
         run: |
-          # Inject debian/, activate config fragments, and run 'debian/rules
-          # prepare' (generates debian/control + debian/changelog from *.in),
-          # inside the distro-matched pkg-builder container for reproducibility.
-          ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO")
+          # No -x here: keep xtrace off for this step as it assembles the
+          # prepare-source.sh argument list which may include sensitive paths.
+          set -euo pipefail
 
-          # Prefer an explicit localversion input; else the LOCALVERSION derived
-          # above. Passing it explicitly avoids git describe (and safe.directory
-          # issues) inside the container.
-          EFFECTIVE_LOCALVERSION="${{ inputs.localversion }}"
-          [[ -z "$EFFECTIVE_LOCALVERSION" && -n "$LOCALVERSION" ]] && EFFECTIVE_LOCALVERSION="$LOCALVERSION"
-          [[ -n "$EFFECTIVE_LOCALVERSION" ]] && ARGS+=(--localversion "$EFFECTIVE_LOCALVERSION")
-          [[ -n "${{ inputs.kver-extra }}" ]] && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
+          ARGS=(
+            --source-dir "$KERNEL_DIR"
+            --distro "$DISTRO"
+            --srcpkg "${{ inputs.srcpkg || 'linux-qcom-next' }}"
+            --binpkg "${{ inputs.binpkg || 'linux-image-qcom-next' }}"
+            --debian-revision "${{ inputs.debian-revision || '0qcom1' }}"
+          )
 
-          # --debug makes prepare-source.sh add arch/arm64/configs/debug.config
-          # as a standard config fragment.
-          [[ "${{ inputs.debug-build }}" == "true" ]] && ARGS+=(--debug)
+          [[ -n "$LOCALVERSION" ]]                          && ARGS+=(--localversion "$LOCALVERSION")
+          [[ -n "${{ inputs.kver-extra }}" ]]               && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
+          [[ -n "${{ inputs.kernel-config || '' }}" ]]      && ARGS+=(--kernel-config "${{ inputs.kernel-config || '' }}")
+          [[ "${{ inputs.debug-build }}" == "true" ]]       && ARGS+=(--debug)
 
           docker run -i --rm \
             -v "$PWD:$PWD" --workdir="$PWD" \
@@ -287,8 +308,6 @@ jobs:
             ./prepare-source.sh "${ARGS[@]}"
 
       - name: Upload prepared source tree
-        # Archive as tar.gz so upload-artifact's zip does not strip the execute
-        # bits on kernel build scripts (see README).
         run: |
           tar czf /tmp/kernel-srcpkg.tar.gz \
             -C "$(dirname "$KERNEL_DIR")" \
@@ -303,11 +322,7 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # debusine-build: Debian suites only (trixie, sid).
-  #
-  # Delegates to build-kernel-debusine.yml which owns the complete Debian build
-  # path end-to-end: source package generation, Debusine submission, and
-  # publishing the built .deb files to S3.
+  # debusine-build: Debian suites only (trixie, forky, sid).
   # ---------------------------------------------------------------------------
   debusine-build:
     name: Build in Debusine
@@ -315,20 +330,17 @@ jobs:
     if: ${{ needs.resolve.outputs.family == 'debian' }}
     uses: ./.github/workflows/build-kernel-debusine.yml
     with:
-      suite: ${{ inputs.distro || 'trixie' }}
+      suite: ${{ inputs.suite || 'trixie' }}
+      srcpkg: ${{ inputs.srcpkg || 'linux-qcom-next' }}
       debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
+      target-workspace: ${{ inputs.target-workspace || '' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
 
   # ---------------------------------------------------------------------------
   # ubuntu-build: Ubuntu suites only (noble, questing, resolute).
-  #
-  # Delegates to build-kernel-ubuntu.yml, which encapsulates the full
-  # build-kernel.sh pipeline. Keeping this as a separate reusable workflow
-  # means the Ubuntu build path can be deprecated or replaced (e.g. when
-  # Debusine gains Ubuntu support) by deleting one file and one job, no
-  # surgery on the orchestrator logic below.
   # ---------------------------------------------------------------------------
   ubuntu-build:
     name: Build (Ubuntu, docker)
@@ -336,5 +348,5 @@ jobs:
     if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
-      distro: ${{ inputs.distro || 'resolute' }}
+      distro: ${{ inputs.suite || 'resolute' }}
       pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}

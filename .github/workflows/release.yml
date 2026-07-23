@@ -1,0 +1,90 @@
+name: release
+
+# Release kernel package builds. Triggered manually only.
+#
+# Reads Release rows from ci/build-matrix.json, flattens suites, and builds
+# each entry using the pinned tag specified in branch_or_tag. After a
+# successful build, packages are promoted from the ephemeral Debusine CI
+# workspace to the stable target workspace (e.g. qli) via debusine-action
+# lib/release.
+#
+# To update the pinned release tag: open a PR that changes the branch_or_tag
+# field in the Release row(s) of ci/build-matrix.json.
+#
+# This workflow intentionally has no schedule trigger. Releases are always
+# initiated manually after validation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Single suite to release (leave empty to release all Release matrix suites)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - trixie
+          - forky
+          - sid
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # configure-matrix: flatten the Release rows from ci/build-matrix.json.
+  # ---------------------------------------------------------------------------
+  configure-matrix:
+    name: Configure release matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate release matrix
+        id: set-matrix
+        run: |
+          set -euo pipefail
+
+          INPUT_SUITE="${{ github.event.inputs.suite }}"
+
+          if [[ -n "$INPUT_SUITE" ]]; then
+            echo "Source: ci/build-matrix.json (single suite: $INPUT_SUITE)"
+            MATRIX=$(ci/scripts/resolve-matrix.sh --type Release --single-suite "$INPUT_SUITE")
+          else
+            echo "Source: ci/build-matrix.json (full Release matrix)"
+            MATRIX=$(ci/scripts/resolve-matrix.sh --type Release)
+          fi
+
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+
+  # ---------------------------------------------------------------------------
+  # build: one parallel job per flat Release matrix entry.
+  #
+  # Uses the pinned tag from branch_or_tag (latest-tag is false for release).
+  # Passes target_workspace so build-kernel-debusine.yml triggers the Debusine
+  # release path (lib/release) instead of the S3 publish path.
+  # ---------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.suite }}
+    needs: configure-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/build-kernel-deb.yml
+    with:
+      suite: ${{ matrix.suite }}
+      git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      latest-tag: false
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      debian-revision: ${{ matrix.debian_revision }}
+      target-workspace: ${{ matrix.target_workspace }}
+    secrets: inherit

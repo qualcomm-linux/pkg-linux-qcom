@@ -1,38 +1,47 @@
 name: build-debusine
 
-# Reusable workflow: Debian kernel build via Debusine, then publish to S3.
-# The Debian counterpart of build-kernel-ubuntu.yml; called by
-# build-kernel-deb.yml for Debian-family suites (trixie, sid). The kernel
-# source is already prepared by the caller's prepare job and shared as the
-# kernel-srcpkg artifact (via github.run_id).
+# Reusable workflow: Debian kernel build via Debusine, then publish.
 #
-#   build job   (debusine-pkg-builder container): assembles the Debian source
-#               package and submits it to Debusine for a distributed build.
-#               Uses DEBUSINE_ASSEMBLE_ORIG=true to bypass gbp and build the
-#               .orig.tar.gz directly, since this tree has no upstream tag,
-#               pristine-tar branch, or gbp.conf (it is assembled at CI time).
-#   publish job (self-hosted runner, for direct IAM): downloads the built .deb
-#               files from the private Debusine workspace with chdist (hermetic,
-#               authenticated apt, no host pollution) and uploads them to S3.
+# Called by build-kernel-deb.yml for Debian-family suites (trixie, forky, sid).
+# The kernel source is already prepared by the caller's prepare job and shared
+# as the kernel-srcpkg artifact.
 #
-# To retire this path, delete this file and its job in build-kernel-deb.yml.
+# Publish path is determined by target-workspace:
+#   target-workspace == ''  -> daily path: download .deb files, upload to S3.
+#   target-workspace != ''  -> release path: promote from CI workspace to the
+#                              target Debusine workspace via debusine-action lib/release.
+#
+# Jobs:
+#   build   (debusine-pkg-builder container): generates .dsc, submits to Debusine.
+#   publish (self-hosted runner): S3 upload (daily path only).
+#   release (debusine-pkg-builder container): Debusine promotion (release path only).
 
 on:
   workflow_call:
     inputs:
       suite:
-        description: Target Debian suite (trixie, sid)
+        description: 'Target Debian suite (trixie, forky, sid)'
         type: string
         required: true
+      srcpkg:
+        description: 'Source package name (e.g. linux-qcom-next)'
+        type: string
+        default: 'linux-qcom-next'
       debusine-parent-workspace:
-        description: Parent Debusine workspace for child CI workspace creation
+        description: 'Parent Debusine workspace for CI child workspace creation'
         type: string
         default: 'qli-ci'
+      target-workspace:
+        description: 'Debusine target workspace for release promotion (empty = daily/S3 path)'
+        type: string
+        default: ''
     secrets:
       DEBUSINE_USER:
         required: true
       DEBUSINE_TOKEN:
         required: true
+      DEBUSINE_RELEASE_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -44,10 +53,6 @@ env:
 jobs:
   # ---------------------------------------------------------------------------
   # build: generate Debian source package and submit to Debusine.
-  #
-  # Runs inside the debusine-pkg-builder container which has all required
-  # tooling pre-installed: debusine-client, python3-debusine, yq, devscripts,
-  # dctrl-tools, git-buildpackage, dpkg-dev, git, pristine-tar.
   # ---------------------------------------------------------------------------
   build:
     name: Build (Debusine)
@@ -61,6 +66,7 @@ jobs:
     outputs:
       workspace: ${{ steps.build-debusine.outputs.workspace }}
       workspace_url: ${{ steps.build-debusine.outputs.workspace_url }}
+      srcpkg_version: ${{ steps.generate-srcpkg.outputs.srcpkg_version }}
     defaults:
       run:
         shell: bash
@@ -83,24 +89,16 @@ jobs:
 
       - name: Extract prepared source tree
         run: |
-          # tar.gz preserves the execute bits that upload-artifact's zip would
-          # strip (see README); --strip-components=1 drops the archive's top dir.
           mkdir srcpkg
           tar xzf /tmp/srcpkg-artifact/*.tar.gz \
             -C srcpkg --strip-components=1
 
       - name: Generate source package
+        id: generate-srcpkg
         env:
           SUITE: ${{ inputs.suite }}
           DEBUSINE_ASSEMBLE_ORIG: "true"
         run: |
-          # DEBUSINE_ASSEMBLE_ORIG=true: bypasses gbp entirely. Creates the
-          # .orig.tar.gz directly from the assembled source tree (excluding
-          # debian/ and .git/) and invokes dpkg-buildpackage -S to produce
-          # the .dsc, .debian.tar.xz, and .changes files.
-          # Required because pkg-linux-qcom has no upstream tag, no
-          # pristine-tar branch, and no debian/gbp.conf; the source tree
-          # is assembled at CI time from separate kernel and packaging repos.
           SUITE="$SUITE" debusine-action/lib/generate-source-package
 
       - name: Build in Debusine
@@ -116,13 +114,9 @@ jobs:
           DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
           SUITE: ${{ inputs.suite }}
         run: |
-          # No -x here: this step has DEBUSINE_TOKEN in its env, so keep xtrace
-          # off so a future edit cannot echo a secret onto the trace.
+          # No -x here: DEBUSINE_TOKEN is in env, keep xtrace off.
           set -euo pipefail
           debusine-action/lib/build
-          # debusine-action/lib/build writes workspace/workflow_id directly to
-          # $GITHUB_OUTPUT (it no longer produces a separate 'output' file), so
-          # read the workspace back out of there to derive workspace_url.
           workspace=$(sed -n 's/^workspace=//p' "$GITHUB_OUTPUT")
           echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
 
@@ -131,17 +125,13 @@ jobs:
           echo "Debusine Workspace URL: ${{ steps.build-debusine.outputs.workspace_url }}" >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
-  # publish: download built .deb files from Debusine and upload to S3.
-  #
-  # Runs on the self-hosted runner (not in a container) because the S3 upload
-  # action requires direct IAM credentials available on the runner. chdist
-  # creates a hermetic, authenticated apt environment pointing exclusively at
-  # the Debusine workspace (no host pollution, no package installation).
+  # publish: download .deb files from Debusine and upload to S3.
+  # Daily path only (target-workspace is empty).
   # ---------------------------------------------------------------------------
   publish:
-    name: Publish Debusine artifacts
+    name: Publish to S3
     needs: build
-    if: ${{ needs.build.result == 'success' }}
+    if: ${{ needs.build.result == 'success' && inputs.target-workspace == '' }}
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     defaults:
       run:
@@ -166,22 +156,13 @@ jobs:
           DEBUSINE_WORKSPACE: ${{ needs.build.outputs.workspace }}
           SUITE: ${{ inputs.suite }}
         run: |
-          # Generates debusine-ci.sources (DEB822 apt source) and
-          # debusine-ci-auth.conf (netrc credentials) for the workspace.
           debusine-action/lib/generate-apt-config
 
       - name: Download .deb packages from Debusine workspace
         run: |
           set -euxo pipefail
-
-          # chdist (from devscripts) creates a hermetic apt environment
-          # isolated from the host, authenticated against the private Debusine
-          # workspace. apt-get download fetches .deb files without installing
-          # them or resolving dependencies against the host.
           sudo apt-get install -y --no-install-recommends devscripts
-
           mkdir -p "$GITHUB_WORKSPACE/deb-artifacts"
-
           chdist create debusine-workspace
           rm -f ~/.chdist/debusine-workspace/etc/apt/sources.list
           install -d ~/.chdist/debusine-workspace/etc/apt/sources.list.d
@@ -190,15 +171,11 @@ jobs:
             ~/.chdist/debusine-workspace/etc/apt/sources.list.d/
           install -m 0600 debusine-ci-auth.conf \
             ~/.chdist/debusine-workspace/etc/apt/auth.conf.d/
-
           chdist apt-get debusine-workspace update
-
           packages=$(chdist apt-cache debusine-workspace search . | awk '{print $1}' | tr '\n' ' ')
-          [[ -n "$packages" ]] || { echo "ERROR: no packages found in Debusine workspace (auth or update issue?)"; exit 1; }
+          [[ -n "$packages" ]] || { echo "ERROR: no packages found in Debusine workspace"; exit 1; }
           echo "Packages to download: $packages"
-
           cd "$GITHUB_WORKSPACE/deb-artifacts"
-          # word-split is intentional: each package name is a separate argument.
           # shellcheck disable=SC2086
           chdist apt-get debusine-workspace download $packages
 
@@ -208,3 +185,46 @@ jobs:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: deb-artifacts
           destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
+
+  # ---------------------------------------------------------------------------
+  # release: promote packages from CI workspace to target Debusine workspace.
+  # Release path only (target-workspace is non-empty).
+  # ---------------------------------------------------------------------------
+  release:
+    name: Release to Debusine
+    needs: build
+    if: ${{ needs.build.result == 'success' && inputs.target-workspace != '' }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:${{ inputs.suite }}
+      options: --user 0:0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout debusine-action helpers
+        uses: actions/checkout@v5
+        with:
+          repository: qualcomm-linux/debusine-action
+          ref: ${{ env.DEBUSINE_ACTION_REF }}
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
+
+      - name: Promote packages to target workspace
+        env:
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
+          DEBUSINE_CI_WORKSPACE: ${{ needs.build.outputs.workspace }}
+          DEBUSINE_TARGET_WORKSPACE: ${{ inputs.target-workspace }}
+          SRCPKG_NAME: ${{ inputs.srcpkg }}
+          SRCPKG_VERSION: ${{ needs.build.outputs.srcpkg_version }}
+          SUITE: ${{ inputs.suite }}
+        run: |
+          set -ex
+          debusine-action/lib/release
