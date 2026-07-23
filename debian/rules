@@ -413,6 +413,12 @@ ifneq ($(BUILD_OBJ),)
 	$(MAKE) $(KBUILD_O_ARG) clean
 endif
 	rm -f $(KREL_FILE)
+	# Remove prepare-generated state files. These are intentionally NOT listed
+	# in debian/clean because dh_clean runs before the build inside
+	# dpkg-buildpackage and would delete them before override_dh_auto_build
+	# can read them. Cleaning them here ensures 'debian/rules clean' still
+	# produces a pristine tree for developers.
+	rm -f debian/localversion debian/pkgversion
 
 override_dh_gencontrol:
 	# Read the package version from debian/pkgversion (written by 'prepare' target).
