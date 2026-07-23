@@ -100,4 +100,5 @@ jobs:
       binpkg: ${{ matrix.binpkg }}
       kernel-config: ${{ matrix.kernel_config }}
       debian-revision: ${{ matrix.debian_revision }}
+      pkg-linux-qcom-ref: ${{ matrix.pkg_linux_qcom_ref || 'qcom/debian/latest' }}
     secrets: inherit

@@ -8,7 +8,8 @@
     "srcpkg": "linux-qcom-next",
     "binpkg": "linux-image-qcom-next",
     "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
-    "debian_revision": "0qcom1"
+    "debian_revision": "0qcom1",
+    "pkg_linux_qcom_ref": "feat/matrix-expansion-packaging"
   },
   {
     "type": "Release",
@@ -19,6 +20,7 @@
     "srcpkg": "linux-qcom-next",
     "binpkg": "linux-image-qcom-next",
     "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
-    "debian_revision": "0qcom1"
+    "debian_revision": "0qcom1",
+    "pkg_linux_qcom_ref": "feat/matrix-expansion-packaging"
   }
 ]
