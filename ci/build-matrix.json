@@ -2,7 +2,10 @@
   {
     "type": "Daily",
     "target_workspace": "qli",
-    "suites": ["trixie", "forky", "resolute"],
+    "suites": [
+      "trixie",
+      "resolute"
+    ],
     "git_clone": "https://github.com/qualcomm-linux/kernel",
     "branch_or_tag": "qcom-next",
     "srcpkg": "linux-qcom-next",
@@ -14,7 +17,9 @@
   {
     "type": "Release",
     "target_workspace": "qli",
-    "suites": ["trixie", "forky"],
+    "suites": [
+      "trixie"
+    ],
     "git_clone": "https://github.com/qualcomm-linux/kernel",
     "branch_or_tag": "qcom-next-7.2-rc3-20260722",
     "srcpkg": "linux-qcom-next",
