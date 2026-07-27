@@ -31,11 +31,7 @@ on:
         type: choice
         options:
           - trixie
-          - forky
-          - noble
-          - questing
           - resolute
-          - sid
 
 permissions:
   contents: read

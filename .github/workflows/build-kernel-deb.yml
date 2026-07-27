@@ -44,7 +44,7 @@ on:
         required: false
         default: '0qcom1'
       target-workspace:
-        description: 'Debusine target workspace for release promotion (leave empty for daily/S3 path)'
+        description: 'Debusine target workspace for release promotion. Only set via release.yml; do not use on direct dispatch.'
         required: false
         default: ''
       localversion:
@@ -322,7 +322,7 @@ jobs:
 
           [[ -n "$LOCALVERSION" ]]                          && ARGS+=(--localversion "$LOCALVERSION")
           [[ -n "${{ inputs.kver-extra }}" ]]               && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
-          [[ -n "${{ inputs.kernel-config || '' }}" ]]      && ARGS+=(--kernel-config "${{ inputs.kernel-config || '' }}")
+          [[ -n "${{ inputs.kernel-config || 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can' }}" ]] && ARGS+=(--kernel-config "${{ inputs.kernel-config || 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can' }}")
           [[ "${{ inputs.debug-build }}" == "true" ]]       && ARGS+=(--debug)
 
           docker run -i --rm \
