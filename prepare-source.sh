@@ -95,7 +95,7 @@ EXAMPLES:
        --debian-revision 0qcom1 \\
        --kernel-config squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can
 EOF
-    exit 0
+    exit 1
 }
 
 # Defaults
@@ -122,7 +122,7 @@ while [[ $# -gt 0 ]]; do
         --debian-dir)         DEBIAN_DIR="$2";        shift 2 ;;
         --debug)              DEBUG=true;             shift   ;;
         -h|--help)            usage ;;
-        *) log_error "Unknown option: $1"; usage ;;
+        *) log_error "Unknown option: $1"; exit 1 ;;
     esac
 done
 
