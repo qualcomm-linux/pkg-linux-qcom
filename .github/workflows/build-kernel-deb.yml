@@ -339,7 +339,7 @@ jobs:
       - name: Upload prepared source tree artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-srcpkg
+          name: kernel-srcpkg-${{ inputs.suite }}
           path: /tmp/kernel-srcpkg.tar.gz
           if-no-files-found: error
           retention-days: 7

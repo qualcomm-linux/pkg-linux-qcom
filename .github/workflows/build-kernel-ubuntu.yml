@@ -67,7 +67,7 @@ jobs:
       - name: Download prepared source tree
         uses: actions/download-artifact@v4
         with:
-          name: kernel-srcpkg
+          name: kernel-srcpkg-${{ inputs.suite }}
           path: /tmp/srcpkg-artifact
 
       - name: Extract prepared source tree
