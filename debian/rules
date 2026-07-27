@@ -107,7 +107,11 @@ prepare:
 	SUB=$$(grep '^SUBLEVEL = ' Makefile | awk '{print $$3}'); \
 	EXTRA=$$(grep '^EXTRAVERSION = ' Makefile | awk '{print $$3}' || true); \
 	TREE_LOCALVER=$$(cat localversion* 2>/dev/null | tr -d '\n' || true); \
-	BASE_KVER_CLEAN="$${VER}.$${PATCH}.$${SUB}$${EXTRA}$${TREE_LOCALVER}"; \
+	# Translate -rcN to ~rcN for the Debian version field only.
+	# dpkg ordering: 7.2.0~rc3 < 7.2.0 (correct); 7.2.0-rc3 > 7.2.0 (wrong).
+	# EXTRA (used for KVER_RESOLVED / uname -r) is left unchanged.
+	EXTRA_DEB=$$(echo "$$EXTRA" | sed 's/^-rc/~rc/'); \
+	BASE_KVER_CLEAN="$${VER}.$${PATCH}.$${SUB}$${EXTRA_DEB}$${TREE_LOCALVER}"; \
 	\
 	# Extract date from LOCALVERSION: last dash-delimited component if 8 digits.
 	DATE_PART=$$(echo "$(LOCALVERSION)" | grep -oE '[0-9]{8}$$' || true); \
