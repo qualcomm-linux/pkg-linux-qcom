@@ -144,9 +144,10 @@ prepare:
 		debian/changelog.in > debian/changelog; \
 	\
 	# ── Write runtime state files ─────────────────────────────────────────────
-	# debian/localversion: the LOCALVERSION suffix, read by override_dh_auto_build.
-	# Contains only the suffix (e.g. -qcom-next-20260722), not the full KVER.
-	printf '%s\n' "$(LOCALVERSION)" > debian/localversion; \
+	# debian/localversion: the full kernel suffix passed to make LOCALVERSION=,
+	# read by override_dh_auto_build. Includes KVER_EXTRA when set so that the
+	# suffix used at build time matches the package name declared at prepare time.
+	printf '%s\n' "$(LOCALVERSION)$(KVER_EXTRA)" > debian/localversion; \
 	\
 	# debian/pkgversion: the full Debian package version, read by override_dh_gencontrol.
 	printf '%s\n' "$$PKG_VERSION" > debian/pkgversion; \
@@ -263,6 +264,17 @@ override_dh_auto_install:
 	# no longer encodes the kernel version, so it cannot be used for derivation.
 	@BASE=$$(cat $(KREL_FILE)); \
 	echo "Installing for kernel release: $$BASE"; \
+	# Assert that the package name declared at prepare time matches the kernel
+	# release produced at build time. A mismatch (e.g. KVER_EXTRA set but not
+	# written to debian/localversion) would produce empty staging directories
+	# and silently empty packages with no other diagnostic.
+	EXPECTED_PKG=$$(grep '^Package:' debian/control | head -n1 | sed 's/^Package: //'); \
+	ACTUAL_PKG="linux-image-$$BASE"; \
+	if [ "$$EXPECTED_PKG" != "$$ACTUAL_PKG" ]; then \
+		echo "ERROR: package name mismatch: control declares $$EXPECTED_PKG but kernelrelease is $$BASE"; \
+		echo "       Check that LOCALVERSION and KVER_EXTRA are consistent between prepare and build."; \
+		exit 1; \
+	fi; \
 	PKG=debian/linux-image-$$BASE; \
 	HDR_PKG=debian/linux-headers-$$BASE; \
 	DBG_PKG=debian/linux-image-$$BASE-dbg; \
