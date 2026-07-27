@@ -51,7 +51,7 @@ OPTIONS:
     --build-mode MODE       docker|native|sbuild (default: $DEFAULT_BUILD_MODE)
     --docker-build PATH     Path to docker_deb_build.py (docker mode)
     --profiles PROFILES     DEB_BUILD_PROFILES (e.g. debug)
-    --enable-configs LIST   Comma-separated config fragments from
+    --kernel-config LIST    Comma-separated config fragments from
                             debian/config-available/ to activate
 
   Paths:
@@ -73,7 +73,7 @@ EXAMPLES:
     $0 --tag qcom-next-6.12.0-20260210 --distro noble
     $0 --local-source /path/to/kernel --build-mode native
     $0 --local-source /path/to/kernel --kver-extra -mybuild
-    $0 --latest-tag --enable-configs docker,systemd-boot
+    $0 --latest-tag --kernel-config docker,systemd-boot
     $0 --latest-tag --profiles debug
 
 DISTRIBUTIONS:
@@ -90,7 +90,7 @@ EOF
 TAG=""; LATEST_TAG=false; BRANCH="$DEFAULT_BRANCH"; REPO="$DEFAULT_REPO"
 DISTRO="$DEFAULT_DISTRO"; BUILD_MODE="$DEFAULT_BUILD_MODE"
 LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
-LOCAL_SOURCE=""; ENABLE_CONFIGS=""; SKIP_PREPARE=false
+LOCAL_SOURCE=""; ENABLE_CONFIGS="squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can"; SKIP_PREPARE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -107,7 +107,8 @@ while [[ $# -gt 0 ]]; do
         --localversion)     LOCALVERSION="$2";  shift 2 ;;
         --kver-extra)       KVER_EXTRA="$2";    shift 2 ;;
         --profiles)         PROFILES="$2";      shift 2 ;;
-        --enable-configs)   ENABLE_CONFIGS="$2"; shift 2 ;;
+        --kernel-config)    ENABLE_CONFIGS="$2"; shift 2 ;;
+        --enable-configs)   ENABLE_CONFIGS="$2"; shift 2 ;; # deprecated alias
         --build-mode)       BUILD_MODE="$2";    shift 2 ;;
         --skip-prepare)     SKIP_PREPARE=true;  shift   ;;
         --clean)            CLEAN=true;         shift   ;;
@@ -119,7 +120,7 @@ done
 [[ -z "${OUTPUT_DIR:-}" ]] && OUTPUT_DIR="$OUTPUT_BASE_DIR/$DISTRO"
 
 # Validate distro and build mode
-VALID_DISTROS=(noble questing resolute trixie sid)
+VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 VALID_MODES=(docker native sbuild)
 [[ " ${VALID_DISTROS[*]} " =~ " $DISTRO " ]]    || { log_error "Invalid distro: $DISTRO (valid: ${VALID_DISTROS[*]})"; exit 1; }
 [[ " ${VALID_MODES[*]} " =~ " $BUILD_MODE " ]]  || { log_error "Invalid build mode: $BUILD_MODE (valid: ${VALID_MODES[*]})"; exit 1; }
@@ -253,7 +254,7 @@ if [[ "$SKIP_PREPARE" != true ]]; then
     PREPARE_ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO" --debian-dir "$DEBIAN_DIR")
     [[ -n "$LOCALVERSION" ]]   && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
     [[ -n "$KVER_EXTRA" ]]     && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
-    [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--enable-configs "$ENABLE_CONFIGS")
+    [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--kernel-config "$ENABLE_CONFIGS")
     "$SCRIPT_DIR/prepare-source.sh" "${PREPARE_ARGS[@]}"
 else
     log_info "Skipping source preparation (--skip-prepare set)."
@@ -322,7 +323,7 @@ if [[ $BUILD_STATUS -eq 0 ]]; then
     log_info "Packages in: $OUTPUT_DIR"
     ls -lh "$OUTPUT_DIR"/*.deb 2>/dev/null
     echo
-    log_info "Install:  sudo dpkg -i $OUTPUT_DIR/linux-image-*-qcom_*.deb"
+    log_info "Install:  sudo dpkg -i $OUTPUT_DIR/linux-image-*_*_arm64.deb"
 else
     log_error "Build failed (exit $BUILD_STATUS)"
     exit $BUILD_STATUS
