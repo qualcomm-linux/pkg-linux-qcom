@@ -84,7 +84,7 @@ jobs:
       - name: Download prepared source tree
         uses: actions/download-artifact@v4
         with:
-          name: kernel-srcpkg
+          name: kernel-srcpkg-${{ inputs.suite }}
           path: /tmp/srcpkg-artifact
 
       - name: Extract prepared source tree
@@ -107,7 +107,7 @@ jobs:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
-          JOB_INDEX: "0"
+          JOB_INDEX: ${{ inputs.suite }}
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
