@@ -25,6 +25,7 @@ on:
         options:
           - all
           - trixie
+          - forky
 
 permissions:
   contents: read

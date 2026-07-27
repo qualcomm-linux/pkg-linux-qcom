@@ -31,6 +31,7 @@ on:
         type: choice
         options:
           - trixie
+          - forky
           - resolute
 
 permissions:
