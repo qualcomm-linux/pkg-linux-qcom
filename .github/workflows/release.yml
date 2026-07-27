@@ -23,10 +23,8 @@ on:
         default: ''
         type: choice
         options:
-          - ''
+          - all
           - trixie
-          - forky
-          - sid
 
 permissions:
   contents: read
@@ -51,12 +49,12 @@ jobs:
 
           INPUT_SUITE="${{ github.event.inputs.suite }}"
 
-          if [[ -n "$INPUT_SUITE" ]]; then
-            echo "Source: ci/build-matrix.json (single suite: $INPUT_SUITE)"
-            MATRIX=$(ci/scripts/resolve-matrix.sh --type Release --single-suite "$INPUT_SUITE")
-          else
+          if [[ -z "$INPUT_SUITE" || "$INPUT_SUITE" == "all" ]]; then
             echo "Source: ci/build-matrix.json (full Release matrix)"
             MATRIX=$(ci/scripts/resolve-matrix.sh --type Release)
+          else
+            echo "Source: ci/build-matrix.json (single suite: $INPUT_SUITE)"
+            MATRIX=$(ci/scripts/resolve-matrix.sh --type Release --single-suite "$INPUT_SUITE")
           fi
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
