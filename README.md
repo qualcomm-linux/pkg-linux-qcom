@@ -1,157 +1,228 @@
 # pkg-linux-qcom
 
-Debian/Ubuntu kernel packaging for `qualcomm-linux/kernel` on ARM64 Qualcomm platforms.
-Produces installable `.deb` packages via a dual-path CI pipeline: **Debusine** for Debian suites, **docker** for Ubuntu suites.
+CI orchestration for ARM64 Linux kernel package variants. The current variant
+builds from [`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel).
 
-This branch (`main`) is the CI orchestrator: the workflows, the build matrix, and this guide.
-The `debian/` packaging tree and the local build tooling live on `qcom/debian/latest`; see that branch to build the kernel package locally.
+This branch owns the build matrix and GitHub Actions workflows. The Debian
+packaging tree and local packaging tools live on
+[`qcom/debian/latest`](https://github.com/qualcomm-linux/pkg-linux-qcom/tree/qcom/debian/latest).
 
----
+## Overview
 
-## Dispatching a build
+The CI model is matrix-driven. This single repository can deliver multiple
+kernel variants, each with independent source/package identity, kernel source
+and ref strategy, configuration fragments, Debian revision, target suites, and
+release destination.
 
-To start a build manually, open the repo's **Actions** tab and click **Run workflow**:
+Every kernel variant owns exactly two complete matrix rows: one `Daily` row and
+one `Release` row. The resolver expands every suite in those rows into an
+isolated `kernel_variant + suite` build leg.
 
-- **Single build:** `build-kernel-deb` then **Run workflow**. Pick a `distro` and set the inputs below.
-- **Nightly-style run:** `daily` then **Run workflow**. Check **Test Daily Build** to run the full `ci/build-matrix.json` matrix, or leave it unchecked and pick one distro.
+Two entry points use the same reusable build pipeline:
 
-Builds also run automatically every night (see [Daily Build Matrix](#daily-build-matrix)).
+- **Daily** uses the matrix-selected latest-tag or branch-tip strategy and
+  builds every configured Daily suite.
+- **Release** uses a pinned matrix ref and promotes successful Debian packages
+  to the selected production Debusine workspace.
 
-### `build-kernel-deb.yml` Inputs
-
-#### `workflow_dispatch` (manual single build)
-
-| Input | Default | Description |
-|---|---|---|
-| `distro` | `trixie` | Target suite |
-| `latest-tag` | `true` | Use latest `qcom-next-*` tag |
-| `kernel-branch` | `qcom-next` | Branch/tag when `latest-tag=false` |
-| `kernel-url` | qualcomm-linux/kernel | Custom kernel repo URL |
-| `pkg-linux-qcom-ref` | `qcom/debian/latest` | Packaging metadata ref |
-| `localversion` | | Override LOCALVERSION suffix |
-| `kver-extra` | | Extra suffix appended to package version |
-| `debug-build` | `false` | Copies `debug.config` into `debian/config/` |
-| `self-pr` | | Apply a pkg-linux-qcom PR before building |
-| `qcom-next-pr` | | Space-separated qcom-next PR numbers to merge |
-| `kernel-topics-pr` | | Space-separated kernel-topics PR numbers to apply |
-
-#### `workflow_call` (called by `daily.yml`)
-
-| Input | Default | Description |
-|---|---|---|
-| `distro` | `trixie` | Target suite |
-| `latest-tag` | `true` | Always true for daily builds |
-| `pkg-linux-qcom-ref` | `qcom/debian/latest` | Packaging metadata ref |
-
-### Daily Build Matrix
-
-**`ci/build-matrix.json`**: one entry per nightly build target:
+The final Production matrix is conceptually:
 
 ```json
 [
-  { "distro": "trixie" },
-  { "distro": "resolute" }
+  {
+    "kernel_variant": "qcom-next",
+    "type": "Daily",
+    "suites": ["trixie", "forky", "resolute"],
+    "git_clone": "https://github.com/qualcomm-linux/kernel",
+    "branch_or_tag": "qcom-next",
+    "ref_strategy": "latest_tag",
+    "tag_pattern": "qcom-next-*",
+    "srcpkg": "linux-qcom-next",
+    "binpkg": "linux-image-qcom-next",
+    "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+    "debian_revision": "0qli~",
+    "pkg_linux_qcom_ref": "qcom/debian/latest"
+  },
+  {
+    "kernel_variant": "qcom-next",
+    "type": "Release",
+    "suites": ["trixie", "forky"],
+    "git_clone": "https://github.com/qualcomm-linux/kernel",
+    "branch_or_tag": "<pinned-qcom-next-tag>",
+    "ref_strategy": "pinned_ref",
+    "srcpkg": "linux-qcom-next",
+    "binpkg": "linux-image-qcom-next",
+    "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+    "debian_revision": "0qli",
+    "pkg_linux_qcom_ref": "qcom/debian/latest",
+    "target_workspace": "qli"
+  }
 ]
 ```
 
-> To add a nightly target: append one entry. No workflow changes needed.
+`ci/build-matrix.json` is the authoritative configuration. Adding a kernel
+variant is a two-row matrix change, not a workflow redesign.
 
-#### Manual Dispatch Options (`daily.yml`)
+## Workflows
 
-| Input | Type | Behaviour |
-|---|---|---|
-| `run-full-matrix` checked | boolean | Runs all matrix entries, identical to scheduled daily build |
-| `run-full-matrix` unchecked + `distro` | choice | Runs a single distro build |
+| Workflow | Purpose | Trigger |
+| --- | --- | --- |
+| `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
+| `release.yml` | Resolves and runs the Release matrix. | Manual dispatch only. |
+| `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily and Release. |
+| `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes Releases. | Called by `build-kernel-deb.yml`. |
+| `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
 
-### Build Outputs
+### Daily
 
-| Package | Contents | Install |
-|---|---|---|
-| `linux-image-<kver>-qcom_<ver>_arm64.deb` | Kernel image, `.config`, DTBs, modules | **Required** |
-| `linux-headers-<kver>-qcom_<ver>_arm64.deb` | Headers for out-of-tree modules (DKMS) | Optional |
-| `linux-image-<kver>-qcom-dbg_<ver>_arm64.deb` | Full debug symbols (`vmlinux`, per-module) | Optional |
-| `*.buildinfo` | Reproducible build metadata | Do not install |
-| `*.changes` | Upload manifest | Do not install |
+Daily is the recurring build and artifact-publication path.
 
-```bash
-sudo dpkg -i linux-image-<kver>-qcom_<ver>_arm64.deb
+- The scheduled run resolves the full `Daily` matrix.
+- A manual run selects one **Build scope**:
+  - **Full matrix** builds every configured variant and suite.
+  - **Selected variant (all suites)** builds every configured suite for one variant.
+  - **Selected variant and suite** builds one isolated matrix leg.
+- `latest_tag` resolves the newest matching dated tag; `branch_tip` resolves
+  the configured branch directly.
+- Debian suites build in Debusine, then their `.deb` outputs are downloaded and
+  uploaded to the configured S3 bucket.
+- `resolute` stays on the Docker-based Ubuntu path and uploads its package
+  outputs to the existing temporary-package S3 location.
 
-# Optional: headers for DKMS / out-of-tree modules
-sudo dpkg -i linux-headers-<kver>-qcom_<ver>_arm64.deb
+### Release
+
+Release is the controlled promotion path.
+
+- It is manual only and uses one **Release scope** for a kernel variant:
+  - **Selected variant (all suites)** is the normal release action and promotes
+    every configured Release suite for that variant.
+  - **Selected variant and suite** promotes one configured Release suite for
+    that variant when a targeted action is required.
+- It uses the pinned `branch_or_tag` from the selected `Release` matrix row; it
+  never resolves a newest tag.
+- Debian source and binary artifacts are built in per-variant, per-suite
+  Debusine CI workspaces.
+- Successful builds are promoted with Debusine's `package-publish` workflow to
+  the `qli` workspace, where they are available through the production Debusine
+  APT repository.
+- The Release job runs in the **Production** GitHub environment. This provides
+  the release credential and enforces the required approval gate before
+  promotion to `qli`.
+
+Direct `build-kernel-deb.yml` dispatches are build-only. Release promotion is
+initiated exclusively by `release.yml`, which owns the target workspace and
+production release controls.
+
+## Matrix Model
+
+`ci/scripts/resolve-matrix.sh` validates `ci/build-matrix.json`, requires each
+`kernel_variant` to have exactly one `Daily` and one `Release` row, filters by
+delivery type, and flattens each `suites` array into independent suite legs.
+Each leg carries its own values for:
+
+| Field | Purpose |
+| --- | --- |
+| `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
+| `type` | `Daily` or `Release`. |
+| `suites` | Suites to flatten into individual build legs. |
+| `git_clone` | Kernel source repository. |
+| `branch_or_tag` | Source branch or pinned tag, according to `ref_strategy`. |
+| `ref_strategy` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
+| `tag_pattern` | Required only for `latest_tag`; matching tags must end in `-YYYYMMDD`, which determines newest-first ordering. |
+| `srcpkg` | Debian source package name. |
+| `binpkg` | Kernel image metapackage name. |
+| `kernel_config` | Comma-separated fragments activated from `debian/config-available/`. |
+| `debian_revision` | Debian revision appended to the generated package version. |
+| `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
+| `pkg_linux_qcom_ref` | Packaging branch or commit used during source preparation. |
+| `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
+| `target_workspace` | Debusine destination for Release entries only. |
+
+`target_workspace` is required for `Release` and rejected for `Daily`.
+`tag_pattern` is required for `latest_tag` and rejected for other strategies.
+The resolver selects the most recent trailing `YYYYMMDD` date, and rejects
+duplicate suites and malformed variant identifiers before any build jobs start.
+
+Each leg has a distinct prepared-source artifact, Debusine child workspace, and
+S3 path keyed by `kernel_variant + suite`. This prevents two variants that both
+build, for example, `trixie` from consuming or publishing each other's inputs
+or outputs.
+
+Daily S3 outputs use these layouts, where `<run>` is
+`<github.run_id>-<github.run_attempt>`:
+
+```text
+<org>/pkg/debusine/<repo>/<kernel_variant>/<suite>/<run>/
+<org>/pkg/temp/<repo>/<kernel_variant>/<suite>/<run>/
 ```
 
-S3 destinations:
+The first layout is for Debian/Debusine builds; the second is for Ubuntu Docker
+builds. Consumers must select the intended kernel variant and suite.
 
-| Path | Build type |
-|---|---|
-| `s3://<artifact-bucket>/<org>/pkg/debusine/<repo>/<suite>/<run_id>-<run_attempt>/` | Debian (Debusine) |
-| `s3://<artifact-bucket>/<org>/pkg/temp/<repo>/<run_id>-<run_attempt>/` | Ubuntu (docker) |
+Supporting scripts keep workflow YAML small and testable:
 
----
+| Script | Responsibility |
+| --- | --- |
+| `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
+| `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
+| `ci/scripts/derive-localversion.sh` | Derives `LOCALVERSION` from the variant and resolved kernel ref. |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    IN["distro input"] --> R{resolve job}
+    IN["Matrix variant + suite input"] --> R{"Resolve suite family"}
 
-    R -->|"trixie · sid\nunstable · bookworm · forky"| DEB["family = debian"]
-    R -->|"noble · questing\nresolute"| UBU["family = ubuntu"]
+    R -->|"trixie · forky"| DEB["Debian path\nbuild-kernel-debusine.yml\nGenerate source package\nSubmit with lib/build\nDebusine builds binaries"]
+    R -->|"resolute"| UBU["Ubuntu path\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh in Docker\nBuild binary packages"]
 
-    DEB --> DB["debusine-build\nbuild-kernel-debusine.yml\nGenerates .dsc\nSubmits to Debusine\nchdist download\nPublish to S3"]
-    UBU --> UB["ubuntu-build\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh\ndocker pkg-builder\nPublish to S3"]
+    DEB --> DOUT{"Build type"}
+    DOUT -->|Daily| S3["Download .deb files\nPublish to S3"]
+    DOUT -->|Release| QLI["Promote source and binaries\nto qli"]
+    UBU --> US3["Publish .deb files to S3"]
 ```
 
-| File | Role | Trigger |
-|---|---|---|
-| `daily.yml` | Daily orchestrator: reads matrix, spawns parallel builds | `schedule` · `workflow_dispatch` |
-| `build-kernel-deb.yml` | Main pipeline: resolve + prepare, delegates to family modules | `workflow_dispatch` · `workflow_call` |
-| `build-kernel-debusine.yml` | Debian build module: source package generation, Debusine submission, publish to S3 | `workflow_call` only |
-| `build-kernel-ubuntu.yml` | Ubuntu build module: `build-kernel.sh` via docker, upload to S3 | `workflow_call` only |
-
----
-
-## For CI maintainers
-
-Internal pipeline detail. Most users do not need this section.
+## For CI Maintainers
 
 ### Pipeline overview
 
 ```mermaid
 flowchart TD
-    subgraph Triggers
-        A1["⏰ daily.yml\n3 PM PST · cron"]
-        A2["🖱 daily.yml\nManual dispatch"]
-        A3["🖱 build-kernel-deb.yml\nManual dispatch"]
+    subgraph triggers[Triggers]
+        A1["daily.yml\nScheduled full matrix"]
+        A2["daily.yml\nManual full or filtered variant + suite"]
+        A3["release.yml\nManual full or filtered variant + suite"]
+        A4["build-kernel-deb.yml\nManual one-off build"]
     end
 
-    subgraph daily["daily.yml"]
-        B1["configure-matrix\nReads ci/build-matrix.json"]
-        B2["build · trixie"]
-        B3["build · resolute"]
+    subgraph matrix[Matrix entry points]
+        B1["Daily configure-matrix\nFlatten Daily rows"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute"]
+        B3["Release configure-matrix\nFlatten Release rows"]
+        B4["Release variant + suite legs\nqcom-next / trixie · forky"]
     end
 
-    subgraph orchestrator["build-kernel-deb.yml"]
+    subgraph orchestrator[build-kernel-deb.yml]
         C1["resolve\nClassify suite family"]
-        C2["prepare\nClone kernel\nRun prepare-source.sh\nUpload kernel-srcpkg"]
-        C3["debusine-build\nDebian suites only\nbuild-kernel-debusine.yml"]
-        C4["ubuntu-build\nUbuntu suites only\nbuild-kernel-ubuntu.yml"]
+        C2["prepare\nClone selected kernel ref\nRun prepare-source.sh\nUpload kernel-srcpkg-variant-suite"]
+        C3["debusine-build\nDebian suites only"]
+        C4["ubuntu-build\nUbuntu suites only"]
     end
 
-    subgraph out["Outputs"]
-        D1["S3\nlinux-image\nlinux-headers\ndbg"]
+    subgraph outputs[Outputs]
+        D1["Daily S3 artifacts"]
+        D2["Release qli APT repository"]
     end
 
     A1 --> B1
     A2 --> B1
-    B1 --> B2 & B3
-    B2 -->|workflow_call distro=trixie| C1
-    B3 -->|workflow_call distro=resolute| C1
-    A3 -->|workflow_dispatch| C1
-
+    A3 --> B3
+    B1 --> B2 --> C1
+    B3 --> B4 --> C1
+    A4 --> C1
     C1 --> C2
     C2 --> C3 & C4
-    C3 --> D1
+    C3 --> D1 & D2
     C4 --> D1
 ```
 
@@ -159,77 +230,192 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    K["qualcomm-linux/kernel\nlatest qcom-next-* tag"] --> PS
-    M["pkg-linux-qcom\ndebian/ metadata"] --> PS
+    K["Matrix-selected kernel repository\nDaily: latest tag or branch tip\nRelease: pinned ref"] --> PS
+    M["pkg-linux-qcom\nMatrix-selected packaging ref\nFinal: qcom/debian/latest"] --> PS
 
-    PS["prepare-source.sh\npkg-builder:DISTRO container\n\nInject debian/\nActivate config fragments\nGenerate debian/control\nGenerate debian/changelog"] --> TAR
-
-    TAR["tar czf kernel-srcpkg.tar.gz\nPreserves execute permissions"] --> ART
-
-    ART["GitHub Actions Artifact\nkernel-srcpkg\nShared via run_id"]
+    PS["prepare-source.sh\n\nInject debian/\nActivate selected config fragments\nGenerate control, changelog, localversion, pkgversion"] --> TAR
+    TAR["tar czf kernel-srcpkg-variant-suite.tar.gz\nPreserves execute permissions"] --> ART
+    ART["GitHub Actions artifact\nOne prepared source tree per variant + suite"]
 ```
 
-> **Why `tar.gz`?** `actions/upload-artifact` uses zip internally, which strips Unix execute bits.
-> Kernel build scripts (e.g. `scripts/cc-version.sh`) require execute permission.
-> `tar` preserves them end-to-end; `--strip-components=1` restores them on extraction.
+> **Why `tar.gz`?** `actions/upload-artifact` uses zip internally, which strips
+> Unix execute bits. Kernel build scripts require those permissions. The tar
+> archive preserves them between the prepare and build jobs.
 
-### Debian path
+### Debian Daily path
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg\nartifact"] --> GSP
+    ART["kernel-srcpkg-variant-suite\nartifact"] --> GSP
 
-    subgraph build["build job (debusine-pkg-builder container)"]
-        GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\nCreate .orig.tar.gz\nRun dpkg-buildpackage -S\nProduce .dsc"] --> DEB
-        DEB["Debusine\nDistributed build"] --> WS
-        WS["workspace ID"]
+    subgraph source[GitHub build job: debusine-pkg-builder container]
+        GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\nCreate .orig.tar.gz\nRun dpkg-buildpackage -S\nProduce .dsc"] --> SUBMIT
+        SUBMIT["lib/build\nCreate CI child workspace\nSubmit source package to Debusine"]
     end
 
-    subgraph pub["publish job (self-hosted runner)"]
-        WS --> CHDIST
-        CHDIST["generate-apt-config\nchdist hermetic apt env\napt-get download\nNo installation"] --> S3
-    end
+    SUBMIT --> DEB["Debusine\nBuild binary packages"]
+    DEB --> WS["Unique variant + suite workspace"]
 
-    S3["S3\n<artifact-bucket>"]
+    subgraph publish[Daily publish job]
+        WS --> APT["generate-apt-config\nchdist isolated APT environment\nDownload .deb files"]
+        APT --> S3["S3\nDaily package artifacts"]
+    end
+```
+
+### Debian Release path
+
+```mermaid
+flowchart LR
+    ART["kernel-srcpkg-variant-suite\nartifact"] --> GSP["generate-source-package\nProduce .dsc"]
+    GSP --> SUBMIT["lib/build\nSubmit source package to a unique\nDebusine CI child workspace"]
+    SUBMIT --> DEB["Debusine\nBuild binary packages"]
+    DEB --> WS["CI workspace\nsource and binary artifacts"]
+
+    subgraph release[Release job: Production GitHub environment]
+        WS --> PROMOTE["lib/release\nStart package-publish"]
+        PROMOTE --> QLI["qli\nProduction Debusine APT repository"]
+    end
 ```
 
 ### Ubuntu path
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg\nartifact"] --> EXT
+    ART["kernel-srcpkg-variant-suite\nartifact"] --> EXT
 
-    subgraph build["build job (self-hosted runner)"]
-        EXT["Extract source tree\n--strip-components=1"] --> BK
+    subgraph build[Ubuntu build job]
+        EXT["Extract prepared source tree\n--strip-components=1"] --> BK
         BK["build-kernel.sh\n--skip-prepare\n--local-source\n--build-mode docker\ndpkg-buildpackage -b"] --> S3
     end
 
-    S3["S3\n<artifact-bucket>"]
+    S3["S3\nDaily package artifacts"]
 ```
 
-> `--skip-prepare` is safe because `prepare-source.sh` already ran in the `prepare` job.
-> `debian/control`, `debian/changelog`, and all config fragments are baked into the artifact.
+`--skip-prepare` is safe because `prepare-source.sh` has already generated the
+packaging metadata and activated the selected fragments before the artifact is
+created.
 
-### Required configuration
+## Packages
 
-Set these in the repository (or organization) settings. The Debusine path needs
-all of them; the docker path needs only `ARTIFACT_S3_BUCKET`.
+The matrix provides the source package and image metapackage identity. The
+resolved kernel release remains the source of truth for versioned package names
+and installed kernel paths.
 
-| Type | Name | Purpose |
-|---|---|---|
-| Variable | `ARTIFACT_S3_BUCKET` | S3 bucket the built packages are uploaded to |
-| Variable | `DEBUSINE_HOST` | Debusine instance host |
-| Variable | `DEBUSINE_SCOPE` | Debusine scope |
-| Variable | `DEBUSINE_PARENT_WORKSPACE` | Parent workspace for the CI child workspace |
-| Secret | `DEBUSINE_USER` | Debusine API user |
-| Secret | `DEBUSINE_TOKEN` | Debusine API token |
+For the current matrix, package generation produces:
 
-`vars.*` are available to all jobs (including `workflow_call` callees) without
-forwarding. `secrets.*` do not cross a `workflow_call` boundary unless forwarded,
-so `build-kernel-deb.yml` forwards only the two Debusine secrets.
+| Package | Purpose |
+| --- | --- |
+| `linux-qcom-next_<version>.dsc` and related source files | Debian source package. |
+| `linux-image-<kernelrelease>_<version>_arm64.deb` | Versioned kernel image, modules, DTBs, and boot assets. |
+| `linux-image-qcom-next_<version>_arm64.deb` | Image metapackage that tracks the newest kernel image. |
+| `linux-headers-<kernelrelease>_<version>_arm64.deb` | Versioned headers for DKMS and out-of-tree modules. |
+| `linux-headers-qcom-next_<version>_arm64.deb` | Headers metapackage. |
+| `linux-image-<kernelrelease>-dbg_<version>_arm64.deb` | Kernel and module debug symbols. |
 
----
+`-rcN` remains in `uname -r`, module paths, boot assets, and versioned package
+names. Only the Debian version field converts it to `~rcN`, so a release
+candidate correctly sorts before the corresponding final kernel release.
+
+`KVER_EXTRA` is supported for explicit suffixes such as `-ci42` or `-local`.
+The packaging rules verify that the declared versioned image package matches the
+resolved kernel release and fail instead of creating inconsistent metadata.
+
+For an APT repository installation, install the image metapackage:
+
+```bash
+sudo apt update
+sudo apt install linux-image-qcom-next
+```
+
+When installing downloaded artifacts directly, install the versioned image and
+its metapackage together. Add the headers packages when DKMS or other
+out-of-tree module builds are required.
+
+## Manual Builds
+
+Use **Actions** → **build-kernel-deb** for a one-off build. It is an explicit
+override workflow, not a matrix-derived delivery flow: use `daily.yml` and
+`release.yml` for normal Daily and Release operations.
+
+`kernel-variant`, `suite`, and `ref-strategy` are the required build selection.
+All remaining package, configuration, and PR inputs are advanced overrides for
+validation or debugging. Variant and suite are free-text matrix values rather
+than static dropdowns, so adding a matrix entry never requires editing the
+workflow UI.
+
+The available inputs are:
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `kernel-variant` | `qcom-next` | Stable variant identifier used in artifact and workspace identity. |
+| `suite` | `trixie` | Target suite. |
+| `ref-strategy` | `latest_tag` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
+| `kernel-branch` | `qcom-next` | Branch for `branch_tip`, or immutable ref for `pinned_ref`; ignored by `latest_tag`. |
+| `tag-pattern` | `qcom-next-*` | Tag glob for `latest_tag`; ignored by `branch_tip` and `pinned_ref`. |
+| `kernel-url` | `qualcomm-linux/kernel` | Advanced alternate kernel repository. |
+| `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
+| `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
+| `kernel-config` | `squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can` | Advanced packaging fragments to activate. |
+| `debian-revision` | `0qli~` | Advanced Debian revision override. |
+| `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
+| `kver-extra` | Empty | Advanced kernel-release suffix. |
+| `debug-build` | `false` | Advanced debug configuration toggle. |
+| `pkg-linux-qcom-ref` | `qcom/debian/latest` | Advanced packaging revision used to prepare the source tree. |
+
+The workflow also supports advanced Qualcomm-only PR overrides for validation
+builds. Direct builds are artifact builds; Release promotion is performed only
+through `release.yml`.
+
+## Configuration
+
+### Repository and organization variables
+
+| Variable | Purpose |
+| --- | --- |
+| `ARTIFACT_S3_BUCKET` | S3 bucket for Daily Debian artifacts and Ubuntu build artifacts. |
+| `DEBUSINE_HOST` | Production Debusine host. |
+| `DEBUSINE_SCOPE` | Debusine scope. |
+| `DEBUSINE_PARENT_WORKSPACE` | Parent workspace used to create per-run CI child workspaces. |
+
+### Secrets
+
+| Secret | Scope | Purpose |
+| --- | --- | --- |
+| `DEBUSINE_USER` | Repository | User for Debusine archive and signing-key access. |
+| `DEBUSINE_TOKEN` | Repository | Token for Debusine build and artifact operations. |
+| `DEBUSINE_RELEASE_TOKEN` | Production environment | Token used only to promote Release artifacts to `qli`. |
+
+The Debian build and Release jobs select the **Production** GitHub environment.
+This makes environment-scoped release credentials available to the promotion job
+and keeps production approval controls in the workflow path.
+
+## Maintaining the Matrix
+
+To add a kernel variant:
+
+1. Add exactly two rows with the same `kernel_variant`: one `Daily` and one
+   `Release`.
+2. Define all package identity, source/ref strategy, configuration, Debian
+   revision, and suite values in both rows. Do not rely on another variant's
+   values. `srcpkg` and `binpkg` must remain identical across the pair.
+3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
+   `pinned_ref` for Release, and update that ref through a reviewed PR.
+4. Give the variant distinct `srcpkg` and `binpkg` values. Set the Release
+   `target_workspace` explicitly.
+5. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
+   the Docker path.
+6. Run a filtered Daily validation for the new variant, then its full Daily and
+   Release flows.
+
+No workflow dispatch choices need to be updated: manual Daily and Release
+inputs accept matrix-defined variant and suite strings.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch, review, and DCO
+requirements.
 
 ## License
 
-pkg-linux-qcom is licensed under the BSD-3-clause License. See LICENSE.txt for the full license text.
+pkg-linux-qcom is licensed under the BSD 3-Clause License. See
+[LICENSE.txt](LICENSE.txt).
