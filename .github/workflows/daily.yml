@@ -2,13 +2,15 @@ name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
 # build per Daily entry in ci/build-matrix.json after suite flattening.
-# Manual dispatch can run the full Daily matrix or a single suite.
+# Manual dispatch can run the full Daily matrix or filter by kernel variant and
+# suite. Both filters are matrix values, so future variants need no workflow edit.
 #
 # Matrix schema: ci/build-matrix.json
 #   Each row with "type": "Daily" is expanded by ci/scripts/resolve-matrix.sh:
 #   the "suites" array is flattened into one job per suite. All other fields
-#   (srcpkg, binpkg, kernel_config, debian_revision, git_clone, branch_or_tag)
-#   are passed through to build-kernel-deb.yml as inputs.
+#   (kernel_variant, srcpkg, binpkg, kernel_config, debian_revision,
+#   git_clone, branch_or_tag, ref_strategy) are passed through to
+#   build-kernel-deb.yml as inputs.
 #
 # To add a daily build target: add a row to ci/build-matrix.json with
 # "type": "Daily". No workflow changes needed.
@@ -24,15 +26,16 @@ on:
         type: boolean
         required: false
         default: false
+      kernel-variant:
+        description: 'Kernel variant to build (ignored when Test Daily Build is checked; leave empty to include every variant)'
+        required: false
+        default: 'qcom-next'
+        type: string
       suite:
-        description: 'Single suite to build (ignored when Test Daily Build is checked)'
+        description: 'Single suite to build (ignored when Test Daily Build is checked; leave empty to include every suite)'
         required: false
         default: 'trixie'
-        type: choice
-        options:
-          - trixie
-          - forky
-          - resolute
+        type: string
 
 permissions:
   contents: read
@@ -44,8 +47,8 @@ jobs:
   #
   # Delegates to ci/scripts/resolve-matrix.sh which filters type=Daily rows
   # and expands each row's "suites" array into one flat entry per suite.
-  # For manual dispatch of a single suite, passes --single-suite to restrict
-  # the output to that suite only.
+  # Manual dispatch can additionally restrict the output by kernel variant
+  # and/or suite.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -61,14 +64,18 @@ jobs:
           set -euo pipefail
 
           RUN_FULL="${{ github.event.inputs.run-full-matrix }}"
+          INPUT_VARIANT="${{ github.event.inputs.kernel-variant }}"
           INPUT_SUITE="${{ github.event.inputs.suite }}"
 
           if [[ "${{ github.event_name }}" == "schedule" || "$RUN_FULL" == "true" ]]; then
             echo "Source: ci/build-matrix.json (full Daily matrix)"
             MATRIX=$(ci/scripts/resolve-matrix.sh --type Daily)
           else
-            echo "Source: ci/build-matrix.json (single suite: $INPUT_SUITE)"
-            MATRIX=$(ci/scripts/resolve-matrix.sh --type Daily --single-suite "$INPUT_SUITE")
+            args=(--type Daily)
+            [[ -n "$INPUT_VARIANT" ]] && args+=(--kernel-variant "$INPUT_VARIANT")
+            [[ -n "$INPUT_SUITE" ]] && args+=(--single-suite "$INPUT_SUITE")
+            echo "Source: ci/build-matrix.json (variant: ${INPUT_VARIANT:-all}, suite: ${INPUT_SUITE:-all})"
+            MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
           fi
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
@@ -83,7 +90,7 @@ jobs:
   # build does not cancel the forky build.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.suite }}
+    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
     needs: configure-matrix
     strategy:
       fail-fast: false
@@ -92,10 +99,17 @@ jobs:
     uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
+      kernel-variant: ${{ matrix.kernel_variant }}
       git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
       srcpkg: ${{ matrix.srcpkg }}
       binpkg: ${{ matrix.binpkg }}
       kernel-config: ${{ matrix.kernel_config }}
       debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: ${{ matrix.kver_extra || '' }}
+      debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
       pkg-linux-qcom-ref: ${{ matrix.pkg_linux_qcom_ref || 'qcom/debian/latest' }}
     secrets: inherit

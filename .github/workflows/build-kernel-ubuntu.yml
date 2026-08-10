@@ -19,6 +19,10 @@ on:
         description: Target Ubuntu suite (noble, questing, resolute)
         type: string
         required: true
+      kernel-variant:
+        description: 'Kernel variant identifier used to isolate prepared-source artifacts and published packages'
+        type: string
+        required: true
       pkg-linux-qcom-ref:
         description: |
           pkg-linux-qcom ref to check out. Provides build-kernel.sh and the
@@ -67,7 +71,7 @@ jobs:
       - name: Download prepared source tree
         uses: actions/download-artifact@v4
         with:
-          name: kernel-srcpkg-${{ inputs.suite }}
+          name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.distro }}
           path: /tmp/srcpkg-artifact
 
       - name: Extract prepared source tree
@@ -96,11 +100,11 @@ jobs:
 
       - name: Upload .deb packages to S3
         # build-kernel.sh outputs to kernel-build/<distro>/ by default.
-        # Upload from that subdirectory directly so the suite name does not
-        # appear in the S3 path; downstream consumers (e.g. qcom-distro-images)
-        # expect the flat pkg/temp/<repo>/<run_id>-<attempt>/ layout.
+        # Keep kernel variant and suite in the destination so concurrent matrix
+        # legs cannot overwrite or mix package outputs. Consumers must select
+        # the variant and suite they intend to install.
         uses: qualcomm-linux/upload-private-artifact-action@aws-v4
         with:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: kernel-build/${{ inputs.distro }}
-          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.kernel-variant }}/${{ inputs.distro }}/${{ github.run_id }}-${{ github.run_attempt }}/

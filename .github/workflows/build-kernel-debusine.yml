@@ -4,7 +4,8 @@ name: build-debusine
 #
 # Called by build-kernel-deb.yml for Debian-family suites (trixie, forky, sid).
 # The kernel source is already prepared by the caller's prepare job and shared
-# as the kernel-srcpkg artifact.
+# as the kernel-srcpkg artifact. Artifact and workspace identity include both
+# kernel_variant and suite so parallel variants cannot share inputs or outputs.
 #
 # Publish path is determined by target-workspace:
 #   target-workspace == ''  -> daily path: download .deb files, upload to S3.
@@ -21,6 +22,10 @@ on:
     inputs:
       suite:
         description: 'Target Debian suite (trixie, forky, sid)'
+        type: string
+        required: true
+      kernel-variant:
+        description: 'Kernel variant identifier used to isolate artifacts and Debusine workspaces'
         type: string
         required: true
       srcpkg:
@@ -70,6 +75,7 @@ jobs:
     defaults:
       run:
         shell: bash
+    environment: Production
     steps:
       - name: Checkout debusine-action helpers
         uses: actions/checkout@v5
@@ -84,7 +90,7 @@ jobs:
       - name: Download prepared source tree
         uses: actions/download-artifact@v4
         with:
-          name: kernel-srcpkg-${{ inputs.suite }}
+          name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.suite }}
           path: /tmp/srcpkg-artifact
 
       - name: Extract prepared source tree
@@ -107,7 +113,7 @@ jobs:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
-          JOB_INDEX: ${{ inputs.suite }}
+          JOB_INDEX: ${{ inputs.kernel-variant }}-${{ inputs.suite }}
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
@@ -185,7 +191,7 @@ jobs:
         with:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: deb-artifacts
-          destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.kernel-variant }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
 
   # ---------------------------------------------------------------------------
   # release: promote packages from CI workspace to target Debusine workspace.
@@ -196,6 +202,7 @@ jobs:
     needs: build
     if: ${{ needs.build.result == 'success' && inputs.target-workspace != '' }}
     runs-on: ubuntu-latest
+    environment: Production
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
       options: --user 0:0

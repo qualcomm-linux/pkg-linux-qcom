@@ -15,8 +15,12 @@ on:
           - questing
           - resolute
           - sid
+      kernel-variant:
+        description: 'Kernel variant identifier used to isolate artifacts and Debusine workspaces'
+        required: false
+        default: 'qcom-next'
       latest-tag:
-        description: 'Use latest qcom-next-* tag (ignores kernel-branch)'
+        description: 'Use the latest tag when ref-strategy is empty (compatibility input)'
         type: boolean
         default: true
       kernel-branch:
@@ -27,6 +31,14 @@ on:
         description: 'Custom kernel repo URL (leave empty for qualcomm-linux/kernel)'
         required: false
         default: ''
+      ref-strategy:
+        description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
+        required: false
+        default: ''
+      tag-pattern:
+        description: 'Tag glob used when ref-strategy=latest_tag'
+        required: false
+        default: 'qcom-next-*'
       srcpkg:
         description: 'Source package name'
         required: false
@@ -86,8 +98,12 @@ on:
         description: 'Target suite (trixie, forky, noble, questing, resolute, sid)'
         type: string
         default: 'trixie'
+      kernel-variant:
+        description: 'Kernel variant identifier used to isolate artifacts and Debusine workspaces'
+        type: string
+        default: 'qcom-next'
       latest-tag:
-        description: 'Use latest qcom-next-* tag'
+        description: 'Use the latest tag when ref-strategy is empty (compatibility input)'
         type: boolean
         default: true
       kernel-branch:
@@ -98,6 +114,14 @@ on:
         description: 'Kernel repository URL'
         type: string
         default: 'https://github.com/qualcomm-linux/kernel'
+      ref-strategy:
+        description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
+        type: string
+        default: ''
+      tag-pattern:
+        description: 'Tag glob used when ref-strategy=latest_tag'
+        type: string
+        default: 'qcom-next-*'
       srcpkg:
         description: 'Source package name'
         type: string
@@ -114,6 +138,18 @@ on:
         description: 'Debian revision component of the package version'
         type: string
         default: '0qcom1'
+      localversion:
+        description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
+        type: string
+        default: ''
+      kver-extra:
+        description: 'Extra suffix appended to the package version'
+        type: string
+        default: ''
+      debusine-parent-workspace:
+        description: 'Parent Debusine workspace for CI child workspace creation'
+        type: string
+        default: ''
       target-workspace:
         description: 'Debusine target workspace for release promotion (empty = daily/S3 path)'
         type: string
@@ -142,6 +178,11 @@ jobs:
         shell: bash
         run: |
           suite="${{ inputs.suite || 'trixie' }}"
+          kernel_variant="${{ inputs.kernel-variant || 'qcom-next' }}"
+          [[ "$kernel_variant" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
+            echo "ERROR: kernel variant must use lowercase letters, digits, and internal hyphens" >&2
+            exit 1
+          }
           case "$suite" in
             trixie|forky|sid|unstable|bookworm)
               family=debian ;;
@@ -224,15 +265,37 @@ jobs:
           set -euo pipefail
           USE_LATEST="${{ inputs.latest-tag }}"
           BRANCH="${{ inputs.kernel-branch || 'qcom-next' }}"
+          REF_STRATEGY="${{ inputs.ref-strategy }}"
+          TAG_PATTERN="${{ inputs.tag-pattern || 'qcom-next-*' }}"
 
-          # For scheduled runs and daily builds, always resolve latest tag.
-          if [[ "${{ github.event_name }}" == "schedule" || "$USE_LATEST" == "true" ]]; then
-            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh --url "$KERNEL_URL" --latest)
-          else
-            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh --url "$KERNEL_URL" --ref "$BRANCH")
+          # Preserve the direct-dispatch interface while matrix callers select
+          # an explicit strategy. New variants must use the explicit path.
+          if [[ -z "$REF_STRATEGY" ]]; then
+            if [[ "${{ github.event_name }}" == "schedule" || "$USE_LATEST" == "true" ]]; then
+              REF_STRATEGY="latest_tag"
+            else
+              REF_STRATEGY="pinned_ref"
+            fi
           fi
 
+          case "$REF_STRATEGY" in
+            latest_tag)
+              KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh \
+                --url "$KERNEL_URL" \
+                --latest-tag "$TAG_PATTERN")
+              ;;
+            branch_tip|pinned_ref)
+              KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh --url "$KERNEL_URL" --ref "$BRANCH")
+              ;;
+            *)
+              echo "ERROR: unsupported ref strategy: $REF_STRATEGY" >&2
+              exit 1
+              ;;
+          esac
+
           echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
+          echo "Kernel variant: ${{ inputs.kernel-variant }}"
+          echo "Ref strategy: $REF_STRATEGY"
           echo "Resolved kernel ref: $KERNEL_REF"
 
       - name: Clone kernel source
@@ -255,6 +318,7 @@ jobs:
             echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
           else
             LOCALVERSION=$(ci/scripts/derive-localversion.sh \
+              --variant "${{ inputs.kernel-variant }}" \
               --ref "$KERNEL_REF" \
               --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
             echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
@@ -339,7 +403,7 @@ jobs:
       - name: Upload prepared source tree artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-srcpkg-${{ inputs.suite }}
+          name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.suite }}
           path: /tmp/kernel-srcpkg.tar.gz
           if-no-files-found: error
           retention-days: 7
@@ -354,8 +418,9 @@ jobs:
     uses: ./.github/workflows/build-kernel-debusine.yml
     with:
       suite: ${{ inputs.suite || 'trixie' }}
+      kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
       srcpkg: ${{ inputs.srcpkg || 'linux-qcom-next' }}
-      debusine-parent-workspace: ${{ vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
+      debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
       target-workspace: ${{ inputs.target-workspace || '' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
@@ -372,4 +437,5 @@ jobs:
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
       distro: ${{ inputs.suite || 'resolute' }}
+      kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
       pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
