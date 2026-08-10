@@ -3,13 +3,13 @@ name: release
 # Release kernel package builds. Triggered manually only.
 #
 # Reads Release rows from ci/build-matrix.json, flattens suites, and builds
-# each entry using the pinned tag specified in branch_or_tag. After a
+# each entry using the matrix-selected ref strategy and branch_or_tag. After a
 # successful build, packages are promoted from the ephemeral Debusine CI
 # workspace to the stable target workspace (e.g. qli) via debusine-action
 # lib/release.
 #
-# To update the pinned release tag: open a PR that changes the branch_or_tag
-# field in the Release row(s) of ci/build-matrix.json.
+# To update a release ref: open a PR that changes the Release row for that
+# kernel variant in ci/build-matrix.json.
 #
 # This workflow intentionally has no schedule trigger. Releases are always
 # initiated manually after validation.
@@ -17,15 +17,16 @@ name: release
 on:
   workflow_dispatch:
     inputs:
+      kernel-variant:
+        description: 'Kernel variant to release (leave empty to include every variant)'
+        required: false
+        default: ''
+        type: string
       suite:
         description: 'Single suite to release (leave empty to release all Release matrix suites)'
         required: false
         default: ''
-        type: choice
-        options:
-          - all
-          - trixie
-          - forky
+        type: string
 
 permissions:
   contents: read
@@ -48,15 +49,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          INPUT_VARIANT="${{ github.event.inputs.kernel-variant }}"
           INPUT_SUITE="${{ github.event.inputs.suite }}"
 
           if [[ -z "$INPUT_SUITE" || "$INPUT_SUITE" == "all" ]]; then
-            echo "Source: ci/build-matrix.json (full Release matrix)"
-            MATRIX=$(ci/scripts/resolve-matrix.sh --type Release)
+            args=(--type Release)
           else
-            echo "Source: ci/build-matrix.json (single suite: $INPUT_SUITE)"
-            MATRIX=$(ci/scripts/resolve-matrix.sh --type Release --single-suite "$INPUT_SUITE")
+            args=(--type Release --single-suite "$INPUT_SUITE")
           fi
+          [[ -n "$INPUT_VARIANT" && "$INPUT_VARIANT" != "all" ]] && args+=(--kernel-variant "$INPUT_VARIANT")
+          echo "Source: ci/build-matrix.json (variant: ${INPUT_VARIANT:-all}, suite: ${INPUT_SUITE:-all})"
+          MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
@@ -64,12 +67,12 @@ jobs:
   # ---------------------------------------------------------------------------
   # build: one parallel job per flat Release matrix entry.
   #
-  # Uses the pinned tag from branch_or_tag (latest-tag is false for release).
+  # Uses the ref strategy and branch_or_tag selected by the matrix.
   # Passes target_workspace so build-kernel-debusine.yml triggers the Debusine
   # release path (lib/release) instead of the S3 publish path.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.suite }}
+    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
     needs: configure-matrix
     strategy:
       fail-fast: false
@@ -78,13 +81,19 @@ jobs:
     uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
+      kernel-variant: ${{ matrix.kernel_variant }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
       latest-tag: false
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
       srcpkg: ${{ matrix.srcpkg }}
       binpkg: ${{ matrix.binpkg }}
       kernel-config: ${{ matrix.kernel_config }}
       debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: ${{ matrix.kver_extra || '' }}
+      debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
       target-workspace: ${{ matrix.target_workspace }}
       pkg-linux-qcom-ref: ${{ matrix.pkg_linux_qcom_ref || 'qcom/debian/latest' }}
     secrets: inherit
