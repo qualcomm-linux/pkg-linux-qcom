@@ -3,90 +3,81 @@ name: build-kernel-deb
 on:
   workflow_dispatch:
     inputs:
+      kernel-variant:
+        description: 'Kernel variant identifier'
+        required: true
+        default: 'qcom-next'
+        type: string
       suite:
         description: 'Target suite'
-        required: false
+        required: true
         default: 'trixie'
+        type: string
+      ref-strategy:
+        description: 'Kernel ref strategy'
+        required: true
+        default: 'latest_tag'
         type: choice
         options:
-          - trixie
-          - forky
-          - noble
-          - questing
-          - resolute
-          - sid
-      kernel-variant:
-        description: 'Kernel variant identifier used to isolate artifacts and Debusine workspaces'
-        required: false
-        default: 'qcom-next'
-      latest-tag:
-        description: 'Use the latest tag when ref-strategy is empty (compatibility input)'
-        type: boolean
-        default: true
+          - latest_tag
+          - branch_tip
+          - pinned_ref
       kernel-branch:
-        description: 'Kernel branch or tag when latest-tag=false'
+        description: 'Branch for branch_tip or immutable ref for pinned_ref (ignored for latest_tag)'
         required: false
         default: 'qcom-next'
-      kernel-url:
-        description: 'Custom kernel repo URL (leave empty for qualcomm-linux/kernel)'
-        required: false
-        default: ''
-      ref-strategy:
-        description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
-        required: false
-        default: ''
       tag-pattern:
-        description: 'Tag glob used when ref-strategy=latest_tag'
+        description: 'Tag glob used only by latest_tag (ignored for branch_tip and pinned_ref)'
         required: false
         default: 'qcom-next-*'
+      kernel-url:
+        description: 'Advanced: custom kernel repository URL (empty uses qualcomm-linux/kernel)'
+        required: false
+        default: ''
       srcpkg:
-        description: 'Source package name'
+        description: 'Advanced: Debian source package name'
         required: false
         default: 'linux-qcom-next'
       binpkg:
-        description: 'Binary metapackage name'
+        description: 'Advanced: kernel image metapackage name'
         required: false
         default: 'linux-image-qcom-next'
       kernel-config:
-        description: 'Comma-separated config fragments from debian/config-available/ to activate'
+        description: 'Advanced: comma-separated config fragments from debian/config-available/'
         required: false
         default: 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can'
       debian-revision:
-        description: 'Debian revision component of the package version (e.g. 0qcom1)'
+        description: 'Advanced: Debian revision component of the package version'
         required: false
-        default: '0qcom1'
-      target-workspace:
-        description: 'Debusine target workspace for release promotion. Only set via release.yml; do not use on direct dispatch.'
-        required: false
-        default: ''
+        default: '0qli~'
       localversion:
-        description: 'Override LOCALVERSION suffix (auto-derived from tag if not set)'
+        description: 'Advanced: LOCALVERSION override (auto-derived from the resolved ref if empty)'
         required: false
         default: ''
       kver-extra:
-        description: 'Extra suffix appended to the package version (e.g. -ci42)'
+        description: 'Advanced: extra package-version suffix (e.g. -ci42)'
         required: false
         default: ''
       debug-build:
-        description: 'Enable debug build'
+        description: 'Advanced: enable the debug build configuration'
         type: boolean
         required: false
         default: false
       pkg-linux-qcom-ref:
-        description: 'pkg-linux-qcom packaging ref (branch or commit)'
+        description: 'Advanced: pkg-linux-qcom packaging ref (branch or commit)'
         required: false
         default: 'qcom/debian/latest'
       self-pr:
-        description: 'pkg-linux-qcom PR number to apply before building (e.g. 42)'
+        description: 'Advanced: pkg-linux-qcom PR number to apply before building (e.g. 42)'
         required: false
         default: ''
       qcom-next-pr:
-        description: 'Space-separated PR numbers to merge from qcom-next (e.g. "42 43")'
+        description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
         type: string
         required: false
         default: ''
       kernel-topics-pr:
-        description: 'Space-separated PR numbers from kernel-topics to apply as patches'
+        description: 'Advanced Qualcomm-only override: kernel-topics PR numbers to apply as patches'
         type: string
         required: false
         default: ''
@@ -94,20 +85,16 @@ on:
   # Called by daily.yml and release.yml as a reusable workflow.
   workflow_call:
     inputs:
+      kernel-variant:
+        description: 'Kernel variant identifier'
+        type: string
+        default: 'qcom-next'
       suite:
         description: 'Target suite (trixie, forky, noble, questing, resolute, sid)'
         type: string
         default: 'trixie'
-      kernel-variant:
-        description: 'Kernel variant identifier used to isolate artifacts and Debusine workspaces'
-        type: string
-        default: 'qcom-next'
-      latest-tag:
-        description: 'Use the latest tag when ref-strategy is empty (compatibility input)'
-        type: boolean
-        default: true
       kernel-branch:
-        description: 'Kernel branch or tag when latest-tag=false'
+        description: 'Source branch or pinned tag used by branch_tip or pinned_ref'
         type: string
         default: 'qcom-next'
       git-clone:
@@ -117,7 +104,7 @@ on:
       ref-strategy:
         description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
         type: string
-        default: ''
+        default: 'latest_tag'
       tag-pattern:
         description: 'Tag glob used when ref-strategy=latest_tag'
         type: string
@@ -137,7 +124,7 @@ on:
       debian-revision:
         description: 'Debian revision component of the package version'
         type: string
-        default: '0qcom1'
+        default: '0qli~'
       localversion:
         description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
         type: string
@@ -263,20 +250,9 @@ jobs:
         id: kernel-ref
         run: |
           set -euo pipefail
-          USE_LATEST="${{ inputs.latest-tag }}"
           BRANCH="${{ inputs.kernel-branch || 'qcom-next' }}"
-          REF_STRATEGY="${{ inputs.ref-strategy }}"
+          REF_STRATEGY="${{ inputs.ref-strategy || 'latest_tag' }}"
           TAG_PATTERN="${{ inputs.tag-pattern || 'qcom-next-*' }}"
-
-          # Preserve the direct-dispatch interface while matrix callers select
-          # an explicit strategy. New variants must use the explicit path.
-          if [[ -z "$REF_STRATEGY" ]]; then
-            if [[ "${{ github.event_name }}" == "schedule" || "$USE_LATEST" == "true" ]]; then
-              REF_STRATEGY="latest_tag"
-            else
-              REF_STRATEGY="pinned_ref"
-            fi
-          fi
 
           case "$REF_STRATEGY" in
             latest_tag)
@@ -381,7 +357,7 @@ jobs:
             --distro "$DISTRO"
             --srcpkg "${{ inputs.srcpkg || 'linux-qcom-next' }}"
             --binpkg "${{ inputs.binpkg || 'linux-image-qcom-next' }}"
-            --debian-revision "${{ inputs.debian-revision || '0qcom1' }}"
+            --debian-revision "${{ inputs.debian-revision || '0qli~' }}"
           )
 
           [[ -n "$LOCALVERSION" ]]                          && ARGS+=(--localversion "$LOCALVERSION")
