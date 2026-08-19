@@ -145,6 +145,16 @@ on:
         description: 'pkg-linux-qcom packaging ref'
         type: string
         default: 'qcom/debian/latest'
+    secrets:
+      DEBUSINE_USER:
+        description: 'Debusine account used to submit CI and release builds'
+        required: false
+      DEBUSINE_TOKEN:
+        description: 'Debusine token for the CI child workspace'
+        required: false
+      DEBUSINE_RELEASE_TOKEN:
+        description: 'Debusine token for package-publish promotion to the release target workspace'
+        required: false
 
 permissions:
   contents: read
@@ -163,9 +173,12 @@ jobs:
       - name: Classify suite
         id: classify
         shell: bash
+        env:
+          SUITE_INPUT: ${{ inputs.suite || 'trixie' }}
+          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
         run: |
-          suite="${{ inputs.suite || 'trixie' }}"
-          kernel_variant="${{ inputs.kernel-variant || 'qcom-next' }}"
+          suite="$SUITE_INPUT"
+          kernel_variant="$KERNEL_VARIANT_INPUT"
           [[ "$kernel_variant" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
             echo "ERROR: kernel variant must use lowercase letters, digits, and internal hyphens" >&2
             exit 1
@@ -213,6 +226,7 @@ jobs:
         # suite_suffix_mapping are available.
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
           path: .ci-branch
           sparse-checkout: |
@@ -253,11 +267,16 @@ jobs:
 
       - name: Resolve kernel ref
         id: kernel-ref
+        env:
+          BRANCH_INPUT: ${{ inputs.kernel-branch || 'qcom-next' }}
+          REF_STRATEGY_INPUT: ${{ inputs.ref-strategy || 'latest_tag' }}
+          TAG_PATTERN_INPUT: ${{ inputs.tag-pattern || 'qcom-next-*' }}
+          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
         run: |
           set -euo pipefail
-          BRANCH="${{ inputs.kernel-branch || 'qcom-next' }}"
-          REF_STRATEGY="${{ inputs.ref-strategy || 'latest_tag' }}"
-          TAG_PATTERN="${{ inputs.tag-pattern || 'qcom-next-*' }}"
+          BRANCH="$BRANCH_INPUT"
+          REF_STRATEGY="$REF_STRATEGY_INPUT"
+          TAG_PATTERN="$TAG_PATTERN_INPUT"
 
           case "$REF_STRATEGY" in
             latest_tag)
@@ -275,7 +294,7 @@ jobs:
           esac
 
           echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
-          echo "Kernel variant: ${{ inputs.kernel-variant }}"
+          echo "Kernel variant: $KERNEL_VARIANT_INPUT"
           echo "Ref strategy: $REF_STRATEGY"
           echo "Resolved kernel ref: $KERNEL_REF"
 
@@ -291,15 +310,18 @@ jobs:
           echo "Kernel HEAD SHA: $KERNEL_SHA"
 
       - name: Derive LOCALVERSION
+        env:
+          LOCALVERSION_INPUT: ${{ inputs.localversion }}
+          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
         run: |
           set -euo pipefail
-          OVERRIDE_LV="${{ inputs.localversion }}"
+          OVERRIDE_LV="$LOCALVERSION_INPUT"
           if [[ -n "$OVERRIDE_LV" ]]; then
             echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
             echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
           else
             LOCALVERSION=$(ci/scripts/derive-localversion.sh \
-              --variant "${{ inputs.kernel-variant }}" \
+              --variant "$KERNEL_VARIANT_INPUT" \
               --ref "$KERNEL_REF" \
               --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
             echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
@@ -313,15 +335,18 @@ jobs:
         # selected suite's mapped suffix applied automatically, always using
         # Daily semantics since direct dispatch is build-only and
         # non-promoting.
+        env:
+          DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
+          DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli' }}
         run: |
           set -euo pipefail
-          INPUT_REVISION="${{ inputs.debian-revision }}"
+          INPUT_REVISION="$DEBIAN_REVISION_INPUT"
           if [[ -n "$INPUT_REVISION" ]]; then
             DEBIAN_REVISION="$INPUT_REVISION"
             echo "Using matrix-derived Debian revision: $DEBIAN_REVISION"
           else
             DEBIAN_REVISION=$(ci/scripts/derive-debian-revision.sh \
-              --stub "${{ inputs.debian-version-stub || '0qli' }}" \
+              --stub "$DEBIAN_VERSION_STUB_INPUT" \
               --suite "$DISTRO" \
               --delivery-type Daily \
               --matrix-file ci/build-matrix.json)
@@ -375,6 +400,12 @@ jobs:
           done
 
       - name: Prepare source
+        env:
+          SRCPKG_INPUT: ${{ inputs.srcpkg || 'linux-qcom-next' }}
+          BINPKG_INPUT: ${{ inputs.binpkg || 'linux-image-qcom-next' }}
+          KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
+          KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config || 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can' }}
+          DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
         run: |
           # No -x here: keep xtrace off for this step as it assembles the
           # prepare-source.sh argument list which may include sensitive paths.
@@ -383,15 +414,15 @@ jobs:
           ARGS=(
             --source-dir "$KERNEL_DIR"
             --distro "$DISTRO"
-            --srcpkg "${{ inputs.srcpkg || 'linux-qcom-next' }}"
-            --binpkg "${{ inputs.binpkg || 'linux-image-qcom-next' }}"
+            --srcpkg "$SRCPKG_INPUT"
+            --binpkg "$BINPKG_INPUT"
             --debian-revision "$DEBIAN_REVISION"
           )
 
-          [[ -n "$LOCALVERSION" ]]                          && ARGS+=(--localversion "$LOCALVERSION")
-          [[ -n "${{ inputs.kver-extra }}" ]]               && ARGS+=(--kver-extra "${{ inputs.kver-extra }}")
-          [[ -n "${{ inputs.kernel-config || 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can' }}" ]] && ARGS+=(--kernel-config "${{ inputs.kernel-config || 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can' }}")
-          [[ "${{ inputs.debug-build }}" == "true" ]]       && ARGS+=(--debug)
+          [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
+          [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
+          [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
+          [[ "$DEBUG_BUILD_INPUT" == "true" ]] && ARGS+=(--debug)
 
           docker run -i --rm \
             -v "$PWD:$PWD" --workdir="$PWD" \

@@ -128,8 +128,10 @@ jobs:
           echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
 
       - name: Note Debusine workspace URL
+        env:
+          WORKSPACE_URL: ${{ steps.build-debusine.outputs.workspace_url }}
         run: |
-          echo "Debusine Workspace URL: ${{ steps.build-debusine.outputs.workspace_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Debusine Workspace URL: $WORKSPACE_URL" >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
   # publish: download .deb files from Debusine and upload to S3.
@@ -214,8 +216,9 @@ jobs:
         shell: bash
     steps:
       - name: Checkout debusine-action helpers
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
           repository: qualcomm-linux/debusine-action
           ref: ${{ env.DEBUSINE_ACTION_REF }}
           path: debusine-action

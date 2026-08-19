@@ -50,16 +50,20 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Generate release matrix
         id: set-matrix
+        env:
+          RELEASE_SCOPE_INPUT: ${{ github.event.inputs.release-scope }}
+          INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
+          INPUT_SUITE: ${{ github.event.inputs.suite }}
         run: |
           set -euo pipefail
 
-          RELEASE_SCOPE="${{ github.event.inputs.release-scope }}"
-          INPUT_VARIANT="${{ github.event.inputs.kernel-variant }}"
-          INPUT_SUITE="${{ github.event.inputs.suite }}"
+          RELEASE_SCOPE="$RELEASE_SCOPE_INPUT"
 
           case "$RELEASE_SCOPE" in
             "Selected variant (all suites)")
@@ -111,4 +115,7 @@ jobs:
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
       target-workspace: ${{ matrix.target_workspace }}
       pkg-linux-qcom-ref: ${{ matrix.pkg_linux_qcom_ref || 'qcom/debian/latest' }}
-    secrets: inherit
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
