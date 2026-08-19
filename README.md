@@ -481,3 +481,10 @@ Merges `arch/arm64/configs/debug.config` from the kernel source if present.
 | Ubuntu 26.04 | `resolute` | |
 | Debian 13 | `trixie` | Default |
 | Debian unstable | `sid` | |
+
+---
+
+## License
+
+pkg-linux-qcom is licensed under the BSD 3-Clause License. See
+[LICENSE.txt](LICENSE.txt).
