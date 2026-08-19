@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause-Clear
 set -euo pipefail
 
 # Resolve and flatten the kernel delivery matrix for a given delivery type.
