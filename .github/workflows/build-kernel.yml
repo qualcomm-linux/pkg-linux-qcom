@@ -82,6 +82,8 @@ jobs:
       # Runs if kernel-url is EMPTY
       - name: Sync kernel codebase (Default)
         if: ${{ inputs.kernel-url == '' }}
+        env:
+          PAT: ${{ secrets.PAT }}
         run: |
           cd qcom-build-utils
           cd kernel && export BUILD_TOP=`pwd`
@@ -91,11 +93,11 @@ jobs:
           echo "kernel_repo=$REPO" >> "$GITHUB_ENV"
           echo "Syncing ${REPO} ref ${KERNEL_BRANCH}"
 
-          git ls-remote --exit-code --heads https://${{ secrets.PAT }}@github.com/${REPO}.git ${KERNEL_BRANCH} && IS_BRANCH=true || IS_BRANCH=false
+          git ls-remote --exit-code --heads "https://${PAT}@github.com/${REPO}.git" ${KERNEL_BRANCH} && IS_BRANCH=true || IS_BRANCH=false
 
           git init $BUILD_TOP/qcom-kernel
           cd $BUILD_TOP/qcom-kernel
-          git remote add origin https://${{ secrets.PAT }}@github.com/${REPO}.git
+          git remote add origin "https://${PAT}@github.com/${REPO}.git"
 
           if [ "$IS_BRANCH" = true ]; then
             echo "Detected branch: ${KERNEL_BRANCH}"
@@ -114,13 +116,15 @@ jobs:
       # Runs if kernel-url is PROVIDED
       - name: Sync custom kernel codebase
         if: ${{ inputs.kernel-url != '' }}
+        env:
+          KERNEL_URL_INPUT: ${{ inputs.kernel-url }}
         run: |
           cd qcom-build-utils
           mkdir -p kernel
           cd kernel && export BUILD_TOP=`pwd`
           echo "build_top=$BUILD_TOP" >> "$GITHUB_ENV"
 
-          KERNEL_URL="${{ inputs.kernel-url }}"
+          KERNEL_URL="$KERNEL_URL_INPUT"
           echo "Syncing custom repo: ${KERNEL_URL} ref ${KERNEL_BRANCH}"
 
           git ls-remote --exit-code --heads ${KERNEL_URL} ${KERNEL_BRANCH} && IS_BRANCH=true || IS_BRANCH=false
@@ -145,18 +149,21 @@ jobs:
 
       - name: Merge qcom-next PR patches
         if: ${{ inputs.kernel-url == '' }}
+        env:
+          QCOM_NEXT_PR_INPUT: ${{ github.event.inputs.qcom-next-pr }}
+          PAT: ${{ secrets.PAT }}
         run: |
-          cd "${{ env.build_top }}/"
-          if [ -z "${{ github.event.inputs.qcom-next-pr }}" ]; then
+          cd "$build_top/"
+          if [ -z "$QCOM_NEXT_PR_INPUT" ]; then
             echo "No PR number specified, skipping merge."
           else
-            echo "Merging PR(s) #${{ github.event.inputs.qcom-next-pr }}"
+            echo "Merging PR(s) #$QCOM_NEXT_PR_INPUT"
 
-            cd "${{ env.build_top }}/qcom-kernel"
+            cd "$build_top/qcom-kernel"
 
-            for pr in ${{ github.event.inputs.qcom-next-pr }}; do
+            for pr in $QCOM_NEXT_PR_INPUT; do
               echo "::group::Merging qcom-next PR #$pr"
-              git fetch "https://${{ secrets.PAT }}@github.com/${{ env.kernel_repo }}.git" "pull/$pr/head:pr-$pr"
+              git fetch "https://${PAT}@github.com/${kernel_repo}.git" "pull/$pr/head:pr-$pr"
 
               if ! git merge "pr-$pr" --no-commit; then
                 echo "Merge conflict while merging PR #$pr. Aborting merge and failing the job."
@@ -176,26 +183,28 @@ jobs:
 
       - name: Apply kernel-topics PR patches
         if: ${{ inputs.kernel-url == '' }}
+        env:
+          KERNEL_TOPICS_PR_INPUT: ${{ github.event.inputs.kernel-topics-pr }}
         run: |
-          cd "${{ env.build_top }}/"
-          if [ -z "${{ github.event.inputs.kernel-topics-pr }}" ]; then
+          cd "$build_top/"
+          if [ -z "$KERNEL_TOPICS_PR_INPUT" ]; then
             echo "Nothing to apply in kernel topics."
           else
-            echo "Applying PR(s) from topics branch #${{ github.event.inputs.kernel-topics-pr }}"
-            for pr in ${{ github.event.inputs.kernel-topics-pr }}; do
+            echo "Applying PR(s) from topics branch #$KERNEL_TOPICS_PR_INPUT"
+            for pr in $KERNEL_TOPICS_PR_INPUT; do
               echo "::group::Applying kernel-topics PR #$pr"
               wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
-              
 
-              cd "${{ env.build_top }}/qcom-kernel"
-              
+
+              cd "$build_top/qcom-kernel"
+
               if ! git am "../$pr.patch"; then
                 echo "Patch application failed for PR #$pr. Aborting 'git am' and failing the job."
                 git am --abort || true
                 exit 1
               fi
               echo "::endgroup::"
-              cd "${{ env.build_top }}/"
+              cd "$build_top/"
             done
           fi
 
@@ -216,35 +225,53 @@ jobs:
           '
 
       - name: Build Kernel Debian Package
+        env:
+          JOB_ID: ${{ github.run_id }}
+          JOB_ATTEMPT: ${{ github.run_attempt }}
         run: |
           docker run -i \
-          --privileged --rm -v $PWD:$PWD --workdir="$PWD" kmake-image:ubuntu-noble-arm64 \
+          --privileged --rm -v $PWD:$PWD --workdir="$PWD" \
+          -e JOB_ID -e JOB_ATTEMPT \
+          kmake-image:ubuntu-noble-arm64 \
           -c '
             cd qcom-build-utils/kernel
             export BUILD_TOP=`pwd`
-            ./scripts/build-kernel-deb.sh out/ ${{ github.run_id }}-${{ github.run_attempt }}
+            ./scripts/build-kernel-deb.sh out/ ${JOB_ID}-${JOB_ATTEMPT}
             mkdir -p deb_artifact
             cp ./*.deb deb_artifact/
           '
 
       - name: Generate build_info metadata
+        env:
+          JOB_ID: ${{ github.run_id }}
+          JOB_ATTEMPT: ${{ github.run_attempt }}
+          QCOM_BUILD_UTILS_REF_INPUT: ${{ inputs.qcom-build-utils-ref }}
+          KERNEL_URL_INPUT: ${{ inputs.kernel-url }}
+          KERNEL_BRANCH_INPUT: ${{ inputs.kernel-branch }}
+          QCOM_NEXT_PR_INPUT: ${{ inputs.qcom-next-pr }}
+          KERNEL_TOPICS_PR_INPUT: ${{ inputs.kernel-topics-pr }}
         run: |
           docker run -i \
-          --privileged --rm -v $PWD:$PWD --workdir="$PWD" kmake-image:ubuntu-noble-arm64 \
+          --privileged --rm -v $PWD:$PWD --workdir="$PWD" \
+          -e JOB_ID -e JOB_ATTEMPT -e ORG_NAME -e REPO_NAME \
+          -e QCOM_BUILD_UTILS_REF_INPUT -e QCOM_BUILD_UTILS_SHA \
+          -e KERNEL_URL_INPUT -e KERNEL_BRANCH_INPUT -e QCOM_KERNEL_SHA \
+          -e QCOM_NEXT_PR_INPUT -e KERNEL_TOPICS_PR_INPUT \
+          kmake-image:ubuntu-noble-arm64 \
           -c '
             cd qcom-build-utils/kernel
             {
-              echo "JOB_ID: ${{ github.run_id }}"
-              echo "JOB_ATTEMPT: ${{ github.run_attempt }}"
-              echo "ORG_NAME: ${{ env.ORG_NAME }}"
-              echo "REPO_NAME: ${{ env.REPO_NAME }}"
-              echo "QCOM-BUILD-UTILS BRANCH/TAG: ${{ inputs.qcom-build-utils-ref }}"
-              echo "QCOM-BUILD-UTILS HEAD SHA: ${{ env.QCOM_BUILD_UTILS_SHA }}"
-              echo "CUSTOM KERNEL URL: ${{ inputs.kernel-url }}"
-              echo "KERNEL BRANCH/TAG: ${{ inputs.kernel-branch }}"
-              echo "KERNEL HEAD SHA: ${{ env.QCOM_KERNEL_SHA }}"
-              echo "PRs FROM QCOM-NEXT: ${{ inputs.qcom-next-pr }}"
-              echo "PRs FROM KERNEL TOPICS: ${{ inputs.kernel-topics-pr }}"
+              echo "JOB_ID: $JOB_ID"
+              echo "JOB_ATTEMPT: $JOB_ATTEMPT"
+              echo "ORG_NAME: $ORG_NAME"
+              echo "REPO_NAME: $REPO_NAME"
+              echo "QCOM-BUILD-UTILS BRANCH/TAG: $QCOM_BUILD_UTILS_REF_INPUT"
+              echo "QCOM-BUILD-UTILS HEAD SHA: $QCOM_BUILD_UTILS_SHA"
+              echo "CUSTOM KERNEL URL: $KERNEL_URL_INPUT"
+              echo "KERNEL BRANCH/TAG: $KERNEL_BRANCH_INPUT"
+              echo "KERNEL HEAD SHA: $QCOM_KERNEL_SHA"
+              echo "PRs FROM QCOM-NEXT: $QCOM_NEXT_PR_INPUT"
+              echo "PRs FROM KERNEL TOPICS: $KERNEL_TOPICS_PR_INPUT"
             } > deb_artifact/build_info
           '
 

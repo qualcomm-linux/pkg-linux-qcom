@@ -65,12 +65,14 @@ jobs:
 
       - name: Generate build matrix
         id: set-matrix
+        env:
+          BUILD_SCOPE_INPUT: ${{ github.event.inputs.build-scope }}
+          INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
+          INPUT_SUITE: ${{ github.event.inputs.suite }}
         run: |
           set -euo pipefail
 
-          BUILD_SCOPE="${{ github.event.inputs.build-scope }}"
-          INPUT_VARIANT="${{ github.event.inputs.kernel-variant }}"
-          INPUT_SUITE="${{ github.event.inputs.suite }}"
+          BUILD_SCOPE="$BUILD_SCOPE_INPUT"
 
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             BUILD_SCOPE="Full matrix"
@@ -130,4 +132,7 @@ jobs:
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
       pkg-linux-qcom-ref: ${{ matrix.pkg_linux_qcom_ref || 'qcom/debian/latest' }}
-    secrets: inherit
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
