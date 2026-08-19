@@ -1,37 +1,46 @@
-[
-  {
-    "kernel_variant": "qcom-next",
-    "type": "Daily",
-    "suites": [
-      "trixie",
-      "forky",
-      "resolute"
-    ],
-    "git_clone": "https://github.com/qualcomm-linux/kernel",
-    "branch_or_tag": "qcom-next",
-    "ref_strategy": "latest_tag",
-    "tag_pattern": "qcom-next-*",
-    "srcpkg": "linux-qcom-next",
-    "binpkg": "linux-image-qcom-next",
-    "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
-    "debian_revision": "0qli~",
-    "pkg_linux_qcom_ref": "qcom/debian/latest"
+{
+  "suite_suffix_mapping": {
+    "trixie": "~bpo13+1",
+    "forky": "",
+    "resolute": "~26.04.1"
   },
-  {
-    "kernel_variant": "qcom-next",
-    "type": "Release",
-    "target_workspace": "qli",
-    "suites": [
-      "trixie",
-      "forky"
-    ],
-    "git_clone": "https://github.com/qualcomm-linux/kernel",
-    "branch_or_tag": "qcom-next-7.2-rc3-20260722",
-    "ref_strategy": "pinned_ref",
-    "srcpkg": "linux-qcom-next",
-    "binpkg": "linux-image-qcom-next",
-    "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
-    "debian_revision": "0qli",
-    "pkg_linux_qcom_ref": "qcom/debian/latest"
-  }
-]
+  "deliveries": [
+    {
+      "kernel_variant": "qcom-next",
+      "type": "Daily",
+      "suites": [
+        "trixie",
+        "forky",
+        "resolute"
+      ],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "qcom-next",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "qcom-next-*",
+      "srcpkg": "linux-qcom-next",
+      "binpkg": "linux-image-qcom-next",
+      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "debian_version_stub": "0qli",
+      "debian_version_suffix": "~",
+      "pkg_linux_qcom_ref": "qcom/debian/latest"
+    },
+    {
+      "kernel_variant": "qcom-next",
+      "type": "Release",
+      "target_workspace": "qli",
+      "suites": [
+        "trixie",
+        "forky"
+      ],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "qcom-next-7.2-rc3-20260722",
+      "ref_strategy": "pinned_ref",
+      "srcpkg": "linux-qcom-next",
+      "binpkg": "linux-image-qcom-next",
+      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "debian_version_stub": "0qli",
+      "debian_version_suffix": "",
+      "pkg_linux_qcom_ref": "qcom/debian/latest"
+    }
+  ]
+}
