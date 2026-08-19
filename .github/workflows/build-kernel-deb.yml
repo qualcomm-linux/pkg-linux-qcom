@@ -46,10 +46,10 @@ on:
         description: 'Advanced: comma-separated config fragments from debian/config-available/'
         required: false
         default: 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can'
-      debian-revision:
-        description: 'Advanced: Debian revision component of the package version'
+      debian-version-stub:
+        description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
         required: false
-        default: '0qli~'
+        default: '0qli'
       localversion:
         description: 'Advanced: LOCALVERSION override (auto-derived from the resolved ref if empty)'
         required: false
@@ -206,14 +206,18 @@ jobs:
           ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
 
       - name: Checkout CI scripts
-        # ci/scripts/ lives on the CI branch (main), not on the packaging branch
-        # (qcom/debian/latest). Check out the CI branch into a separate path so
-        # resolve-kernel-ref.sh and derive-localversion.sh are available.
+        # ci/scripts/ and ci/build-matrix.json live on the CI branch (main),
+        # not on the packaging branch (qcom/debian/latest). Check out the CI
+        # branch into a separate path so resolve-kernel-ref.sh,
+        # derive-localversion.sh, derive-debian-revision.sh, and the
+        # suite_suffix_mapping are available.
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           path: .ci-branch
-          sparse-checkout: ci/scripts
+          sparse-checkout: |
+            ci/scripts
+            ci/build-matrix.json
           fetch-depth: 1
 
       - name: Install CI scripts into workspace
@@ -221,6 +225,7 @@ jobs:
           mkdir -p ci/scripts
           cp .ci-branch/ci/scripts/*.sh ci/scripts/
           chmod +x ci/scripts/*.sh
+          cp .ci-branch/ci/build-matrix.json ci/build-matrix.json
           rm -rf .ci-branch
 
       - name: Apply packaging PR (if specified)
@@ -301,6 +306,29 @@ jobs:
             echo "Derived LOCALVERSION: $LOCALVERSION"
           fi
 
+      - name: Resolve Debian revision
+        # workflow_call callers (daily.yml, release.yml) pass an already
+        # fully-derived debian-revision from resolve-matrix.sh. Direct
+        # workflow_dispatch runs pass only debian-version-stub and get the
+        # selected suite's mapped suffix applied automatically, always using
+        # Daily semantics since direct dispatch is build-only and
+        # non-promoting.
+        run: |
+          set -euo pipefail
+          INPUT_REVISION="${{ inputs.debian-revision }}"
+          if [[ -n "$INPUT_REVISION" ]]; then
+            DEBIAN_REVISION="$INPUT_REVISION"
+            echo "Using matrix-derived Debian revision: $DEBIAN_REVISION"
+          else
+            DEBIAN_REVISION=$(ci/scripts/derive-debian-revision.sh \
+              --stub "${{ inputs.debian-version-stub || '0qli' }}" \
+              --suite "$DISTRO" \
+              --delivery-type Daily \
+              --matrix-file ci/build-matrix.json)
+            echo "Derived Debian revision for direct dispatch: $DEBIAN_REVISION"
+          fi
+          echo "DEBIAN_REVISION=$DEBIAN_REVISION" >> "$GITHUB_ENV"
+
       - name: Merge qcom-next PR patches
         if: ${{ inputs.qcom-next-pr != '' }}
         env:
@@ -357,7 +385,7 @@ jobs:
             --distro "$DISTRO"
             --srcpkg "${{ inputs.srcpkg || 'linux-qcom-next' }}"
             --binpkg "${{ inputs.binpkg || 'linux-image-qcom-next' }}"
-            --debian-revision "${{ inputs.debian-revision || '0qli~' }}"
+            --debian-revision "$DEBIAN_REVISION"
           )
 
           [[ -n "$LOCALVERSION" ]]                          && ARGS+=(--localversion "$LOCALVERSION")

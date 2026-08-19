@@ -28,37 +28,71 @@ Two entry points use the same reusable build pipeline:
 The final Production matrix is conceptually:
 
 ```json
-[
-  {
-    "kernel_variant": "qcom-next",
-    "type": "Daily",
-    "suites": ["trixie", "forky", "resolute"],
-    "git_clone": "https://github.com/qualcomm-linux/kernel",
-    "branch_or_tag": "qcom-next",
-    "ref_strategy": "latest_tag",
-    "tag_pattern": "qcom-next-*",
-    "srcpkg": "linux-qcom-next",
-    "binpkg": "linux-image-qcom-next",
-    "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
-    "debian_revision": "0qli~",
-    "pkg_linux_qcom_ref": "qcom/debian/latest"
+{
+  "suite_suffix_mapping": {
+    "trixie": "~bpo13+1",
+    "forky": "",
+    "resolute": "~26.04.1"
   },
-  {
-    "kernel_variant": "qcom-next",
-    "type": "Release",
-    "suites": ["trixie", "forky"],
-    "git_clone": "https://github.com/qualcomm-linux/kernel",
-    "branch_or_tag": "<pinned-qcom-next-tag>",
-    "ref_strategy": "pinned_ref",
-    "srcpkg": "linux-qcom-next",
-    "binpkg": "linux-image-qcom-next",
-    "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
-    "debian_revision": "0qli",
-    "pkg_linux_qcom_ref": "qcom/debian/latest",
-    "target_workspace": "qli"
-  }
-]
+  "deliveries": [
+    {
+      "kernel_variant": "qcom-next",
+      "type": "Daily",
+      "suites": ["trixie", "forky", "resolute"],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "qcom-next",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "qcom-next-*",
+      "srcpkg": "linux-qcom-next",
+      "binpkg": "linux-image-qcom-next",
+      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "debian_version_stub": "0qli",
+      "debian_version_suffix": "~",
+      "pkg_linux_qcom_ref": "qcom/debian/latest"
+    },
+    {
+      "kernel_variant": "qcom-next",
+      "type": "Release",
+      "suites": ["trixie", "forky"],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "<pinned-qcom-next-tag>",
+      "ref_strategy": "pinned_ref",
+      "srcpkg": "linux-qcom-next",
+      "binpkg": "linux-image-qcom-next",
+      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "debian_version_stub": "0qli",
+      "debian_version_suffix": "",
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
+    }
+  ]
+}
 ```
+
+`suite_suffix_mapping` is matrix-wide policy, not duplicated per row: every
+suite referenced by any row's `suites` must have an entry here, and every
+delivery for a variant derives its final `debian_revision` as
+`debian_version_stub + suite_suffix_mapping[suite] + delivery_suffix`, where
+`delivery_suffix` is `~` for Daily and empty for Release. For the values
+above:
+
+| Suite | Daily | Release |
+| --- | --- | --- |
+| Trixie | `0qli~bpo13+1~` | `0qli~bpo13+1` |
+| Forky | `0qli~` | `0qli` |
+| Resolute | `0qli~26.04.1~` | (not a configured Release suite) |
+
+`~` always sorts below the same prefix without it in Debian version
+ordering, so Daily always sorts below Release for the same suite and stub.
+Ordering across *different* suites depends entirely on the configured
+suffixes: with the mapping above, Resolute < Trixie < Forky for the same
+delivery type, matching a Debian-backports-then-unstable promotion chain.
+This is a deliberate ordering policy, not an automatic guarantee — adding a
+suite means choosing a suffix that sorts where that suite belongs relative to
+the others. One nuance to be aware of: because Forky's suffix is empty, its
+Daily revision ends immediately after the trailing `~`, so Trixie Daily does
+not sort below Forky Daily even though Trixie Release sorts below Forky
+Release. This does not affect the supported Release-to-Release upgrade path.
 
 `ci/build-matrix.json` is the authoritative configuration. Adding a kernel
 variant is a two-row matrix change, not a workflow redesign.
@@ -115,16 +149,19 @@ production release controls.
 
 ## Matrix Model
 
-`ci/scripts/resolve-matrix.sh` validates `ci/build-matrix.json`, requires each
-`kernel_variant` to have exactly one `Daily` and one `Release` row, filters by
-delivery type, and flattens each `suites` array into independent suite legs.
-Each leg carries its own values for:
+`ci/build-matrix.json` is an object with two top-level keys: `deliveries`
+(the matrix rows) and `suite_suffix_mapping` (matrix-wide Debian suffix
+policy, shared by every variant and delivery type). `ci/scripts/resolve-matrix.sh`
+validates the document, requires each `kernel_variant` to have exactly one
+`Daily` and one `Release` row in `deliveries`, filters by delivery type, and
+flattens each `suites` array into independent suite legs. Each leg carries
+its own values for:
 
 | Field | Purpose |
 | --- | --- |
 | `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
 | `type` | `Daily` or `Release`. |
-| `suites` | Suites to flatten into individual build legs. |
+| `suites` | Suites to flatten into individual build legs. Each must have a `suite_suffix_mapping` entry. |
 | `git_clone` | Kernel source repository. |
 | `branch_or_tag` | Source branch or pinned tag, according to `ref_strategy`. |
 | `ref_strategy` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
@@ -132,7 +169,8 @@ Each leg carries its own values for:
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Comma-separated fragments activated from `debian/config-available/`. |
-| `debian_revision` | Debian revision appended to the generated package version. |
+| `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
+| `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `pkg_linux_qcom_ref` | Packaging branch or commit used during source preparation. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
@@ -141,7 +179,22 @@ Each leg carries its own values for:
 `target_workspace` is required for `Release` and rejected for `Daily`.
 `tag_pattern` is required for `latest_tag` and rejected for other strategies.
 The resolver selects the most recent trailing `YYYYMMDD` date, and rejects
-duplicate suites and malformed variant identifiers before any build jobs start.
+duplicate suites and malformed variant identifiers before any build jobs
+start. It also rejects a matrix where any configured suite has no
+`suite_suffix_mapping` entry, where two suites share the same suffix, where a
+suffix is non-empty and doesn't start with `~`, where a variant's Daily
+and Release rows disagree on `debian_version_stub`, or where a row's
+`debian_version_suffix` doesn't match what its `type` implies — all before
+any build job starts.
+
+Each flattened leg's final `debian_revision` is derived by
+`ci/scripts/derive-debian-revision.sh` from `debian_version_stub`,
+`suite_suffix_mapping[suite]`, and the delivery type
+(`stub + suffix + "~"` for Daily, `stub + suffix` for Release). This script is
+the single implementation of the formula: `resolve-matrix.sh` calls it once
+per flattened leg, and `build-kernel-deb.yml`'s direct-dispatch path (which
+has no full-matrix context) calls the same script for the one suite it was
+given.
 
 Each leg has a distinct prepared-source artifact, Debusine child workspace, and
 S3 path keyed by `kernel_variant + suite`. This prevents two variants that both
@@ -166,6 +219,7 @@ Supporting scripts keep workflow YAML small and testable:
 | `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
 | `ci/scripts/derive-localversion.sh` | Derives `LOCALVERSION` from the variant and resolved kernel ref. |
+| `ci/scripts/derive-debian-revision.sh` | Derives the final suite-specific `debian_revision` from `debian_version_stub`, `suite_suffix_mapping`, and delivery type. |
 
 ## Architecture
 
@@ -356,7 +410,7 @@ The available inputs are:
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
 | `kernel-config` | `squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can` | Advanced packaging fragments to activate. |
-| `debian-revision` | `0qli~` | Advanced Debian revision override. |
+| `debian-version-stub` | `0qli` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
 | `debug-build` | `false` | Advanced debug configuration toggle. |
@@ -393,11 +447,14 @@ and keeps production approval controls in the workflow path.
 
 To add a kernel variant:
 
-1. Add exactly two rows with the same `kernel_variant`: one `Daily` and one
-   `Release`.
-2. Define all package identity, source/ref strategy, configuration, Debian
-   revision, and suite values in both rows. Do not rely on another variant's
-   values. `srcpkg` and `binpkg` must remain identical across the pair.
+1. Add exactly two rows to `deliveries` with the same `kernel_variant`: one
+   `Daily` and one `Release`.
+2. Define all package identity, source/ref strategy, configuration,
+   `debian_version_stub`, and suite values in both rows. Do not rely on
+   another variant's values. `srcpkg`, `binpkg`, and `debian_version_stub`
+   must remain identical across the pair. Set `debian_version_suffix` to `~`
+   on the Daily row and `""` on the Release row; `resolve-matrix.sh` rejects
+   the pair if either disagrees with its row's `type`.
 3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
    `pinned_ref` for Release, and update that ref through a reviewed PR.
 4. Give the variant distinct `srcpkg` and `binpkg` values. Set the Release
@@ -406,6 +463,17 @@ To add a kernel variant:
    the Docker path.
 6. Run a filtered Daily validation for the new variant, then its full Daily and
    Release flows.
+
+To add a new suite (for an existing or new variant):
+
+1. Add an entry for it to the shared top-level `suite_suffix_mapping`, empty
+   or starting with `~`, and distinct from every other suite's suffix.
+2. Add the suite to the `suites` array of the relevant Daily and/or Release
+   rows. `resolve-matrix.sh` rejects any configured suite with no mapping
+   entry before any build job starts.
+3. Choose the suffix so the suite sorts where it belongs relative to the
+   others for the same delivery type (see the ordering discussion in
+   [Overview](#overview)).
 
 No workflow dispatch choices need to be updated: manual Daily and Release
 inputs accept matrix-defined variant and suite strings.
