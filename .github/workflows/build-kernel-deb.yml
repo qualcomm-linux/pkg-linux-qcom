@@ -145,6 +145,10 @@ on:
         description: 'pkg-linux-qcom packaging ref'
         type: string
         default: 'qcom/debian/latest'
+      ci-ref:
+        description: 'CI branch ref holding ci/scripts and ci/build-matrix.json (empty = the calling workflow''s own commit)'
+        type: string
+        default: ''
     secrets:
       DEBUSINE_USER:
         description: 'Debusine account used to submit CI and release builds'
@@ -224,10 +228,15 @@ jobs:
         # branch into a separate path so resolve-kernel-ref.sh,
         # derive-localversion.sh, derive-debian-revision.sh, and the
         # suite_suffix_mapping are available.
+        #
+        # github.sha is the *caller's* commit, so it only names a CI commit
+        # when the caller itself runs on main, as daily.yml and release.yml do.
+        # A caller on a packaging branch must pass ci-ref, or the sparse
+        # checkout silently yields nothing and the copy below fails.
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.ci-ref || github.sha }}
           path: .ci-branch
           sparse-checkout: |
             ci/scripts
@@ -235,7 +244,17 @@ jobs:
           fetch-depth: 1
 
       - name: Install CI scripts into workspace
+        env:
+          CI_REF: ${{ inputs.ci-ref || github.sha }}
         run: |
+          set -euo pipefail
+          # Fail with the cause rather than a bare 'cp: cannot stat'.
+          if [[ ! -d .ci-branch/ci/scripts ]]; then
+            echo "ERROR: no ci/scripts in the CI checkout of '$CI_REF'." >&2
+            echo "       That ref carries no CI tree. Pass ci-ref pointing at" >&2
+            echo "       the CI branch (main) when calling from elsewhere." >&2
+            exit 1
+          fi
           mkdir -p ci/scripts
           cp .ci-branch/ci/scripts/*.sh ci/scripts/
           chmod +x ci/scripts/*.sh
