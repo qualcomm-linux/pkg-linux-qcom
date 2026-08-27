@@ -1,7 +1,8 @@
 # pkg-linux-qcom
 
-CI orchestration for ARM64 Linux kernel package variants. The current variant
-builds from [`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel).
+CI orchestration for ARM64 Linux kernel package variants. The configured
+variants build from
+[`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel).
 
 This branch owns the build matrix and GitHub Actions workflows. The Debian
 packaging tree and local packaging tools live on
@@ -17,6 +18,20 @@ release destination.
 Every kernel variant owns exactly two complete matrix rows: one `Daily` row and
 one `Release` row. The resolver expands every suite in those rows into an
 isolated `kernel_variant + suite` build leg.
+
+### Configured variants
+
+| Variant | Source package | Image metapackage | Daily suites | Release suites | Notes |
+|---------|----------------|-------------------|--------------|----------------|-------|
+| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
+| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
+
+Both build the same kernel ref. `derive-localversion.sh` folds the variant name
+into LOCALVERSION, so each produces a distinct kernel release
+(`-qcom-next-<date>` and `-qcom-next-debug-<date>`) and therefore a distinct
+versioned image package that can be installed alongside the other.
+
+`ci/build-matrix.json` is the source of truth; this table is a summary.
 
 Two entry points use the same reusable build pipeline:
 
