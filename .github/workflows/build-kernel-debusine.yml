@@ -75,7 +75,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    environment: Production
+    environment: ${{ inputs.target-workspace != '' && 'Production' || 'Staging' }}
     steps:
       - name: Checkout debusine-action helpers
         uses: actions/checkout@v5
