@@ -11,13 +11,26 @@ Packages follow the standard Debian/Ubuntu kernel naming convention:
 
 | Package | Role | Example |
 |---------|------|---------|
-| `linux-image-<KVER>-qcom` | Kernel image, modules, DTBs | `linux-image-7.0.0-rc2-qcom-next-20260312-qcom` |
-| `linux-headers-<KVER>-qcom` | Headers for out-of-tree modules | `linux-headers-7.0.0-rc2-qcom-next-20260312-qcom` |
-| `linux-image-<KVER>-qcom-dbg` | Debug symbols | `linux-image-7.0.0-rc2-qcom-next-20260312-qcom-dbg` |
+| `linux-image-<KVER>` | Kernel image, modules, DTBs | `linux-image-7.2.0-qcom-next-20260826` |
+| `linux-headers-<KVER>` | Headers for out-of-tree modules | `linux-headers-7.2.0-qcom-next-20260826` |
+| `linux-image-<KVER>-dbg` | Debug symbols | `linux-image-7.2.0-qcom-next-20260826-dbg` |
+| `linux-headers-<KVER>-dbgsym` | Headers debug symbols, generated automatically by debhelper | `linux-headers-7.2.0-qcom-next-20260826-dbgsym` |
+| `<BINPKG>` | Image metapackage tracking the newest kernel image | `linux-image-qcom-next` |
+| `<HDRPKG>` | Headers metapackage tracking the newest headers | `linux-headers-qcom-next` |
 
 **`<KVER>`** is the full `kernelrelease` string (`uname -r`), which includes the
-base kernel version and the LOCALVERSION suffix encoding the branch and snapshot
-date (e.g., `-qcom-next-20260312`).
+base kernel version and the LOCALVERSION suffix encoding the variant and
+snapshot date (e.g., `-qcom-next-20260826`). The variant is part of `<KVER>`, so
+the versioned packages carry no separate flavour suffix.
+
+**`<BINPKG>`** and **`<HDRPKG>`** are per-variant metapackage names set from the
+build matrix (`binpkg` / derived headers name). They stay constant across
+snapshots and depend on the newest versioned package, so installing
+`linux-image-qcom-next` follows the latest build of that variant.
+
+`debian/control.in` declares five of these; the `-dbgsym` package is produced by
+debhelper rather than declared, so a build publishes six binary packages per
+variant.
 
 **`-qcom`** is a static flavour suffix appended by the packaging, identifying
 Qualcomm-packaged kernels independently of the branch name.
@@ -125,18 +138,20 @@ in the `.in` templates to produce the final `debian/control` and
 # From the kernel source root (after copying debian/ into it):
 
 # Primary form — auto-detect base version from kernel Makefile + append suffix:
-make -f debian/rules prepare LOCALVERSION=-qcom-next-20260312
+make -f debian/rules prepare LOCALVERSION=-qcom-next-20260826
 
 # Explicit form — pass the full kernelrelease string directly:
-make -f debian/rules prepare KVER=7.0.0-rc2-qcom-next-20260312
+make -f debian/rules prepare KVER=7.2.0-qcom-next-20260826
 
 # With optional extra suffix (CI build ID, user tag, etc.):
-make -f debian/rules prepare LOCALVERSION=-qcom-next-20260312 KVER_EXTRA=-ci42
+make -f debian/rules prepare LOCALVERSION=-qcom-next-20260826 KVER_EXTRA=-ci42
 ```
 
 This produces:
-- `debian/control` — with package names `linux-image-7.0.0-rc2-qcom-next-20260312-qcom`, etc.
-- `debian/changelog` — with source package `linux-image-7.0.0-rc2-qcom-next-20260312-qcom (1-1)`
+- `debian/control` — with the versioned package names, e.g.
+  `linux-image-7.2.0-qcom-next-20260826`, and the metapackage names from the
+  matrix, e.g. `linux-image-qcom-next`
+- `debian/changelog` — with the source package name, e.g. `linux-qcom-next`
 
 **Why this step is required:** `dpkg-buildpackage` reads `debian/control` before
 calling any `debian/rules` targets. The `@KVER@` substitution must therefore
@@ -149,8 +164,8 @@ Debian's official `linux` source package and Ubuntu OEM kernels.
 
 ```
 KVER = <base-version> + LOCALVERSION
-     = 7.0.0-rc2        + -qcom-next-20260312
-     = 7.0.0-rc2-qcom-next-20260312
+     = 7.0.0-rc2        + -qcom-next-20260826
+     = 7.2.0-qcom-next-20260826
 ```
 
 `build-kernel.sh` passes `LOCALVERSION` to `prepare`, which determines KVER by:
@@ -167,9 +182,9 @@ tagged builds, `build-kernel.sh` auto-extracts this from the tag name.
 stripping the `linux-image-` prefix and the trailing `-qcom` flavour suffix:
 
 ```
-linux-image-7.0.0-rc2-qcom-next-20260312-qcom
-→ strip "linux-image-7.0.0-rc2" → -qcom-next-20260312-qcom
-→ strip "-qcom" suffix          → -qcom-next-20260312   (= LOCALVERSION)
+linux-image-7.2.0-qcom-next-20260826
+→ strip "linux-image-7.0.0-rc2" → -qcom-next-20260826-qcom
+→ strip "-qcom" suffix          → -qcom-next-20260826   (= LOCALVERSION)
 ```
 
 ---
@@ -194,19 +209,19 @@ clone → prepare → build. Run it from the repo root.
 ./build-kernel.sh --latest-tag
 
 # Build from specific tag
-./build-kernel.sh --tag qcom-next-7.0-rc2-20260312
+./build-kernel.sh --tag qcom-next-7.2-rc7-20260826
 
 # Build from branch tip
 ./build-kernel.sh --branch qcom-next --distro noble
 
 # Build with explicit LOCALVERSION
-./build-kernel.sh --tag qcom-next-7.0-rc2-20260312 --localversion qcom-next-20260312
+./build-kernel.sh --tag qcom-next-7.2-rc7-20260826 --localversion qcom-next-20260826
 
 # Build debug variant
 ./build-kernel.sh --latest-tag --localversion debug --profiles debug
 
 # Use local kernel source (skip clone)
-./build-kernel.sh --local-source /path/to/kernel-source --localversion qcom-next-20260312
+./build-kernel.sh --local-source /path/to/kernel-source --localversion qcom-next-20260826
 
 # The script auto-detects debian/ from its own directory — no --debian-dir needed
 
@@ -234,7 +249,7 @@ cp debian/config-available/systemd-boot.config debian/config/
 
 # 4. Prepare packaging — reads base version from kernel Makefile automatically
 #    (single handoff to packaging infrastructure)
-make -f debian/rules prepare LOCALVERSION=-qcom-next-20260312
+make -f debian/rules prepare LOCALVERSION=-qcom-next-20260826
 
 # 5. Build
 dpkg-buildpackage -us -uc -b
@@ -257,7 +272,7 @@ python3 docker_deb_build.py \
 
 ## Packages produced
 
-### `linux-image-<KVER>-qcom` — Kernel image
+### `linux-image-<KVER>` — Kernel image
 
 Installed paths:
 - `/boot/vmlinuz-<KVER>` — compressed kernel image
@@ -276,7 +291,7 @@ Maintainer scripts:
   (triggers `update-initramfs` and `update-grub`)
 - `postrm` — runs `/etc/kernel/postrm.d/` hooks (triggers `update-grub`)
 
-### `linux-headers-<KVER>-qcom` — Kernel headers
+### `linux-headers-<KVER>` — Kernel headers
 
 Follows the upstream `install-extmod-build` approach
 (`scripts/package/install-extmod-build`). Three passes:
@@ -296,7 +311,7 @@ Required for out-of-tree kernel module compilation (DKMS, etc.).
 
 Virtual packages provided: `linux-headers`, `linux-headers-arm64`
 
-### `linux-image-<KVER>-qcom-dbg` — Debug symbols
+### `linux-image-<KVER>-dbg` — Debug symbols
 
 Follows the standard GNU debuglink layout used by the upstream kernel `builddeb`
 script (`scripts/package/builddeb`). Debug symbols are installed under
@@ -309,7 +324,7 @@ Installed paths:
 - `/usr/lib/debug/boot/vmlinux-<KVER>` → symlink to vmlinux (for `systemtap`)
 - `/usr/lib/debug/vmlinux-<KVER>` → symlink to vmlinux (for `kdump-tools`)
 
-Depends on `linux-image-<KVER>-qcom` (same version).
+Depends on `linux-image-<KVER>` (same version).
 
 Virtual packages provided: `linux-image-dbg`
 
@@ -318,7 +333,7 @@ Virtual packages provided: `linux-image-dbg`
 ## DKMS module bundling
 
 Out-of-tree kernel modules listed in `debian/dkms-modules` are built at
-`dpkg-buildpackage` time and bundled directly into `linux-image-<KVER>-qcom`.
+`dpkg-buildpackage` time and bundled directly into `linux-image-<KVER>`.
 The target device receives the pre-built `.ko` without needing a compiler,
 kernel headers, or DKMS tooling installed.
 
@@ -394,16 +409,16 @@ Debian's official `linux` package and `make bindeb-pkg`.
 
 ```bash
 # Install kernel image
-sudo dpkg -i linux-image-<KVER>-qcom_1-1_arm64.deb
+sudo dpkg -i linux-image-<KVER>_1-1_arm64.deb
 
 # Install headers (for out-of-tree module building)
-sudo dpkg -i linux-headers-<KVER>-qcom_1-1_arm64.deb
+sudo dpkg -i linux-headers-<KVER>_1-1_arm64.deb
 
 # Install debug symbols
-sudo dpkg -i linux-image-<KVER>-qcom-dbg_1-1_arm64.deb
+sudo dpkg -i linux-image-<KVER>-dbg_1-1_arm64.deb
 
 # Remove a specific kernel version (does not affect other installed kernels)
-sudo dpkg -r linux-image-<KVER>-qcom
+sudo dpkg -r linux-image-<KVER>
 
 # List all installed qcom kernels
 dpkg -l 'linux-image-*-qcom'
