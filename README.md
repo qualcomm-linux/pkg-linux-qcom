@@ -46,10 +46,13 @@ pkg-linux-qcom/
 │   ├── config/                 ← Always-applied config fragments (committed)
 │   │   └── squashfs.config     ← SQUASHFS options for Ubuntu compatibility
 │   ├── config-available/       ← Library of optional fragments (committed, not auto-applied)
+│   │   ├── arduino-accessories.config ← Accessory drivers for Arduino boards
 │   │   ├── docker.config       ← Docker/container support
-│   │   ├── systemd-boot.config ← EFI_ZBOOT for systemd-boot
+│   │   ├── monza.config        ← Misc drivers for Monza devboards
 │   │   ├── qcom-imsdk.config   ← DMABUF heaps for Qualcomm IMSDK/GStreamer
+│   │   ├── qcom-laptops.config ← M.2 power sequencing for Qualcomm laptops
 │   │   ├── qemu-boot.config    ← virtio drivers for QEMU testing
+│   │   ├── systemd-boot.config ← EFI_ZBOOT for systemd-boot
 │   │   └── usb-can.config      ← USB CAN adapters
 ├── .gitignore
 └── README.md
@@ -397,14 +400,23 @@ before running the standard build flow. `build-kernel.sh` does this via
 `--enable-configs`. CI pipelines do the same copy step before invoking
 `dpkg-buildpackage`.
 
+Fragments here mirror
+[`kernel-configs/`](https://github.com/qualcomm-linux/qcom-deb-images/tree/main/kernel-configs)
+in qcom-deb-images, which is the upstream source of truth. Content is kept
+verbatim so drift is a plain diff; only the SPDX header is added locally.
+`squashfs.config` is specific to this repository and has no upstream counterpart.
+
 **Available fragments:**
 
 | Fragment | Contents | Use case |
 |----------|----------|----------|
+| `arduino-accessories.config` | `VIDEO_OV5647` | Accessories used with Arduino boards (camera sensors, displays) |
 | `docker.config` | Namespaces, cgroups, nftables, netfilter, overlay FS, VXLAN, AppArmor | Builds targeting Docker/container workloads |
-| `systemd-boot.config` | `CONFIG_EFI_ZBOOT=y` | EFI systems using systemd-boot |
+| `monza.config` | `SENSORS_EMC2305`, `LEDS_PCA963X`, `SENSORS_INA2XX`, `SND_SOC_MAX98090`, `POWER_SEQUENCING_PCIE_M2` | Monza devboards |
 | `qcom-imsdk.config` | DMABUF heaps | Multimedia/camera pipelines (Qualcomm IMSDK) |
+| `qcom-laptops.config` | `POWER_SEQUENCING_PCIE_M2` | Qualcomm laptops (M.2 pwrseq driver) |
 | `qemu-boot.config` | `SCSI_VIRTIO`, `DRM_VIRTIO_GPU` | QEMU test builds |
+| `systemd-boot.config` | `CONFIG_EFI_ZBOOT=y` | EFI systems using systemd-boot |
 | `usb-can.config` | slcan, gs_usb, peak_usb | USB CAN adapter demos/testing |
 
 **Activating via `build-kernel.sh`:**
