@@ -483,6 +483,19 @@ verbatim so drift is a plain diff; only the SPDX header is added locally.
 | `systemd-boot.config` | `CONFIG_EFI_ZBOOT=y` | EFI systems using systemd-boot |
 | `usb-can.config` | slcan, gs_usb, peak_usb | USB CAN adapter demos/testing |
 
+**In-tree fragments.** Some fragments ship with the kernel source rather than
+this repository, under `arch/arm64/configs/`. Reference those with an `intree:`
+prefix instead of copying them here, so they stay versioned with the kernel they
+target:
+
+```
+--kernel-config squashfs,systemd-boot,intree:qcom_debug
+```
+
+A bare name resolves to `debian/config-available/<name>.config`; `intree:<name>`
+resolves to `arch/arm64/configs/<name>.config`. Both are copied into
+`debian/config/` before the build, and a name that resolves twice is rejected.
+
 **Activating via `build-kernel.sh`:**
 
 ```bash

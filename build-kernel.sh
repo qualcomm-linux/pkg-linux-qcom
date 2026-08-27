@@ -51,8 +51,12 @@ OPTIONS:
     --build-mode MODE       docker|native|sbuild (default: $DEFAULT_BUILD_MODE)
     --docker-build PATH     Path to docker_deb_build.py (docker mode)
     --profiles PROFILES     DEB_BUILD_PROFILES (e.g. debug)
-    --kernel-config LIST    Comma-separated config fragments from
-                            debian/config-available/ to activate
+    --kernel-config LIST    Comma-separated config fragments to activate.
+                            A bare name resolves to
+                            debian/config-available/<name>.config; an
+                            "intree:" prefix resolves to
+                            arch/arm64/configs/<name>.config in the kernel
+                            source (e.g. intree:qcom_debug)
 
   Paths:
     -k, --kernel-dir DIR    Kernel source directory (default: $KERNEL_DIR)

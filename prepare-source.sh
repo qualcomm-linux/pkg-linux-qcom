@@ -62,9 +62,15 @@ OPTIONS:
                               (default: $DEFAULT_DEBIAN_REVISION)
 
   Config fragments:
-    --kernel-config LIST      Comma-separated fragment names from
-                              debian/config-available/ to activate for this
-                              build (e.g. squashfs,docker,systemd-boot).
+    --kernel-config LIST      Comma-separated fragment names to activate for
+                              this build (e.g. squashfs,docker,systemd-boot).
+                              A bare name resolves to
+                              debian/config-available/<name>.config.
+                              An "intree:" prefix resolves to
+                              arch/arm64/configs/<name>.config in the kernel
+                              source, for fragments that ship with the kernel
+                              and are versioned with it
+                              (e.g. intree:qcom_debug).
                               Fragments are copied into debian/config/ before
                               prepare runs. If not specified, no packaging
                               fragments are activated (only kernel-source
@@ -197,19 +203,43 @@ log_info "Copied $ACTUAL_DEBIAN_DIR -> $SOURCE_DIR/debian"
 if [[ -n "$KERNEL_CONFIG" ]]; then
     log_step "Activating config fragments: $KERNEL_CONFIG"
     AVAIL_DIR="$SOURCE_DIR/debian/config-available"
+    INTREE_DIR="$SOURCE_DIR/arch/arm64/configs"
     ACTIVE_DIR="$SOURCE_DIR/debian/config"
     mkdir -p "$ACTIVE_DIR"
     IFS=',' read -ra CFG_LIST <<< "$KERNEL_CONFIG"
     for cfg in "${CFG_LIST[@]}"; do
         cfg="${cfg// /}"
-        frag="${cfg%.config}.config"
-        [[ -f "$AVAIL_DIR/$frag" ]] || {
-            log_error "Fragment not found in config-available/: $frag"
-            log_error "Available: $(ls "$AVAIL_DIR"/*.config 2>/dev/null | xargs -n1 basename | sed 's/\.config//' | tr '\n' ' ')"
+        [[ -n "$cfg" ]] || continue
+        if [[ "$cfg" == intree:* ]]; then
+            # In-tree fragment, shipped by the kernel source rather than by this
+            # repository. Referenced instead of vendored so it stays versioned
+            # with the kernel it targets.
+            frag="${cfg#intree:}"
+            frag="${frag%.config}.config"
+            src="$INTREE_DIR/$frag"
+            origin="arch/arm64/configs"
+            [[ -f "$src" ]] || {
+                log_error "In-tree fragment not found: arch/arm64/configs/$frag"
+                log_error "Available: $(ls "$INTREE_DIR"/*.config 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
+                exit 1
+            }
+        else
+            frag="${cfg%.config}.config"
+            src="$AVAIL_DIR/$frag"
+            origin="debian/config-available"
+            [[ -f "$src" ]] || {
+                log_error "Fragment not found in config-available/: $frag"
+                log_error "Available: $(ls "$AVAIL_DIR"/*.config 2>/dev/null | xargs -n1 basename | sed 's/\.config//' | tr '\n' ' ')"
+                exit 1
+            }
+        fi
+        [[ -e "$ACTIVE_DIR/$frag" ]] && {
+            log_error "Fragment name collision in debian/config/: $frag"
+            log_error "Two entries in --kernel-config resolve to the same filename."
             exit 1
         }
-        cp "$AVAIL_DIR/$frag" "$ACTIVE_DIR/$frag"
-        log_info "  Activated: $frag"
+        cp "$src" "$ACTIVE_DIR/$frag"
+        log_info "  Activated: $frag (from $origin)"
     done
 else
     log_info "No --kernel-config specified: debian/config/ remains empty."
