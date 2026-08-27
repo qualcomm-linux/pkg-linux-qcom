@@ -58,7 +58,7 @@ pkg-linux-qcom/
 │   ├── linux-image.postrm      ← Post-remove maintainer script (GRUB update)
 │   ├── config/                 ← Always-applied config fragments (committed)
 │   │   └── squashfs.config     ← SQUASHFS options for Ubuntu compatibility
-│   ├── config-available/       ← Library of optional fragments (committed, not auto-applied)
+│   ├── config-available/       ← Packaging fragments, all applied to every build
 │   │   ├── arduino-accessories.config ← Accessory drivers for Arduino boards
 │   │   ├── docker.config       ← Docker/container support
 │   │   ├── monza.config        ← Misc drivers for Monza devboards
@@ -88,7 +88,7 @@ pkg-linux-qcom/
 | `debian/linux-image.postinst.in` | ✅ Committed | Post-install script template (`@KVER@` substituted at build time) |
 | `debian/linux-image.postrm` | ✅ Committed | Post-remove maintainer script |
 | `debian/config/*.config` | ✅ Committed | Always-applied config fragments |
-| `debian/config-available/*.config` | ✅ Committed | Optional fragment library |
+| `debian/config-available/*.config` | ✅ Committed | Packaging fragments, all applied to every build |
 | `debian/dkms-modules` | ✅ Committed | Manifest of out-of-tree DKMS modules to bundle |
 | `debian/scripts/bundle-dkms-modules.sh` | ✅ Committed | DKMS build-and-bundle tool |
 | `debian/control` | 🔄 Generated | Produced by `make -f debian/rules prepare KVER=...` |
@@ -468,16 +468,16 @@ Qualcomm Linux kernel package.
 |------|---------|
 | `debian/config/squashfs.config` | SQUASHFS options required for Ubuntu compatibility |
 
-### `debian/config-available/` — optional fragment library
+### `debian/config-available/` — packaging fragment set
 
-Fragments in `debian/config-available/` are committed to the repo but **not
-applied automatically**. They are a library of well-known, tested config sets
-that can be selectively activated per build.
+**Every fragment in `debian/config-available/` is applied to every build**, for
+all variants in the matrix, with no per-variant subset to opt into.
+`prepare-source.sh` copies the whole directory into `debian/config/` before
+`debian/rules prepare` runs, so adding a fragment here enables it everywhere
+with no matrix or workflow change.
 
-**To activate a fragment**, copy it from `config-available/` into `config/`
-before running the standard build flow. `build-kernel.sh` does this via
-`--enable-configs`. CI pipelines do the same copy step before invoking
-`dpkg-buildpackage`.
+Fragments are applied in `LC_ALL=C` filename order, so the result does not
+depend on the builder's locale.
 
 Fragments here mirror
 [`kernel-configs/`](https://github.com/qualcomm-linux/qcom-deb-images/tree/main/kernel-configs)
@@ -485,7 +485,7 @@ in qcom-deb-images, which is the upstream source of truth. Content is kept
 verbatim so drift is a plain diff; only the SPDX header is added locally.
 `squashfs.config` is specific to this repository and has no upstream counterpart.
 
-**Available fragments:**
+**Fragments (all applied):**
 
 | Fragment | Contents | Use case |
 |----------|----------|----------|
@@ -498,18 +498,19 @@ verbatim so drift is a plain diff; only the SPDX header is added locally.
 | `systemd-boot.config` | `CONFIG_EFI_ZBOOT=y` | EFI systems using systemd-boot |
 | `usb-can.config` | slcan, gs_usb, peak_usb | USB CAN adapter demos/testing |
 
-**In-tree fragments.** Some fragments ship with the kernel source rather than
-this repository, under `arch/arm64/configs/`. Reference those with an `intree:`
-prefix instead of copying them here, so they stay versioned with the kernel they
-target:
+**In-tree fragments.** `--kernel-config` carries fragments applied *in addition*
+to the set above. Today that means fragments shipped by the kernel source under
+`arch/arm64/configs/`, referenced with an `intree:` prefix rather than copied
+into this repository so they stay versioned with the kernel they target:
 
 ```
---kernel-config squashfs,systemd-boot,intree:qcom_debug
+--kernel-config intree:qcom_debug
 ```
 
-A bare name resolves to `debian/config-available/<name>.config`; `intree:<name>`
-resolves to `arch/arm64/configs/<name>.config`. Both are copied into
-`debian/config/` before the build, and a name that resolves twice is rejected.
+`intree:<name>` resolves to `arch/arm64/configs/<name>.config`. A bare name is
+still accepted for compatibility but is redundant, since that fragment is
+already applied. An in-tree fragment sharing a filename with a packaging
+fragment is rejected rather than silently overwriting it.
 
 **Activating via `build-kernel.sh`:**
 

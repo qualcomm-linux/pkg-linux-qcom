@@ -170,9 +170,11 @@ override_dh_auto_configure:
 	#   3. Config fragments applied in a single unified pipeline:
 	#        a. arch/arm64/configs/qcom.config   (kernel-source, always applied if present)
 	#        b. arch/arm64/configs/prune.config  (kernel-source, always applied if present)
-	#        c. debian/config/*.config            (packaging fragments, sorted order)
-	#           Populated by prepare-source.sh --kernel-config from debian/config-available/.
-	#           Empty by default — no fragments applied unless explicitly activated.
+	#        c. debian/config/*.config            (packaging fragments)
+	#           Populated by prepare-source.sh: every fragment in
+	#           debian/config-available/, plus any intree: fragments named in
+	#           --kernel-config. Applied in LC_ALL=C filename order so the
+	#           result does not depend on the builder's locale.
 	#      All fragments: append to .config + make olddefconfig.
 	#   4. Re-check CONFIG_LOCALVERSION_AUTO (merges may re-enable it)
 	#   5. arch/arm64/configs/debug.config — only when DEB_BUILD_PROFILES=debug
@@ -209,7 +211,7 @@ override_dh_auto_configure:
 		echo "Note: arch/arm64/configs/prune.config not found (skipping)"; \
 	fi; \
 	if [ -d debian/config ] && ls debian/config/*.config >/dev/null 2>&1; then \
-		for f in $$(ls debian/config/*.config | sort); do \
+		for f in $$(ls debian/config/*.config | LC_ALL=C sort); do \
 			echo "Found packaging fragment: $$f"; \
 			FRAGMENTS="$$FRAGMENTS $$f"; \
 		done; \
