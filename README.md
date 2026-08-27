@@ -251,9 +251,9 @@ flowchart TD
 
     subgraph matrix[Matrix entry points]
         B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute\nqcom-next-debug / trixie · forky"]
         B3["Release configure-matrix\nFlatten Release rows"]
-        B4["Release variant + suite legs\nqcom-next / trixie · forky"]
+        B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
     end
 
     subgraph orchestrator[build-kernel-deb.yml]
