@@ -62,19 +62,17 @@ OPTIONS:
                               (default: $DEFAULT_DEBIAN_REVISION)
 
   Config fragments:
-    --kernel-config LIST      Comma-separated fragment names to activate for
-                              this build (e.g. squashfs,docker,systemd-boot).
-                              A bare name resolves to
-                              debian/config-available/<name>.config.
+    --kernel-config LIST      Comma-separated fragments to apply in addition to
+                              debian/config-available/, every entry of which is
+                              applied to every build regardless of this option.
                               An "intree:" prefix resolves to
                               arch/arm64/configs/<name>.config in the kernel
                               source, for fragments that ship with the kernel
                               and are versioned with it
                               (e.g. intree:qcom_debug).
-                              Fragments are copied into debian/config/ before
-                              prepare runs. If not specified, no packaging
-                              fragments are activated (only kernel-source
-                              fragments qcom.config and prune.config apply).
+                              A bare name is accepted for compatibility but is
+                              redundant, since that fragment is already applied.
+                              Entries are processed in LC_ALL=C sorted order.
 
   Debug:
     --debug                   Enable debug build: copies arch/arm64/configs/debug.config
@@ -200,15 +198,37 @@ log_info "Copied $ACTUAL_DEBIAN_DIR -> $SOURCE_DIR/debian"
 # files from debian/config-available/ into debian/config/ here, before
 # debian/rules prepare runs. override_dh_auto_configure globs debian/config/*.config
 # and applies whatever is present — no rules changes needed.
+# Every fragment in debian/config-available/ is applied to every build. The
+# directory is the packaging fragment set, kept in sync with kernel-configs/ in
+# qcom-deb-images; there is no per-variant subset to opt into.
+#
+# --kernel-config carries anything beyond that set, which today means "intree:"
+# fragments shipped by the kernel source. Bare names are still accepted so that
+# existing callers keep working, but they are redundant: the fragment they name
+# has already been applied.
+ACTIVE_DIR="$SOURCE_DIR/debian/config"
+AVAIL_DIR="$SOURCE_DIR/debian/config-available"
+INTREE_DIR="$SOURCE_DIR/arch/arm64/configs"
+mkdir -p "$ACTIVE_DIR"
+
+log_step "Applying all packaging fragments from debian/config-available/"
+if compgen -G "$AVAIL_DIR/*.config" > /dev/null; then
+    # LC_ALL=C so the order does not depend on the builder's locale.
+    while IFS= read -r src; do
+        frag="$(basename "$src")"
+        cp "$src" "$ACTIVE_DIR/$frag"
+        log_info "  Applied: $frag (from debian/config-available)"
+    done < <(printf '%s\n' "$AVAIL_DIR"/*.config | LC_ALL=C sort)
+else
+    log_warn "No fragments found in debian/config-available/"
+fi
+
 if [[ -n "$KERNEL_CONFIG" ]]; then
-    log_step "Activating config fragments: $KERNEL_CONFIG"
-    AVAIL_DIR="$SOURCE_DIR/debian/config-available"
-    INTREE_DIR="$SOURCE_DIR/arch/arm64/configs"
-    ACTIVE_DIR="$SOURCE_DIR/debian/config"
-    mkdir -p "$ACTIVE_DIR"
+    log_step "Resolving additional fragments: $KERNEL_CONFIG"
     IFS=',' read -ra CFG_LIST <<< "$KERNEL_CONFIG"
-    for cfg in "${CFG_LIST[@]}"; do
-        cfg="${cfg// /}"
+    # Sort so processing and logs are deterministic regardless of the order the
+    # caller listed them in.
+    while IFS= read -r cfg; do
         [[ -n "$cfg" ]] || continue
         if [[ "$cfg" == intree:* ]]; then
             # In-tree fragment, shipped by the kernel source rather than by this
@@ -217,33 +237,28 @@ if [[ -n "$KERNEL_CONFIG" ]]; then
             frag="${cfg#intree:}"
             frag="${frag%.config}.config"
             src="$INTREE_DIR/$frag"
-            origin="arch/arm64/configs"
             [[ -f "$src" ]] || {
                 log_error "In-tree fragment not found: arch/arm64/configs/$frag"
                 log_error "Available: $(ls "$INTREE_DIR"/*.config 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
                 exit 1
             }
+            [[ -e "$ACTIVE_DIR/$frag" ]] && {
+                log_error "Fragment name collision in debian/config/: $frag"
+                log_error "An in-tree fragment must not share a filename with a packaging fragment."
+                exit 1
+            }
+            cp "$src" "$ACTIVE_DIR/$frag"
+            log_info "  Applied: $frag (from arch/arm64/configs)"
         else
             frag="${cfg%.config}.config"
-            src="$AVAIL_DIR/$frag"
-            origin="debian/config-available"
-            [[ -f "$src" ]] || {
+            [[ -f "$AVAIL_DIR/$frag" ]] || {
                 log_error "Fragment not found in config-available/: $frag"
                 log_error "Available: $(ls "$AVAIL_DIR"/*.config 2>/dev/null | xargs -n1 basename | sed 's/\.config//' | tr '\n' ' ')"
                 exit 1
             }
+            log_info "  Already applied: $frag (all of config-available is applied)"
         fi
-        [[ -e "$ACTIVE_DIR/$frag" ]] && {
-            log_error "Fragment name collision in debian/config/: $frag"
-            log_error "Two entries in --kernel-config resolve to the same filename."
-            exit 1
-        }
-        cp "$src" "$ACTIVE_DIR/$frag"
-        log_info "  Activated: $frag (from $origin)"
-    done
-else
-    log_info "No --kernel-config specified: debian/config/ remains empty."
-    log_info "Only kernel-source fragments (qcom.config, prune.config) will be applied."
+    done < <(printf '%s\n' "${CFG_LIST[@]}" | tr -d ' ' | LC_ALL=C sort)
 fi
 
 # ── Debug config fragment ─────────────────────────────────────────────────────
