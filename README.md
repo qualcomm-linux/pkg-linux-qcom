@@ -15,8 +15,10 @@ kernel variants, each with independent source/package identity, kernel source
 and ref strategy, configuration fragments, Debian revision, target suites, and
 release destination.
 
-Every kernel variant owns exactly two complete matrix rows: one `Daily` row and
-one `Release` row. The resolver expands every suite in those rows into an
+Every kernel variant owns exactly one complete `Daily` matrix row, and at most
+one `Release` row. A variant that is delivered to production carries both; a
+variant that only tracks an upstream tree, and is never promoted, carries the
+`Daily` row alone. The resolver expands every suite in those rows into an
 isolated `kernel_variant + suite` build leg.
 
 ### Configured variants
@@ -108,7 +110,7 @@ not sort below Forky Daily even though Trixie Release sorts below Forky
 Release. This does not affect the supported Release-to-Release upgrade path.
 
 `ci/build-matrix.json` is the authoritative configuration. Adding a kernel
-variant is a two-row matrix change, not a workflow redesign.
+variant is a one- or two-row matrix change, not a workflow redesign.
 
 ## Workflows
 
@@ -168,9 +170,11 @@ production release controls.
 (the matrix rows) and `suite_suffix_mapping` (matrix-wide Debian suffix
 policy, shared by every variant and delivery type). `ci/scripts/resolve-matrix.sh`
 validates the document, requires each `kernel_variant` to have exactly one
-`Daily` and one `Release` row in `deliveries`, filters by delivery type, and
-flattens each `suites` array into independent suite legs. Each leg carries
-its own values for:
+`Daily` row and at most one `Release` row in `deliveries`, filters by delivery
+type, and flattens each `suites` array into independent suite legs. A variant
+with no `Release` row simply has nothing to resolve when `release.yml` is
+dispatched for it, and the resolver fails with "no matrix entries found". Each
+leg carries its own values for:
 
 | Field | Purpose |
 | --- | --- |

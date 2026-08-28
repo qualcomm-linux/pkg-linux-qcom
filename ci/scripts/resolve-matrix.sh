@@ -9,8 +9,10 @@ set -euo pipefail
 #   - "suite_suffix_mapping": a suite -> Debian suffix map shared by every
 #     kernel variant and delivery type (e.g. "trixie": "~bpo13+1").
 #   - "deliveries": the matrix rows. Each kernel_variant owns exactly one
-#     Daily row and one Release row. A row declares every input needed by
-#     that delivery, including a debian_version_stub. Two fields are
+#     Daily row and at most one Release row; a variant that is only ever
+#     tracked, never promoted to production, omits the Release row. A row
+#     declares every input needed by that delivery, including a
+#     debian_version_stub. Two fields are
 #     list-valued: suites, which is expanded into isolated legs, and
 #     kernel_config, which is one config fragment per element.
 #
@@ -203,20 +205,23 @@ validation_errors=$(jq -r '
         | .[]
         | . as $rows
         | (($rows[0].kernel_variant // "unknown") | tostring) as $variant
-        | ([ $rows[].type ] | sort) as $types
+        | ([ $rows[] | select(.type == "Daily") ] | length) as $dailies
+        | ([ $rows[] | select(.type == "Release") ] | length) as $releases
         | ([ $rows[].srcpkg ] | unique) as $srcpkgs
         | ([ $rows[].binpkg ] | unique) as $binpkgs
         | ([ $rows[].debian_version_stub ] | unique) as $stubs
-        | if ($rows | length) != 2
-          then "kernel_variant " + $variant + " must define exactly one Daily row and one Release row"
-          elif $types != ["Daily", "Release"]
-          then "kernel_variant " + $variant + " must define exactly one Daily row and one Release row"
+        | if $dailies != 1
+          then "kernel_variant " + $variant + " must define exactly one Daily row"
+          elif $releases > 1
+          then "kernel_variant " + $variant + " must define at most one Release row"
+          elif ($rows | length) != ($dailies + $releases)
+          then "kernel_variant " + $variant + " must define only Daily and Release rows"
           elif ($srcpkgs | length) != 1
-          then "kernel_variant " + $variant + " must use one srcpkg across its Daily and Release rows"
+          then "kernel_variant " + $variant + " must use one srcpkg across its rows"
           elif ($binpkgs | length) != 1
-          then "kernel_variant " + $variant + " must use one binpkg across its Daily and Release rows"
+          then "kernel_variant " + $variant + " must use one binpkg across its rows"
           elif ($stubs | length) != 1
-          then "kernel_variant " + $variant + " must use one debian_version_stub across its Daily and Release rows"
+          then "kernel_variant " + $variant + " must use one debian_version_stub across its rows"
           else empty
           end
       ]
