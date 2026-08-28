@@ -23,7 +23,7 @@ isolated `kernel_variant + suite` build leg.
 
 | Variant | Source package | Image metapackage | Daily suites | Release suites | Notes |
 |---------|----------------|-------------------|--------------|----------------|-------|
-| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
+| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
 
 Both build the same kernel ref. `derive-localversion.sh` folds the variant name
@@ -46,14 +46,13 @@ The final Production matrix is conceptually:
 {
   "suite_suffix_mapping": {
     "trixie": "~bpo13+1",
-    "forky": "",
-    "resolute": "~26.04.1"
+    "forky": ""
   },
   "deliveries": [
     {
       "kernel_variant": "qcom-next",
       "type": "Daily",
-      "suites": ["trixie", "forky", "resolute"],
+      "suites": ["trixie", "forky"],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
       "branch_or_tag": "qcom-next",
       "ref_strategy": "latest_tag",
@@ -95,13 +94,12 @@ above:
 | --- | --- | --- |
 | Trixie | `0qli~bpo13+1~` | `0qli~bpo13+1` |
 | Forky | `0qli~` | `0qli` |
-| Resolute | `0qli~26.04.1~` | (not a configured Release suite) |
 
 `~` always sorts below the same prefix without it in Debian version
 ordering, so Daily always sorts below Release for the same suite and stub.
 Ordering across *different* suites depends entirely on the configured
-suffixes: with the mapping above, Resolute < Trixie < Forky for the same
-delivery type, matching a Debian-backports-then-unstable promotion chain.
+suffixes: with the mapping above, Trixie < Forky for the same delivery type,
+matching a Debian-backports-then-unstable promotion chain.
 This is a deliberate ordering policy, not an automatic guarantee — adding a
 suite means choosing a suffix that sorts where that suite belongs relative to
 the others. One nuance to be aware of: because Forky's suffix is empty, its
@@ -135,8 +133,10 @@ Daily is the recurring build and artifact-publication path.
   the configured branch directly.
 - Debian suites build in Debusine, then their `.deb` outputs are downloaded and
   uploaded to the configured S3 bucket.
-- `resolute` stays on the Docker-based Ubuntu path and uploads its package
-  outputs to the existing temporary-package S3 location.
+- No Ubuntu-family suite is configured at the moment. One that is added back
+  (`resolute`, say) takes the Docker-based Ubuntu path and uploads its package
+  outputs to the existing temporary-package S3 location; it also needs a
+  `suite_suffix_mapping` entry restored.
 
 ### Release
 
@@ -266,7 +266,7 @@ flowchart TD
 
     subgraph matrix[Matrix entry points]
         B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute\nqcom-next-debug / trixie · forky"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
         B3["Release configure-matrix\nFlatten Release rows"]
         B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
     end
