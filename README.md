@@ -1,8 +1,10 @@
 # pkg-linux-qcom
 
-CI orchestration for ARM64 Linux kernel package variants. The configured
+CI orchestration for ARM64 Linux kernel package variants. The delivered
 variants build from
-[`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel).
+[`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel); each
+variant names its own kernel source, so tracking variants can follow other
+trees.
 
 This branch owns the build matrix and GitHub Actions workflows. The Debian
 packaging tree and local packaging tools live on
@@ -27,11 +29,13 @@ isolated `kernel_variant + suite` build leg.
 |---------|----------------|-------------------|--------------|----------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
+| `arduino` | `linux-arduino` | `linux-image-arduino` | trixie, forky | — | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics`. Daily only |
 
-Both build the same kernel ref. `derive-localversion.sh` folds the variant name
-into LOCALVERSION, so each produces a distinct kernel release
-(`-qcom-next-<date>` and `-qcom-next-debug-<date>`) and therefore a distinct
-versioned image package that can be installed alongside the other.
+The two `qcom-next` variants build the same kernel ref.
+`derive-localversion.sh` folds the variant name into LOCALVERSION, so each
+variant produces a distinct kernel release (`-qcom-next-<date>`,
+`-qcom-next-debug-<date>`, `-arduino-g<sha>`) and therefore a distinct
+versioned image package that can be installed alongside the others.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
 
@@ -270,7 +274,7 @@ flowchart TD
 
     subgraph matrix[Matrix entry points]
         B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\narduino / trixie · forky"]
         B3["Release configure-matrix\nFlatten Release rows"]
         B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
     end
