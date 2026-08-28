@@ -55,6 +55,11 @@ OPTIONS:
                             which is always applied in full. An "intree:" prefix
                             names a path relative to the kernel source root
                             (e.g. intree:arch/arm64/configs/qcom_debug.config)
+    --dkms LIST             Comma-separated out-of-tree DKMS modules to build and
+                            bundle into linux-image-<KVER>, without the -dkms
+                            suffix (e.g. --dkms kgsl,camx). Each entry needs its
+                            <name>-dkms package available to the build. Empty by
+                            default (bundle nothing).
 
   Paths:
     -k, --kernel-dir DIR    Kernel source directory (default: $KERNEL_DIR)
@@ -76,6 +81,7 @@ EXAMPLES:
     $0 --local-source /path/to/kernel --build-mode native
     $0 --local-source /path/to/kernel --kver-extra -mybuild
     $0 --latest-tag --kernel-config docker,systemd-boot
+    $0 --latest-tag --dkms kgsl
 
 DISTRIBUTIONS:
     noble     Ubuntu 24.04 LTS
@@ -92,6 +98,7 @@ TAG=""; LATEST_TAG=false; BRANCH="$DEFAULT_BRANCH"; REPO="$DEFAULT_REPO"
 DISTRO="$DEFAULT_DISTRO"; BUILD_MODE="$DEFAULT_BUILD_MODE"
 LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
 LOCAL_SOURCE=""; ENABLE_CONFIGS="squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can"; SKIP_PREPARE=false
+DKMS_MODULES=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -109,6 +116,7 @@ while [[ $# -gt 0 ]]; do
         --kver-extra)       KVER_EXTRA="$2";    shift 2 ;;
         --profiles)         PROFILES="$2";      shift 2 ;;
         --kernel-config)    ENABLE_CONFIGS="$2"; shift 2 ;;
+        --dkms)             DKMS_MODULES="$2";  shift 2 ;;
         --enable-configs)   ENABLE_CONFIGS="$2"; shift 2 ;; # deprecated alias
         --build-mode)       BUILD_MODE="$2";    shift 2 ;;
         --skip-prepare)     SKIP_PREPARE=true;  shift   ;;
@@ -166,6 +174,7 @@ log_info "  Distro:       $DISTRO   mode: $BUILD_MODE"
 [[ -n "$KVER_EXTRA" ]]    && log_info "  KVER_EXTRA:   $KVER_EXTRA"
 [[ -n "$PROFILES" ]]        && log_info "  Profiles:     $PROFILES"
 [[ -n "$ENABLE_CONFIGS" ]]  && log_info "  Extra configs: $ENABLE_CONFIGS"
+[[ -n "$DKMS_MODULES" ]]    && log_info "  DKMS modules: $DKMS_MODULES"
 [[ "$SKIP_PREPARE" == true ]] && log_info "  Skip prepare: yes (source already prepared by prepare-source.sh)"
 echo
 
@@ -256,6 +265,7 @@ if [[ "$SKIP_PREPARE" != true ]]; then
     [[ -n "$LOCALVERSION" ]]   && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
     [[ -n "$KVER_EXTRA" ]]     && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
     [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--kernel-config "$ENABLE_CONFIGS")
+    [[ -n "$DKMS_MODULES" ]]   && PREPARE_ARGS+=(--dkms "$DKMS_MODULES")
     "$SCRIPT_DIR/prepare-source.sh" "${PREPARE_ARGS[@]}"
 else
     log_info "Skipping source preparation (--skip-prepare set)."
