@@ -33,11 +33,11 @@ on:
       - 'ci/**'
       - '.github/workflows/**'
   push:
-    branches:
-      - main
-    paths:
-      - 'ci/**'
-      - '.github/workflows/**'
+    #branches:
+    #  - main
+    #paths:
+    #  - 'ci/**'
+    #  - '.github/workflows/**'
 
 concurrency:
   group: pr-build-${{ github.event.pull_request.number }}
