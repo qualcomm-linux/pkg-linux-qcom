@@ -440,7 +440,7 @@ this fixed order:
 |------|--------|-------------|
 | 1 | `make defconfig` | ARM64 base defconfig from kernel source |
 | 2 | `debian/rules` | Disable `CONFIG_LOCALVERSION_AUTO` (prevents git hash in `uname -r`) |
-| 3 | Unified fragment pipeline | `arch/arm64/configs/qcom.config` (if present), then `debian/config/*.config` (sorted) |
+| 3 | Unified fragment pipeline | `arch/arm64/configs/prune.config`, then `arch/arm64/configs/qcom.config` (both if present), then `debian/config/*.config` (sorted) |
 | 4 | `debian/rules` | Re-check `CONFIG_LOCALVERSION_AUTO` (merges may re-enable it) |
 | 5 | `arch/arm64/configs/debug.config` | Debug options — only when `DEB_BUILD_PROFILES=debug` |
 
@@ -449,12 +449,17 @@ this fixed order:
 All config fragments are processed through a single unified pipeline:
 
 1. Collect fragments in order:
-   - `arch/arm64/configs/qcom.config` first (kernel-source fragment, present in `qcom-next`)
+   - `arch/arm64/configs/prune.config` first (kernel-source fragment)
+   - then `arch/arm64/configs/qcom.config` (kernel-source fragment, present in
+     `qcom-next`), so it wins over anything `prune.config` turned off
    - then `debian/config/*.config` in sorted filename order
-2. Append all collected fragments to `.config`
+2. Merge all collected fragments into `.config` in one
+   `scripts/kconfig/merge_config.sh -m -r` invocation — later fragments override
+   earlier ones, and every override is reported
 3. Run `make olddefconfig` once to resolve all conflicts and fill in dependencies
 
-`qcom.config` and `debian/config/*.config` use exactly the same mechanism.
+`prune.config`, `qcom.config` and `debian/config/*.config` use exactly the same
+mechanism.
 
 ### `debian/config/` — always-applied fragments
 
