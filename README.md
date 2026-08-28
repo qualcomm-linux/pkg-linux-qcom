@@ -24,7 +24,7 @@ isolated `kernel_variant + suite` build leg.
 | Variant | Source package | Image metapackage | Daily suites | Release suites | Notes |
 |---------|----------------|-------------------|--------------|----------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
-| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
+| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:arch/arm64/configs/qcom_debug.config` |
 
 Both build the same kernel ref. `derive-localversion.sh` folds the variant name
 into LOCALVERSION, so each produces a distinct kernel release
@@ -183,7 +183,7 @@ its own values for:
 | `tag_pattern` | Required only for `latest_tag`; matching tags must end in `-YYYYMMDD`, which determines newest-first ordering. |
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
-| `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. Empty for variants that need nothing beyond it; today it carries only `intree:` fragments shipped by the kernel source. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
+| `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
@@ -424,7 +424,7 @@ The available inputs are:
 | `kernel-url` | `qualcomm-linux/kernel` | Advanced alternate kernel repository. |
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
-| `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:qcom_debug`. |
+| `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:arch/arm64/configs/qcom_debug.config`. |
 | `debian-version-stub` | `0qli` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
