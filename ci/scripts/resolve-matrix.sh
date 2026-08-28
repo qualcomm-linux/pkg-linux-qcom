@@ -11,11 +11,18 @@ set -euo pipefail
 #   - "deliveries": the matrix rows. Each kernel_variant owns exactly one
 #     Daily row and one Release row. A row declares every input needed by
 #     that delivery, including a debian_version_stub. Two fields are
-#     list-valued: suites, which is expanded into isolated legs, and
+#     list-valued: suites, which is expanded into isolated legs; and
 #     kernel_config, which is one config fragment per element. A fragment is
 #     either a bare name from debian/config-available/ or an "intree:" entry
 #     naming a path relative to the kernel source root
 #     (e.g. intree:arch/arm64/configs/qcom_debug.config).
+#
+#     dkms is keyed one level deeper, by suite: an out-of-tree module is not
+#     buildable on every suite a row targets (kgsl has no resolute build), so
+#     a flat list could not say "these suites, not that one". Each suite maps
+#     to a list of module names without the -dkms suffix (e.g. {"trixie":
+#     ["kgsl"], "forky": ["kgsl"]}). A suite with no key builds no
+#     out-of-tree modules at all.
 #
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
@@ -48,7 +55,10 @@ set -euo pipefail
 #   and a suite-specific debian_revision (debian_version_stub and
 #   debian_version_suffix are consumed and removed). kernel_config is joined
 #   into the comma-separated string that build-kernel-deb.yml's kernel-config
-#   input and prepare-source.sh's --kernel-config expect.
+#   input and prepare-source.sh's --kernel-config expect. dkms collapses to
+#   the same kind of string for the dkms input and prepare-source.sh's --dkms,
+#   carrying only the list keyed by that leg's own suite, so a leg whose suite
+#   has no key gets "" and its build skips --dkms entirely.
 #
 # Exit codes:
 #   0  Success, at least one entry emitted.
@@ -138,6 +148,51 @@ validation_errors=$(jq -r '
     else empty
     end;
 
+  # Each dkms entry names an out-of-tree module built against the kernel being
+  # packaged, given without the -dkms suffix (e.g. kgsl selects kgsl-dkms), so
+  # it must look like a Debian package name stem.
+  def dkms_module_errors($suite):
+    ("dkms." + $suite) as $field |
+    .dkms[$suite] as $modules |
+    if ($modules | type) != "array"
+    then $field + " must be an array"
+    elif any($modules[]; type != "string" or length == 0)
+    then $field + " must contain only non-empty strings"
+    elif any($modules[]; test(","))
+    then $field + " entries must not contain commas; use one array element per module"
+    elif any($modules[]; test("^[a-z0-9][a-z0-9+.-]*$") | not)
+    then $field + " entries must be a module name without the -dkms suffix (lowercase letters, digits, and + . -)"
+    elif any($modules[]; endswith("-dkms"))
+    then $field + " entries must omit the -dkms suffix (e.g. kgsl, not kgsl-dkms)"
+    elif ($modules | unique | length) != ($modules | length)
+    then $field + " must not contain duplicates"
+    else empty
+    end;
+
+  # dkms is keyed by suite, not flat, because a module need not be buildable
+  # on every suite a row targets and one row can target trixie, forky and
+  # resolute at once. A suite with no key builds no out-of-tree modules, so
+  # keys are only checked against the suites the row actually targets: a key
+  # for some other suite is dead config and is rejected here rather than
+  # sitting around looking effective.
+  def dkms_valid:
+    if (.dkms | type) != "object"
+    then "dkms must be an object keyed by suite (e.g. {\"trixie\": [\"kgsl\"], \"forky\": [\"kgsl\"]})"
+    else
+      . as $row
+      | ([$row.suites | arrays | .[] | strings]) as $row_suites
+      | ($row.dkms | keys) as $declared
+      | (
+          [
+            $declared[] as $suite
+            | select(($row_suites | index($suite)) == null)
+            | "dkms declares a \"" + $suite + "\" list but the row does not build suite " + $suite
+          ]
+          +
+          [ $declared[] as $suite | $row | dkms_module_errors($suite) ]
+        ) | .[]
+    end;
+
   def suites_valid:
     if (.suites | type) != "array" or (.suites | length) == 0
     then "suites must be a non-empty array"
@@ -171,6 +226,7 @@ validation_errors=$(jq -r '
       variant_name_valid,
       suites_valid,
       kernel_config_valid,
+      dkms_valid,
       if (.debian_version_stub | type) == "string" and (.debian_version_stub | test("~$"))
       then "debian_version_stub must not end in ~"
       else empty end,
@@ -331,7 +387,11 @@ result=$(jq -c \
           )[] as $suite
         | $row
         | del(.suites)
-        | . + {"suite": $suite, "kernel_config": ($row.kernel_config | join(","))}
+        | . + {
+            "suite": $suite,
+            "kernel_config": ($row.kernel_config | join(",")),
+            "dkms": (($row.dkms[$suite] // []) | join(","))
+          }
       ]
       | if length == 0
         then error(

@@ -61,6 +61,7 @@ The final Production matrix is conceptually:
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
+      "dkms": { "trixie": ["kgsl"], "forky": ["kgsl"] },
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -75,6 +76,7 @@ The final Production matrix is conceptually:
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
+      "dkms": { "trixie": ["kgsl"], "forky": ["kgsl"] },
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
@@ -184,6 +186,7 @@ its own values for:
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
+| `dkms` | Out-of-tree DKMS modules built against the packaged kernel and bundled into its image package, named without the `-dkms` suffix (e.g. `kgsl` selects `kgsl-dkms`). Keyed by suite rather than flat, because a module need not build on every suite a row targets: `{"trixie": ["kgsl"], "forky": ["kgsl"]}` on a row that also targets `resolute` bundles `kgsl-dkms` on the first two and nothing on the third. A suite with no key builds no out-of-tree modules; a key naming a suite the row does not build is rejected. `resolve-matrix.sh` picks each leg's own list and joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh` as `--dkms`; a leg with no modules is built with no `--dkms` at all. |
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
@@ -198,9 +201,10 @@ duplicate suites and malformed variant identifiers before any build jobs
 start. It also rejects a matrix where any configured suite has no
 `suite_suffix_mapping` entry, where two suites share the same suffix, where a
 suffix is non-empty and doesn't start with `~`, where a variant's Daily
-and Release rows disagree on `debian_version_stub`, or where a row's
-`debian_version_suffix` doesn't match what its `type` implies — all before
-any build job starts.
+and Release rows disagree on `debian_version_stub`, where a row's
+`debian_version_suffix` doesn't match what its `type` implies, or where a
+row's `dkms` is keyed by a suite that row does not build — all before any
+build job starts.
 
 Each flattened leg's final `debian_revision` is derived by
 `ci/scripts/derive-debian-revision.sh` from `debian_version_stub`,
@@ -425,6 +429,7 @@ The available inputs are:
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
 | `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:arch/arm64/configs/qcom_debug.config`. |
+| `dkms` | Empty | Advanced comma-separated out-of-tree DKMS modules to build and bundle, without the `-dkms` suffix, e.g. `kgsl`. |
 | `debian-version-stub` | `0qli` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
@@ -475,7 +480,8 @@ To add a kernel variant:
 4. Give the variant distinct `srcpkg` and `binpkg` values. Set the Release
    `target_workspace` explicitly.
 5. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
-   the Docker path.
+   the Docker path. Key `dkms` by the suites whose builds should bundle
+   out-of-tree modules, and leave out the suites that cannot build them.
 6. Run a filtered Daily validation for the new variant, then its full Daily and
    Release flows.
 
@@ -486,7 +492,9 @@ To add a new suite (for an existing or new variant):
 2. Add the suite to the `suites` array of the relevant Daily and/or Release
    rows. `resolve-matrix.sh` rejects any configured suite with no mapping
    entry before any build job starts.
-3. Choose the suffix so the suite sorts where it belongs relative to the
+3. Add a `dkms` entry keyed by the new suite to those rows if its builds
+   should bundle out-of-tree modules. Without one the suite builds none.
+4. Choose the suffix so the suite sorts where it belongs relative to the
    others for the same delivery type (see the ordering discussion in
    [Overview](#overview)).
 

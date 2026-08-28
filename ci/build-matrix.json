@@ -20,6 +20,14 @@
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
+      "dkms": {
+        "trixie": [
+          "kgsl"
+        ],
+        "forky": [
+          "kgsl"
+        ]
+      },
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -38,6 +46,14 @@
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
+      "dkms": {
+        "trixie": [
+          "kgsl"
+        ],
+        "forky": [
+          "kgsl"
+        ]
+      },
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -59,6 +75,14 @@
         "intree:arch/arm64/configs/qcom_debug.config",
         "intree:kernel/configs/debug.config"
       ],
+      "dkms": {
+        "trixie": [
+          "kgsl"
+        ],
+        "forky": [
+          "kgsl"
+        ]
+      },
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -80,6 +104,14 @@
         "intree:arch/arm64/configs/qcom_debug.config",
         "intree:kernel/configs/debug.config"
       ],
+      "dkms": {
+        "trixie": [
+          "kgsl"
+        ],
+        "forky": [
+          "kgsl"
+        ]
+      },
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
