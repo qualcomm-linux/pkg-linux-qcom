@@ -43,9 +43,9 @@ on:
         required: false
         default: 'linux-image-qcom-next'
       kernel-config:
-        description: 'Advanced: comma-separated config fragments from debian/config-available/'
+        description: 'Advanced: extra config fragments applied on top of all of debian/config-available/ (e.g. intree:qcom_debug)'
         required: false
-        default: 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can'
+        default: ''
       debian-version-stub:
         description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
         required: false
@@ -118,9 +118,9 @@ on:
         type: string
         default: 'linux-image-qcom-next'
       kernel-config:
-        description: 'Comma-separated config fragments to activate from debian/config-available/'
+        description: 'Extra config fragments applied on top of all of debian/config-available/ (e.g. intree:qcom_debug)'
         type: string
-        default: 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can'
+        default: ''
       debian-revision:
         description: 'Debian revision component of the package version'
         type: string
@@ -423,7 +423,7 @@ jobs:
           SRCPKG_INPUT: ${{ inputs.srcpkg || 'linux-qcom-next' }}
           BINPKG_INPUT: ${{ inputs.binpkg || 'linux-image-qcom-next' }}
           KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
-          KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config || 'squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can' }}
+          KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
           DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
         run: |
           # No -x here: keep xtrace off for this step as it assembles the
