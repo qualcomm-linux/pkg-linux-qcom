@@ -350,12 +350,15 @@ for name in $DKMS_MODULES; do
     # Capture exit code separately: dkms exit-code conventions vary across
     # versions (a BUILD_EXCLUSIVE skip can exit 0). Outcome is judged by
     # artifact presence, not exit code.
+    #
+    # --directive STRIP=no stops dkms from stripping the module.
     dkms_rc=0
     dkms build "$PKG_NAME/$PKG_VER" \
         --kernelsourcedir "$HEADERS_DIR" \
         --dkmstree        "$DKMS_TREE" \
         -k                "$KVER" \
         --arch            "$DKMS_ARCH" \
+        --directive       "STRIP=no" \
         || dkms_rc=$?
 
     # ── Judge outcome by artifacts ────────────────────────────────────────────
