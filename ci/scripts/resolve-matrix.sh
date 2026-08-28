@@ -10,8 +10,9 @@ set -euo pipefail
 #     kernel variant and delivery type (e.g. "trixie": "~bpo13+1").
 #   - "deliveries": the matrix rows. Each kernel_variant owns exactly one
 #     Daily row and one Release row. A row declares every input needed by
-#     that delivery, including a debian_version_stub; suites are the only
-#     list-valued field and are expanded into isolated legs.
+#     that delivery, including a debian_version_stub. Two fields are
+#     list-valued: suites, which is expanded into isolated legs, and
+#     kernel_config, which is one config fragment per element.
 #
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
@@ -42,7 +43,9 @@ set -euo pipefail
 #   Compact JSON array to stdout. Every entry has a single suite, the
 #   kernel_variant that scopes its artifacts, Debusine workspace, and logs,
 #   and a suite-specific debian_revision (debian_version_stub and
-#   debian_version_suffix are consumed and removed).
+#   debian_version_suffix are consumed and removed). kernel_config is joined
+#   into the comma-separated string that build-kernel-deb.yml's kernel-config
+#   input and prepare-source.sh's --kernel-config expect.
 #
 # Exit codes:
 #   0  Success, at least one entry emitted.
@@ -100,6 +103,18 @@ validation_errors=$(jq -r '
     else "kernel_variant must use lowercase letters, digits, and internal hyphens"
     end;
 
+  def kernel_config_valid:
+    if (.kernel_config | type) != "array" or (.kernel_config | length) == 0
+    then "kernel_config must be a non-empty array"
+    elif any(.kernel_config[]; type != "string" or length == 0)
+    then "kernel_config must contain only non-empty strings"
+    elif any(.kernel_config[]; test(","))
+    then "kernel_config entries must not contain commas; use one array element per fragment"
+    elif ([.kernel_config[]] | unique | length) != (.kernel_config | length)
+    then "kernel_config must not contain duplicates"
+    else empty
+    end;
+
   def suites_valid:
     if (.suites | type) != "array" or (.suites | length) == 0
     then "suites must be a non-empty array"
@@ -125,7 +140,6 @@ validation_errors=$(jq -r '
       required_string("ref_strategy"),
       required_string("srcpkg"),
       required_string("binpkg"),
-      required_string("kernel_config"),
       required_string("debian_version_stub"),
       optional_string("pkg_linux_qcom_ref"),
       optional_string("debusine_parent_workspace"),
@@ -133,6 +147,7 @@ validation_errors=$(jq -r '
       optional_string("kver_extra"),
       variant_name_valid,
       suites_valid,
+      kernel_config_valid,
       if (.debian_version_stub | type) == "string" and (.debian_version_stub | test("~$"))
       then "debian_version_stub must not end in ~"
       else empty end,
@@ -291,7 +306,9 @@ result=$(jq -c \
             else []
             end
           )[] as $suite
-        | $row | del(.suites) | . + {"suite": $suite}
+        | $row
+        | del(.suites)
+        | . + {"suite": $suite, "kernel_config": ($row.kernel_config | join(","))}
       ]
       | if length == 0
         then error(
