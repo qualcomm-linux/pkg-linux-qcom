@@ -30,6 +30,7 @@ isolated `kernel_variant + suite` build leg.
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
 | `arduino` | `linux-arduino` | `linux-image-arduino` | trixie, forky | — | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics`. Daily only |
+| `mainline` | `linux-mainline` | `linux-image-mainline` | trixie, forky | — | Tracks the tip of `master` in `torvalds/linux`. Daily only |
 
 The two `qcom-next` variants build the same kernel ref.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
@@ -274,7 +275,7 @@ flowchart TD
 
     subgraph matrix[Matrix entry points]
         B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\narduino / trixie · forky"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\narduino / trixie · forky\nmainline / trixie · forky"]
         B3["Release configure-matrix\nFlatten Release rows"]
         B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
     end

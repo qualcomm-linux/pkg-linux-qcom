@@ -96,6 +96,23 @@
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
+    },
+    {
+      "kernel_variant": "mainline",
+      "type": "Daily",
+      "suites": [
+        "trixie",
+        "forky"
+      ],
+      "git_clone": "https://github.com/torvalds/linux",
+      "branch_or_tag": "master",
+      "ref_strategy": "branch_tip",
+      "srcpkg": "linux-mainline",
+      "binpkg": "linux-image-mainline",
+      "kernel_config": [],
+      "debian_version_stub": "0qli",
+      "debian_version_suffix": "~",
+      "pkg_linux_qcom_ref": "qcom/debian/latest"
     }
   ]
 }
