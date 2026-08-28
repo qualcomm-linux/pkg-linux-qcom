@@ -16,10 +16,12 @@ set -euo pipefail
 #   2. Reads PACKAGE_NAME / PACKAGE_VERSION from the package's dkms.conf.
 #   3. Builds the module with `dkms build` against the staged kernel headers,
 #      using a private --dkmstree (mktemp) to avoid writing to /var/lib/dkms/.
-#   4. Judges the outcome by artifact presence, not dkms exit code.
-#      On failure: prints make.log tail (build failure) or BUILD_EXCLUSIVE gate
-#      analysis (skip), then hard-fails — a manifest entry is a presence contract.
-#   5. For each produced .ko:
+#   4. Prints the dkms make.log for every module, built or not: the private
+#      dkms tree is deleted on exit, so this is the only record left in CI.
+#   5. Judges the outcome by artifact presence, not dkms exit code.
+#      On failure: adds BUILD_EXCLUSIVE gate analysis when dkms attempted no
+#      build, then hard-fails — a manifest entry is a presence contract.
+#   6. For each produced .ko:
 #      - Collision-checks against already-bundled modules and in-tree modules.
 #      - Installs to <image-pkg-dir>/lib/modules/<kver>/extra/<name>.ko
 #      - Extracts debug symbols to <dbg-pkg-dir>/usr/lib/debug/lib/modules/<kver>/extra/<name>.ko
@@ -406,21 +408,32 @@ for name in $DKMS_MODULES; do
         --directive       "STRIP=no" \
         || dkms_rc=$?
 
+    # ── Report the build log ──────────────────────────────────────────────────
+    # dkms writes make.log inside the private dkms tree, which is deleted on
+    # EXIT, so this is the only surviving record of the build in CI.
+    #
+    # Print it whether or not the build succeeded. A module that builds can
+    # still be compiled with the wrong flags, and the compiler command lines
+    # are the only place that is visible — debian/rules exports KBUILD_VERBOSE,
+    # so they are all here.
+    mklog="$(find "$DKMS_TREE/$PKG_NAME/$PKG_VER" -name make.log 2>/dev/null \
+             | head -1 || true)"
+    if [[ -n "$mklog" ]]; then
+        log_step "dkms build log for $PKG_NAME/$PKG_VER ($mklog):"
+        sed 's/^/  | /' "$mklog"
+        echo
+    fi
+
     # ── Judge outcome by artifacts ────────────────────────────────────────────
     # A .ko under <tree>/<name>/<ver>/<kver>/ means success.
     # dkms's make.log separates the two failure modes:
     #   - make.log present  → build was attempted and failed
     #   - no make.log       → dkms attempted no build (BUILD_EXCLUSIVE gate)
-    # The log is printed inline because the private dkms tree is deleted on
-    # EXIT, so it is the only surviving record in CI.
     kos="$(find "$DKMS_TREE/$PKG_NAME/$PKG_VER/$KVER" -name '*.ko' 2>/dev/null || true)"
 
     if [[ "$dkms_rc" -ne 0 || -z "$kos" ]]; then
-        mklog="$(find "$DKMS_TREE/$PKG_NAME/$PKG_VER" -name make.log 2>/dev/null \
-                 | head -1 || true)"
         if [[ -n "$mklog" ]]; then
-            log_error "dkms build failed for $PKG_NAME/$PKG_VER on kernel $KVER (dkms exit $dkms_rc); make.log tail:"
-            tail -n 300 "$mklog" | sed 's/^/  | /' >&2
+            log_error "dkms build failed for $PKG_NAME/$PKG_VER on kernel $KVER (dkms exit $dkms_rc); see the build log above."
         else
             log_error "$PKG_NAME/$PKG_VER produced no module for kernel $KVER; dkms attempted no build (dkms exit $dkms_rc)."
             gates="$(grep -E '^[[:space:]]*BUILD_EXCLUSIVE' "$conf" 2>/dev/null || true)"
