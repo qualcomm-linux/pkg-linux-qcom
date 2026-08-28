@@ -76,11 +76,6 @@ OPTIONS:
                               redundant, since that fragment is already applied.
                               Entries are processed in LC_ALL=C sorted order.
 
-  Debug:
-    --debug                   Enable debug build: copies arch/arm64/configs/debug.config
-                              from the kernel source into debian/config/ so it is
-                              applied as a config fragment during the build.
-
   Paths:
     --debian-dir DIR          Path to the debian/ packaging directory
                               (default: $DEBIAN_DIR)
@@ -113,7 +108,6 @@ SRCPKG="$DEFAULT_SRCPKG"
 BINPKG="$DEFAULT_BINPKG"
 DEBIAN_REVISION="$DEFAULT_DEBIAN_REVISION"
 KERNEL_CONFIG=""
-DEBUG=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -126,7 +120,6 @@ while [[ $# -gt 0 ]]; do
         --debian-revision)    DEBIAN_REVISION="$2";   shift 2 ;;
         --kernel-config)      KERNEL_CONFIG="$2";     shift 2 ;;
         --debian-dir)         DEBIAN_DIR="$2";        shift 2 ;;
-        --debug)              DEBUG=true;             shift   ;;
         -h|--help)            usage ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
     esac
@@ -178,7 +171,6 @@ log_info "  Debian revision:  $DEBIAN_REVISION"
 [[ -n "$LOCALVERSION" ]]   && log_info "  LOCALVERSION:     $LOCALVERSION"
 [[ -n "$KVER_EXTRA" ]]     && log_info "  KVER_EXTRA:       $KVER_EXTRA"
 [[ -n "$KERNEL_CONFIG" ]]  && log_info "  Kernel config:    $KERNEL_CONFIG"
-[[ "$DEBUG" == true ]]     && log_info "  Debug build:      yes"
 echo
 
 # ── Inject debian/ ───────────────────────────────────────────────────────────
@@ -283,18 +275,6 @@ if [[ -n "$KERNEL_CONFIG" ]]; then
             log_info "  Already applied: $frag (all of config-available is applied)"
         fi
     done < <(printf '%s\n' "${CFG_LIST[@]}" | tr -d ' ' | LC_ALL=C sort)
-fi
-
-# ── Debug config fragment ─────────────────────────────────────────────────────
-if [[ "$DEBUG" == true ]]; then
-    DEBUG_CONFIG="$SOURCE_DIR/kernel/configs/debug.config"
-    if [[ -f "$DEBUG_CONFIG" ]]; then
-        mkdir -p "$SOURCE_DIR/debian/config"
-        cp "$DEBUG_CONFIG" "$SOURCE_DIR/debian/config/debug.config"
-        log_info "Copied kernel/configs/debug.config into debian/config/"
-    else
-        log_warn "kernel/configs/debug.config not found — debug config will not be applied"
-    fi
 fi
 
 # ── Prepare: generate control, changelog, localversion, pkgversion ───────────

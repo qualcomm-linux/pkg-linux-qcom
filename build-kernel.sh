@@ -50,7 +50,7 @@ OPTIONS:
                             (default: $DEFAULT_DISTRO)
     --build-mode MODE       docker|native|sbuild (default: $DEFAULT_BUILD_MODE)
     --docker-build PATH     Path to docker_deb_build.py (docker mode)
-    --profiles PROFILES     DEB_BUILD_PROFILES (e.g. debug)
+    --profiles PROFILES     DEB_BUILD_PROFILES (default: none)
     --kernel-config LIST    Extra config fragments, beyond debian/config-available/
                             which is always applied in full. An "intree:" prefix
                             names a path relative to the kernel source root
@@ -76,7 +76,6 @@ EXAMPLES:
     $0 --local-source /path/to/kernel --build-mode native
     $0 --local-source /path/to/kernel --kver-extra -mybuild
     $0 --latest-tag --kernel-config docker,systemd-boot
-    $0 --latest-tag --profiles debug
 
 DISTRIBUTIONS:
     noble     Ubuntu 24.04 LTS

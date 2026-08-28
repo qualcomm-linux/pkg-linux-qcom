@@ -179,7 +179,6 @@ override_dh_auto_configure:
 	#      invocation (later fragments win, overrides are reported), followed by
 	#      make olddefconfig to resolve the resulting dependencies.
 	#   4. Re-check CONFIG_LOCALVERSION_AUTO (merges may re-enable it)
-	#   5. arch/arm64/configs/debug.config — only when DEB_BUILD_PROFILES=debug
 	# ---------------------------------------------------------------------------
 
 	# Step 1: Base defconfig
@@ -241,16 +240,6 @@ override_dh_auto_configure:
 		echo "Re-disabling CONFIG_LOCALVERSION_AUTO (was re-enabled by a config merge)"; \
 		sed -i '/^CONFIG_LOCALVERSION_AUTO/d' "$$CONFIG_FILE"; \
 		echo "# CONFIG_LOCALVERSION_AUTO is not set" >> "$$CONFIG_FILE"; \
-	fi
-
-	# Step 5: Merge debug.config if debug build profile is active.
-	@if echo "$(DEB_BUILD_PROFILES)" | grep -qw "debug"; then \
-		if [ -f arch/arm64/configs/debug.config ]; then \
-			echo "Debug profile active: merging arch/arm64/configs/debug.config..."; \
-			$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) debug.config; \
-		else \
-			echo "Warning: debug profile requested but arch/arm64/configs/debug.config not found"; \
-		fi; \
 	fi
 
 override_dh_auto_build:
