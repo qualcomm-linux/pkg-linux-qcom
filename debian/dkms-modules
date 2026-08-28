@@ -11,3 +11,4 @@
 # debian/rules and debian/scripts/bundle-dkms-modules.sh are untouched in either case.
 kgsl
 camx
+iris-vpu

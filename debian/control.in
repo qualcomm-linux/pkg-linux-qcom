@@ -6,7 +6,7 @@ Standards-Version: 4.6.2
 Build-Depends: debhelper-compat (= 13),
                bc, bison, flex, libssl-dev, libelf-dev, dwarves,
                python3, kmod, cpio, rsync, pkg-config, gcc, make,
-               dkms, kgsl-dkms, camx-dkms
+               dkms, kgsl-dkms, camx-dkms, iris-vpu-dkms
 Homepage: https://kernel.org
 Rules-Requires-Root: binary-targets
 
