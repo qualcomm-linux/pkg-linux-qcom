@@ -280,6 +280,38 @@ log_info "  modules:          $DKMS_MODULES"
 echo
 
 # ---------------------------------------------------------------------------
+# Report any dkms configuration present on the build host.
+#
+# dkms hardcodes the paths it reads configuration from: /etc/dkms/framework.conf
+# and /etc/dkms/framework.conf.d/*.conf in read_framework_conf, and the
+# /etc/dkms/<module>*.conf overrides in read_conf. None of them can be
+# redirected by an option or an environment variable, so a build cannot opt out
+# of whatever the host happens to ship; it can only be explicit about it.
+#
+# Most of the exposure is already closed: framework.conf accepts a fixed
+# variable list, it is sourced before the command line is parsed so --dkmstree
+# and --kernelsourcedir are higher priority and the --directive passed to dkms
+# build is applied after every conf file. What remains is tmp_location,
+# parallel_jobs, the compress_*_opts, and post_transaction, the last being an
+# arbitrary command dkms will run.
+#
+# Print whatever is there so a surprising host setting shows up in the build
+# log rather than acting silently. This is deliberately not fatal: a build host
+# is allowed to have dkms configured.
+# ---------------------------------------------------------------------------
+_dkms_host_conf=0
+for _conf in /etc/dkms/framework.conf /etc/dkms/framework.conf.d/*.conf; do
+    [[ -e "$_conf" ]] || continue
+    _dkms_host_conf=1
+    log_warn "Host dkms configuration in effect: $_conf"
+    grep -vE '^[[:space:]]*(#|$)' "$_conf" | sed 's/^/  | /' || true
+done
+if [[ "$_dkms_host_conf" -eq 0 ]]; then
+    log_info "No host dkms framework configuration found."
+fi
+echo
+
+# ---------------------------------------------------------------------------
 # Private DKMS tree — redirects artifacts away from /var/lib/dkms/ (root-owned,
 # not writable under fakeroot / non-root dpkg-buildpackage).
 # Shared across all modules in this run; cleaned up on EXIT.
@@ -345,6 +377,19 @@ for name in $DKMS_MODULES; do
     log_info "  source:          $SRC"
     log_info "  kernelsourcedir: $HEADERS_DIR"
     log_info "  dkmstree:        $DKMS_TREE"
+
+    # ── Report per-module dkms.conf overrides on the build host ──────────────
+    # read_conf sources these after the vendor dkms.conf, so they can change how
+    # this module is built. The --directive below still wins over them, but
+    # anything they set that we do not pin takes effect silently otherwise.
+    for _conf in "/etc/dkms/$PKG_NAME.conf" \
+                 "/etc/dkms/$PKG_NAME-$PKG_VER.conf" \
+                 "/etc/dkms/$PKG_NAME-$PKG_VER-$KVER.conf" \
+                 "/etc/dkms/$PKG_NAME--$KVER.conf"; do
+        [[ -e "$_conf" ]] || continue
+        log_warn "Host override for $PKG_NAME in effect: $_conf"
+        grep -vE '^[[:space:]]*(#|$)' "$_conf" | sed 's/^/  | /' || true
+    done
 
     # ── Run dkms build ────────────────────────────────────────────────────────
     # Capture exit code separately: dkms exit-code conventions vary across
