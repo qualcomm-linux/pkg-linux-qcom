@@ -10,7 +10,8 @@ set -e
 #   2. Activate optional config fragments from debian/config-available/ into
 #      debian/config/ based on the --kernel-config list.
 #   3. Run 'debian/rules prepare' to generate debian/control, debian/changelog,
-#      debian/localversion, and debian/pkgversion from *.in templates.
+#      debian/localversion, debian/pkgversion, and debian/dkms-modules from the
+#      *.in templates and the --dkms list.
 #
 # This script is the CI entry point for source preparation. It runs as a
 # dedicated workflow step between kernel source setup (clone + PR application)
@@ -39,7 +40,8 @@ Prepare kernel source for Debian packaging.
 Injects debian/ packaging metadata into the kernel source tree, activates
 optional config fragments from debian/config-available/, and runs
 'debian/rules prepare' to generate debian/control, debian/changelog,
-debian/localversion, and debian/pkgversion from *.in templates.
+debian/localversion, debian/pkgversion, and debian/dkms-modules from the
+*.in templates and the --dkms list.
 
 OPTIONS:
   Required:
@@ -76,6 +78,15 @@ OPTIONS:
                               redundant, since that fragment is already applied.
                               Entries are processed in LC_ALL=C sorted order.
 
+  DKMS modules:
+    --dkms LIST               Comma-separated out-of-tree DKMS modules to build
+                              against this kernel and bundle into
+                              linux-image-<KVER>, each named without the -dkms
+                              suffix (e.g. --dkms kgsl,camx). Each entry needs a
+                              <name>-dkms package available to the build; the
+                              Build-Depends entry is generated from this list.
+                              Empty (the default) bundles no modules.
+
   Paths:
     --debian-dir DIR          Path to the debian/ packaging directory
                               (default: $DEBIAN_DIR)
@@ -94,7 +105,8 @@ EXAMPLES:
        --srcpkg linux-qcom-next \\
        --binpkg linux-image-qcom-next \\
        --debian-revision 0qcom1 \\
-       --kernel-config squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can
+       --kernel-config squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can \\
+       --dkms kgsl
 EOF
     exit 1
 }
@@ -108,6 +120,7 @@ SRCPKG="$DEFAULT_SRCPKG"
 BINPKG="$DEFAULT_BINPKG"
 DEBIAN_REVISION="$DEFAULT_DEBIAN_REVISION"
 KERNEL_CONFIG=""
+DKMS_MODULES=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -119,6 +132,7 @@ while [[ $# -gt 0 ]]; do
         --binpkg)             BINPKG="$2";            shift 2 ;;
         --debian-revision)    DEBIAN_REVISION="$2";   shift 2 ;;
         --kernel-config)      KERNEL_CONFIG="$2";     shift 2 ;;
+        --dkms)               DKMS_MODULES="$2";      shift 2 ;;
         --debian-dir)         DEBIAN_DIR="$2";        shift 2 ;;
         -h|--help)            usage ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
@@ -171,6 +185,7 @@ log_info "  Debian revision:  $DEBIAN_REVISION"
 [[ -n "$LOCALVERSION" ]]   && log_info "  LOCALVERSION:     $LOCALVERSION"
 [[ -n "$KVER_EXTRA" ]]     && log_info "  KVER_EXTRA:       $KVER_EXTRA"
 [[ -n "$KERNEL_CONFIG" ]]  && log_info "  Kernel config:    $KERNEL_CONFIG"
+[[ -n "$DKMS_MODULES" ]]   && log_info "  DKMS modules:     $DKMS_MODULES"
 echo
 
 # ── Inject debian/ ───────────────────────────────────────────────────────────
@@ -282,6 +297,9 @@ log_step "Running debian/rules prepare..."
 PREPARE_ARGS="DISTRO=$DISTRO SRCPKG=$SRCPKG BINPKG=$BINPKG DEBIAN_REVISION=$DEBIAN_REVISION"
 [[ -n "$LOCALVERSION" ]] && PREPARE_ARGS="$PREPARE_ARGS LOCALVERSION=$LOCALVERSION"
 [[ -n "$KVER_EXTRA" ]]   && PREPARE_ARGS="$PREPARE_ARGS KVER_EXTRA=$KVER_EXTRA"
+# Spaces are stripped so a list written as "kgsl, camx" stays a single make
+# argument; debian/rules validates the names it is given.
+[[ -n "$DKMS_MODULES" ]] && PREPARE_ARGS="$PREPARE_ARGS DKMS_MODULES=$(tr -d ' ' <<< "$DKMS_MODULES")"
 # shellcheck disable=SC2086
 make -f "$SOURCE_DIR/debian/rules" -C "$SOURCE_DIR" prepare $PREPARE_ARGS
 
@@ -291,3 +309,4 @@ log_info "Generated: $SOURCE_DIR/debian/control"
 log_info "Generated: $SOURCE_DIR/debian/changelog"
 log_info "Generated: $SOURCE_DIR/debian/localversion"
 log_info "Generated: $SOURCE_DIR/debian/pkgversion"
+log_info "Generated: $SOURCE_DIR/debian/dkms-modules"
