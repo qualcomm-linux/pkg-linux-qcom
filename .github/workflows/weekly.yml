@@ -4,15 +4,14 @@ name: weekly
 # (11:00 UTC) every Saturday, one parallel build per Weekly entry in
 # ci/build-matrix.json after suite flattening.
 #
-# A Weekly entry is a Release that bumps itself: the kernel ref comes from the
-# row's latest_tag or branch_tip strategy rather than a pinned tag, and each
-# leg is promoted to the row's target_workspace only when its Debusine build
-# succeeds. Nothing is promoted for a leg whose build fails, and fail-fast is
-# disabled so one variant's failure does not cancel another's promotion.
+# A Weekly entry bumps itself: the kernel ref comes from the row's latest_tag
+# or branch_tip strategy, resolved at run time, and each leg is promoted to the
+# row's target_workspace only when its Debusine build succeeds. Nothing is
+# promoted for a leg whose build fails, and fail-fast is disabled so one
+# variant's failure does not cancel another's promotion.
 #
-# This is the delivery path for variants that track a moving upstream tree,
-# where pinning a ref for every delivery would be busywork. Variants whose
-# releases are cut deliberately keep their pinned Release rows and release.yml.
+# This is the only promotion path. Every variant tracks a ref that moves on its
+# own, so no delivery pins a commit and no matrix edit is needed to advance one.
 #
 # Matrix schema: ci/build-matrix.json
 #   Each row with "type": "Weekly" is expanded by ci/scripts/resolve-matrix.sh:
@@ -47,7 +46,7 @@ on:
       kernel-variant:
         description: 'Kernel variant to build and promote (ignored for Full matrix)'
         required: true
-        default: 'next'
+        default: 'qcom-next'
         type: string
       suite:
         description: 'Target suite (used only for Selected variant and suite)'

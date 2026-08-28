@@ -9,13 +9,13 @@ name: build-debusine
 #
 # Publish path is determined by target-workspace:
 #   target-workspace == ''  -> daily path: download .deb files, upload to S3.
-#   target-workspace != ''  -> release path: promote from CI workspace to the
+#   target-workspace != ''  -> promotion path: promote from CI workspace to the
 #                              target Debusine workspace via debusine-action lib/release.
 #
 # Jobs:
 #   build   (debusine-pkg-builder container): generates .dsc, submits to Debusine.
 #   publish (self-hosted runner): S3 upload (daily path only).
-#   release (debusine-pkg-builder container): Debusine promotion (release path only).
+#   release (debusine-pkg-builder container): Debusine promotion (promotion path only).
 
 on:
   workflow_call:
@@ -198,7 +198,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # release: promote packages from CI workspace to target Debusine workspace.
-  # Release path only (target-workspace is non-empty).
+  # Promotion path only (target-workspace is non-empty).
   # ---------------------------------------------------------------------------
   release:
     name: Release to Debusine

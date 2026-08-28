@@ -7,11 +7,11 @@ set -euo pipefail
 #
 # Formula:
 #   debian_revision = stub + suite_suffix_mapping[suite] + delivery_suffix
-#   delivery_suffix: Daily -> "~", Weekly and Release -> ""
+#   delivery_suffix: Daily -> "~", Weekly -> ""
 #
-# Weekly and Release share the empty suffix because both promote into a
-# production workspace; they differ only in how the kernel ref is chosen
-# (autobumped versus pinned), which the revision does not encode.
+# The suffix records where a delivery is going, not how its ref was chosen:
+# Daily publishes artifacts and sorts below Weekly, which promotes into a
+# production workspace.
 #
 # This is the single implementation of the formula. It is called both by
 # resolve-matrix.sh (once per flattened leg) and by build-kernel-deb.yml's
@@ -20,7 +20,7 @@ set -euo pipefail
 #
 # Usage:
 #   ci/scripts/derive-debian-revision.sh --stub 0qli --suite trixie --delivery-type Daily
-#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite forky --delivery-type Release --matrix-file ci/build-matrix.json
+#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite forky --delivery-type Weekly --matrix-file ci/build-matrix.json
 #
 # Options:
 #   --stub STUB            Debian version stub. Must be non-empty and must not
@@ -28,7 +28,7 @@ set -euo pipefail
 #                            trailing ~). Required.
 #   --suite SUITE          Target suite; must have an entry in
 #                            suite_suffix_mapping. Required.
-#   --delivery-type TYPE   Daily, Weekly, or Release. Required.
+#   --delivery-type TYPE   Daily or Weekly. Required.
 #   --matrix-file FILE     Path to the matrix JSON containing
 #                            suite_suffix_mapping
 #                            (default: ci/build-matrix.json relative to CWD).
@@ -113,10 +113,10 @@ SUFFIX=$(jq -r --arg suite "$SUITE" '.suite_suffix_mapping[$suite] // "__MISSING
 }
 
 case "$DELIVERY_TYPE" in
-    Daily)           DELIVERY_SUFFIX="~" ;;
-    Weekly|Release)  DELIVERY_SUFFIX="" ;;
+    Daily)   DELIVERY_SUFFIX="~" ;;
+    Weekly)  DELIVERY_SUFFIX="" ;;
     *)
-        echo "ERROR: --delivery-type must be Daily, Weekly, or Release (got '$DELIVERY_TYPE')" >&2
+        echo "ERROR: --delivery-type must be Daily or Weekly (got '$DELIVERY_TYPE')" >&2
         exit 1
         ;;
 esac

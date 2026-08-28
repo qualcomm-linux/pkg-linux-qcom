@@ -24,21 +24,22 @@
     },
     {
       "kernel_variant": "qcom-next",
-      "type": "Release",
-      "target_workspace": "qli",
+      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next-7.2-rc7-20260821",
-      "ref_strategy": "pinned_ref",
+      "branch_or_tag": "qcom-next",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "qcom-next-*",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
     },
     {
       "kernel_variant": "qcom-next-debug",
@@ -62,15 +63,15 @@
     },
     {
       "kernel_variant": "qcom-next-debug",
-      "type": "Release",
-      "target_workspace": "qli",
+      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next-7.2-rc7-20260821",
-      "ref_strategy": "pinned_ref",
+      "branch_or_tag": "qcom-next",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "qcom-next-*",
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
       "kernel_config": [
@@ -78,7 +79,8 @@
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
     },
     {
       "kernel_variant": "arduino",

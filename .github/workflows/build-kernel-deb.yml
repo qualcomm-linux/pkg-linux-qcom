@@ -82,7 +82,7 @@ on:
         required: false
         default: ''
 
-  # Called by daily.yml and release.yml as a reusable workflow.
+  # Called by daily.yml and weekly.yml as a reusable workflow.
   workflow_call:
     inputs:
       kernel-variant:
@@ -230,7 +230,7 @@ jobs:
         # suite_suffix_mapping are available.
         #
         # github.sha is the *caller's* commit, so it only names a CI commit
-        # when the caller itself runs on main, as daily.yml and release.yml do.
+        # when the caller itself runs on main, as daily.yml and weekly.yml do.
         # A caller on a packaging branch must pass ci-ref, or the sparse
         # checkout silently yields nothing and the copy below fails.
         uses: actions/checkout@v4
@@ -348,7 +348,7 @@ jobs:
           fi
 
       - name: Resolve Debian revision
-        # workflow_call callers (daily.yml, release.yml) pass an already
+        # workflow_call callers (daily.yml, weekly.yml) pass an already
         # fully-derived debian-revision from resolve-matrix.sh. Direct
         # workflow_dispatch runs pass only debian-version-stub and get the
         # selected suite's mapped suffix applied automatically, always using
