@@ -417,8 +417,9 @@ override_dh_dwz:
 	dh_dwz -X/usr/lib/debug/
 
 # Ignore files shipped in debug package.
+# Don't build "-dbgsym" packages.
 override_dh_strip:
-	dh_strip -X/usr/lib/debug/
+	dh_strip -X/usr/lib/debug/ --no-automatic-dbgsym
 
 # Skip automatic dh_installmodules — called manually in override_dh_installdeb.
 override_dh_installmodules:
