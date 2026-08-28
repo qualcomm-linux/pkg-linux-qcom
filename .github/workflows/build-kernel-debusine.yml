@@ -8,13 +8,13 @@ name: build-debusine
 # kernel_variant and suite so parallel variants cannot share inputs or outputs.
 #
 # Publish path is determined by target-workspace:
-#   target-workspace == ''  -> daily path: download .deb files, upload to S3.
+#   target-workspace == ''  -> artifact path: download .deb files, upload to S3.
 #   target-workspace != ''  -> promotion path: promote from CI workspace to the
 #                              target Debusine workspace via debusine-action lib/release.
 #
 # Jobs:
 #   build   (debusine-pkg-builder container): generates .dsc, submits to Debusine.
-#   publish (self-hosted runner): S3 upload (daily path only).
+#   publish (self-hosted runner): S3 upload (artifact path only).
 #   release (debusine-pkg-builder container): Debusine promotion (promotion path only).
 
 on:
@@ -37,7 +37,7 @@ on:
         type: string
         default: 'qli-ci'
       target-workspace:
-        description: 'Debusine target workspace for release promotion (empty = daily/S3 path)'
+        description: 'Debusine target workspace for release promotion (empty = S3 artifact path)'
         type: string
         default: ''
     secrets:
@@ -136,7 +136,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # publish: download .deb files from Debusine and upload to S3.
-  # Daily path only (target-workspace is empty).
+  # Artifact path only (target-workspace is empty), i.e. direct dispatches.
   # ---------------------------------------------------------------------------
   publish:
     name: Publish to S3

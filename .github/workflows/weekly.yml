@@ -1,27 +1,28 @@
 name: weekly
 
 # Weekly kernel package builds with automatic promotion. Runs at 3:00 AM PST
-# (11:00 UTC) every Saturday, one parallel build per Weekly entry in
+# (11:00 UTC) every Saturday, one parallel build per entry in
 # ci/build-matrix.json after suite flattening.
 #
-# A Weekly entry bumps itself: the kernel ref comes from the row's latest_tag
+# Every delivery bumps itself: the kernel ref comes from the row's latest_tag
 # or branch_tip strategy, resolved at run time, and each leg is promoted to the
 # row's target_workspace only when its Debusine build succeeds. Nothing is
 # promoted for a leg whose build fails, and fail-fast is disabled so one
 # variant's failure does not cancel another's promotion.
 #
-# This is the only promotion path. Every variant tracks a ref that moves on its
-# own, so no delivery pins a commit and no matrix edit is needed to advance one.
+# This is the only scheduled workflow and the only promotion path. Every
+# variant tracks a ref that moves on its own, so no delivery pins a commit and
+# no matrix edit is needed to advance one.
 #
 # Matrix schema: ci/build-matrix.json
-#   Each row with "type": "Weekly" is expanded by ci/scripts/resolve-matrix.sh:
+#   Each row is one kernel variant, expanded by ci/scripts/resolve-matrix.sh:
 #   the "suites" array is flattened into one job per suite. All other fields
 #   (kernel_variant, srcpkg, binpkg, kernel_config, debian_revision, git_clone,
 #   branch_or_tag, ref_strategy, target_workspace) are passed through to
 #   build-kernel-deb.yml as inputs.
 #
-# To add a weekly build-and-promote target: add a row to ci/build-matrix.json
-# with "type": "Weekly" and a "target_workspace". No workflow changes needed.
+# To add a build-and-promote target: add a row to ci/build-matrix.json with a
+# "target_workspace". No workflow changes needed.
 #
 # Promotion runs in the Production GitHub environment, which supplies the
 # release credential. Any approval protection configured on that environment
@@ -29,8 +30,7 @@ name: weekly
 
 on:
   schedule:
-    # 3:00 AM PST Saturday == 11:00 UTC Saturday. Twelve hours clear of the
-    # 23:00 UTC daily run so the two do not contend for the same runners.
+    # 3:00 AM PST Saturday == 11:00 UTC Saturday.
     - cron: '0 11 * * 6'
   workflow_dispatch:
     inputs:
@@ -60,12 +60,12 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Weekly rows from ci/build-matrix.json.
+  # configure-matrix: flatten ci/build-matrix.json into one entry per leg.
   #
-  # Delegates to ci/scripts/resolve-matrix.sh which filters type=Weekly rows
-  # and expands each row's "suites" array into one flat entry per suite. The
-  # scheduled run always takes the complete matrix; manual dispatch can narrow
-  # it to one variant, or one variant and suite.
+  # Delegates to ci/scripts/resolve-matrix.sh, which expands each row's
+  # "suites" array into one flat entry per suite. The scheduled run always
+  # takes the complete matrix; manual dispatch can narrow it to one variant,
+  # or one variant and suite.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure weekly matrix
@@ -94,29 +94,29 @@ jobs:
 
           case "$BUILD_SCOPE" in
             "Full matrix")
-              echo "Source: ci/build-matrix.json (full Weekly matrix)"
-              args=(--type Weekly)
+              echo "Source: ci/build-matrix.json (full matrix)"
+              args=()
               ;;
             "Selected variant (all suites)")
               echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
-              args=(--type Weekly --kernel-variant "$INPUT_VARIANT")
+              args=(--kernel-variant "$INPUT_VARIANT")
               ;;
             "Selected variant and suite")
               echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
-              args=(--type Weekly --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
+              args=(--kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
               ;;
             *)
               echo "ERROR: unsupported build scope: $BUILD_SCOPE" >&2
               exit 1
               ;;
           esac
-          MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
+          MATRIX=$(ci/scripts/resolve-matrix.sh ${args[@]+"${args[@]}"})
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per flat Weekly matrix entry.
+  # build: one parallel job per flat matrix entry.
   #
   # Passes target_workspace, so build-kernel-debusine.yml takes the Debusine
   # promotion path (lib/release) instead of the S3 publish path. That job is

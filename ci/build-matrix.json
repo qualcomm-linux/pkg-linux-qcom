@@ -6,7 +6,6 @@
   "deliveries": [
     {
       "kernel_variant": "qcom-next",
-      "type": "Daily",
       "suites": [
         "trixie",
         "forky"
@@ -19,31 +18,11 @@
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
-    },
-    {
-      "kernel_variant": "qcom-next",
-      "type": "Weekly",
-      "suites": [
-        "trixie",
-        "forky"
-      ],
-      "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next",
-      "ref_strategy": "latest_tag",
-      "tag_pattern": "qcom-next-*",
-      "srcpkg": "linux-qcom-next",
-      "binpkg": "linux-image-qcom-next",
-      "kernel_config": [],
-      "debian_version_stub": "0qli",
-      "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
       "target_workspace": "qli"
     },
     {
       "kernel_variant": "qcom-next-debug",
-      "type": "Daily",
       "suites": [
         "trixie",
         "forky"
@@ -58,33 +37,11 @@
         "intree:qcom_debug"
       ],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
-    },
-    {
-      "kernel_variant": "qcom-next-debug",
-      "type": "Weekly",
-      "suites": [
-        "trixie",
-        "forky"
-      ],
-      "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next",
-      "ref_strategy": "latest_tag",
-      "tag_pattern": "qcom-next-*",
-      "srcpkg": "linux-qcom-next-debug",
-      "binpkg": "linux-image-qcom-next-debug",
-      "kernel_config": [
-        "intree:qcom_debug"
-      ],
-      "debian_version_stub": "0qli",
-      "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
       "target_workspace": "qli"
     },
     {
       "kernel_variant": "arduino",
-      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
@@ -96,13 +53,11 @@
       "binpkg": "linux-image-arduino",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
       "target_workspace": "qli"
     },
     {
       "kernel_variant": "mainline",
-      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
@@ -114,13 +69,11 @@
       "binpkg": "linux-image-mainline",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
       "target_workspace": "qli"
     },
     {
       "kernel_variant": "next",
-      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
@@ -133,7 +86,6 @@
       "binpkg": "linux-image-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
       "target_workspace": "qli"
     }

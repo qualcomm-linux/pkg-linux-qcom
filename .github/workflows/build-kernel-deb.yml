@@ -47,7 +47,7 @@ on:
         required: false
         default: ''
       debian-version-stub:
-        description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
+        description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a non-promoting trailing ~ are applied automatically'
         required: false
         default: '0qli'
       localversion:
@@ -82,7 +82,7 @@ on:
         required: false
         default: ''
 
-  # Called by daily.yml and weekly.yml as a reusable workflow.
+  # Called by weekly.yml as a reusable workflow.
   workflow_call:
     inputs:
       kernel-variant:
@@ -138,7 +138,7 @@ on:
         type: string
         default: ''
       target-workspace:
-        description: 'Debusine target workspace for release promotion (empty = daily/S3 path)'
+        description: 'Debusine target workspace for release promotion (empty = S3 artifact path)'
         type: string
         default: ''
       pkg-linux-qcom-ref:
@@ -230,7 +230,7 @@ jobs:
         # suite_suffix_mapping are available.
         #
         # github.sha is the *caller's* commit, so it only names a CI commit
-        # when the caller itself runs on main, as daily.yml and weekly.yml do.
+        # when the caller itself runs on main, as weekly.yml does.
         # A caller on a packaging branch must pass ci-ref, or the sparse
         # checkout silently yields nothing and the copy below fails.
         uses: actions/checkout@v4
@@ -348,12 +348,11 @@ jobs:
           fi
 
       - name: Resolve Debian revision
-        # workflow_call callers (daily.yml, weekly.yml) pass an already
-        # fully-derived debian-revision from resolve-matrix.sh. Direct
-        # workflow_dispatch runs pass only debian-version-stub and get the
-        # selected suite's mapped suffix applied automatically, always using
-        # Daily semantics since direct dispatch is build-only and
-        # non-promoting.
+        # weekly.yml passes an already fully-derived debian-revision from
+        # resolve-matrix.sh. Direct workflow_dispatch runs pass only
+        # debian-version-stub and get the selected suite's mapped suffix
+        # applied automatically, plus the non-promoting "~" since a direct
+        # dispatch is build-only and never promoted.
         env:
           DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
           DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli' }}
@@ -367,7 +366,7 @@ jobs:
             DEBIAN_REVISION=$(ci/scripts/derive-debian-revision.sh \
               --stub "$DEBIAN_VERSION_STUB_INPUT" \
               --suite "$DISTRO" \
-              --delivery-type Daily \
+              --non-promoting \
               --matrix-file ci/build-matrix.json)
             echo "Derived Debian revision for direct dispatch: $DEBIAN_REVISION"
           fi

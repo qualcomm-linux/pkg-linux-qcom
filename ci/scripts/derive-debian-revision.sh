@@ -6,12 +6,13 @@ set -euo pipefail
 # Derive the suite-specific Debian revision for one delivery leg.
 #
 # Formula:
-#   debian_revision = stub + suite_suffix_mapping[suite] + delivery_suffix
-#   delivery_suffix: Daily -> "~", Weekly -> ""
+#   debian_revision = stub + suite_suffix_mapping[suite] [+ "~"]
 #
-# The suffix records where a delivery is going, not how its ref was chosen:
-# Daily publishes artifacts and sorts below Weekly, which promotes into a
-# production workspace.
+# A matrix delivery is promoted to a production workspace and takes no trailing
+# "~". A build that is not promoted takes one, which sorts it below every
+# promoted package with the same stub and suite. Today the only non-promoted
+# builds are direct build-kernel-deb.yml dispatches, so a hand-run validation
+# build can never produce a version that outranks a real delivery.
 #
 # This is the single implementation of the formula. It is called both by
 # resolve-matrix.sh (once per flattened leg) and by build-kernel-deb.yml's
@@ -19,8 +20,8 @@ set -euo pipefail
 # and its validation live in exactly one place.
 #
 # Usage:
-#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite trixie --delivery-type Daily
-#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite forky --delivery-type Weekly --matrix-file ci/build-matrix.json
+#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite trixie
+#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite forky --non-promoting --matrix-file ci/build-matrix.json
 #
 # Options:
 #   --stub STUB            Debian version stub. Must be non-empty and must not
@@ -28,7 +29,8 @@ set -euo pipefail
 #                            trailing ~). Required.
 #   --suite SUITE          Target suite; must have an entry in
 #                            suite_suffix_mapping. Required.
-#   --delivery-type TYPE   Daily or Weekly. Required.
+#   --non-promoting        Append the trailing "~" for a build that is not
+#                            promoted. Omit for a matrix delivery.
 #   --matrix-file FILE     Path to the matrix JSON containing
 #                            suite_suffix_mapping
 #                            (default: ci/build-matrix.json relative to CWD).
@@ -39,11 +41,11 @@ set -euo pipefail
 # Exit codes:
 #   0  Success.
 #   1  Error (invalid args, malformed or missing suite_suffix_mapping,
-#      unmapped suite, unsupported delivery type).
+#      unmapped suite).
 
 STUB=""
 SUITE=""
-DELIVERY_TYPE=""
+NON_PROMOTING="false"
 MATRIX_FILE="ci/build-matrix.json"
 
 usage() {
@@ -53,18 +55,17 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --stub)          STUB="$2";          shift 2 ;;
-        --suite)         SUITE="$2";         shift 2 ;;
-        --delivery-type) DELIVERY_TYPE="$2"; shift 2 ;;
-        --matrix-file)   MATRIX_FILE="$2";   shift 2 ;;
-        -h|--help)       usage ;;
+        --stub)           STUB="$2";        shift 2 ;;
+        --suite)          SUITE="$2";       shift 2 ;;
+        --non-promoting)  NON_PROMOTING="true"; shift ;;
+        --matrix-file)    MATRIX_FILE="$2"; shift 2 ;;
+        -h|--help)        usage ;;
         *) echo "ERROR: Unknown option: $1" >&2; usage ;;
     esac
 done
 
 [[ -n "$STUB" ]]          || { echo "ERROR: --stub is required" >&2; exit 1; }
 [[ -n "$SUITE" ]]         || { echo "ERROR: --suite is required" >&2; exit 1; }
-[[ -n "$DELIVERY_TYPE" ]] || { echo "ERROR: --delivery-type is required" >&2; exit 1; }
 [[ "$STUB" != *"~" ]]     || { echo "ERROR: --stub must not end in ~ (got '$STUB')" >&2; exit 1; }
 [[ -f "$MATRIX_FILE" ]]   || { echo "ERROR: Matrix file not found: $MATRIX_FILE" >&2; exit 1; }
 
@@ -112,13 +113,10 @@ SUFFIX=$(jq -r --arg suite "$SUITE" '.suite_suffix_mapping[$suite] // "__MISSING
     exit 1
 }
 
-case "$DELIVERY_TYPE" in
-    Daily)   DELIVERY_SUFFIX="~" ;;
-    Weekly)  DELIVERY_SUFFIX="" ;;
-    *)
-        echo "ERROR: --delivery-type must be Daily or Weekly (got '$DELIVERY_TYPE')" >&2
-        exit 1
-        ;;
-esac
+if [[ "$NON_PROMOTING" == "true" ]]; then
+    PROMOTION_SUFFIX="~"
+else
+    PROMOTION_SUFFIX=""
+fi
 
-echo "${STUB}${SUFFIX}${DELIVERY_SUFFIX}"
+echo "${STUB}${SUFFIX}${PROMOTION_SUFFIX}"

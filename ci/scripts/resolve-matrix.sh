@@ -3,42 +3,33 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 set -euo pipefail
 
-# Resolve and flatten the kernel delivery matrix for a given delivery type.
+# Resolve and flatten the kernel delivery matrix.
 #
 # The matrix root is an object with two top-level keys:
 #   - "suite_suffix_mapping": a suite -> Debian suffix map shared by every
 #     kernel variant and delivery type (e.g. "trixie": "~bpo13+1").
-#   - "deliveries": the matrix rows. Each kernel_variant owns at most one row
-#     of each delivery type, and at least one of them:
-#       Daily    artifacts to S3, never promoted.
-#       Weekly   promoted to target_workspace when the build passes.
-#     Both resolve their kernel ref at run time, from the row's latest_tag or
-#     branch_tip strategy. No delivery pins a ref: a matrix row is a standing
-#     description of what to track, never a record of one chosen commit. A row
-#     declares every input needed by that delivery, including a
-#     debian_version_stub. Two fields are list-valued: suites, which is
-#     expanded into isolated legs, and kernel_config, which is one config
-#     fragment per element.
+#   - "deliveries": the matrix rows, one per kernel_variant. Every delivery is
+#     the same kind of thing — resolve the row's ref at run time from its
+#     latest_tag or branch_tip strategy, build it, and promote it to
+#     target_workspace if the build passes — so a row needs no delivery type to
+#     distinguish it. A matrix row is a standing description of what to track,
+#     never a record of one chosen commit. A row declares every input needed by
+#     that delivery, including a debian_version_stub. Two fields are
+#     list-valued: suites, which is expanded into isolated legs, and
+#     kernel_config, which is one config fragment per element.
 #
 # Each flattened leg's final debian_revision is derived from
-# debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
+# debian_version_stub and suite_suffix_mapping[suite] via
 # ci/scripts/derive-debian-revision.sh, so the formula has exactly one
-# implementation shared with build-kernel-deb.yml's direct-dispatch path. Each
-# row also carries debian_version_suffix ("~" for Daily, "" for Weekly) as a
-# visible, validated record of that mapping; it is checked against the row's
-# type but never fed into derivation, so a copy/paste error here fails fast
-# instead of silently drifting from the formula's single implementation.
+# implementation shared with build-kernel-deb.yml's direct-dispatch path.
 #
 # Usage:
-#   ci/scripts/resolve-matrix.sh --type Daily
-#   ci/scripts/resolve-matrix.sh --type Weekly
-#   ci/scripts/resolve-matrix.sh --type Daily --single-suite trixie
-#   ci/scripts/resolve-matrix.sh --type Daily --kernel-variant qcom-next
-#   ci/scripts/resolve-matrix.sh --type Daily --matrix-file path/to/matrix.json
+#   ci/scripts/resolve-matrix.sh
+#   ci/scripts/resolve-matrix.sh --single-suite trixie
+#   ci/scripts/resolve-matrix.sh --kernel-variant qcom-next
+#   ci/scripts/resolve-matrix.sh --matrix-file path/to/matrix.json
 #
 # Options:
-#   --type TYPE                Delivery type to filter (Daily or Weekly).
-#                                Required.
 #   --single-suite SUITE       Emit only entries for this suite.
 #   --kernel-variant VARIANT   Emit only entries for this kernel variant.
 #   --matrix-file FILE         Path to the matrix JSON file
@@ -47,8 +38,8 @@ set -euo pipefail
 # Output:
 #   Compact JSON array to stdout. Every entry has a single suite, the
 #   kernel_variant that scopes its artifacts, Debusine workspace, and logs,
-#   and a suite-specific debian_revision (debian_version_stub and
-#   debian_version_suffix are consumed and removed). kernel_config is joined
+#   and a suite-specific debian_revision (debian_version_stub is consumed and
+#   removed). kernel_config is joined
 #   into the comma-separated string that build-kernel-deb.yml's kernel-config
 #   input and prepare-source.sh's --kernel-config expect.
 #
@@ -57,7 +48,6 @@ set -euo pipefail
 #   1  Error (invalid arguments, matrix validation failure, no matching
 #      entry, revision derivation failure).
 
-TYPE=""
 SINGLE_SUITE=""
 KERNEL_VARIANT=""
 MATRIX_FILE="ci/build-matrix.json"
@@ -69,7 +59,6 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --type)           TYPE="$2";           shift 2 ;;
         --single-suite)   SINGLE_SUITE="$2";   shift 2 ;;
         --kernel-variant) KERNEL_VARIANT="$2"; shift 2 ;;
         --matrix-file)    MATRIX_FILE="$2";    shift 2 ;;
@@ -78,10 +67,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "$TYPE" == "Daily" || "$TYPE" == "Weekly" ]] || {
-    echo "ERROR: --type must be Daily or Weekly" >&2
-    exit 1
-}
 [[ -f "$MATRIX_FILE" ]] || { echo "ERROR: Matrix file not found: $MATRIX_FILE" >&2; exit 1; }
 
 jq empty "$MATRIX_FILE" 2>/dev/null \
@@ -139,13 +124,13 @@ validation_errors=$(jq -r '
       . as $row |
       [
         required_string("kernel_variant"),
-      required_string("type"),
       required_string("git_clone"),
       required_string("branch_or_tag"),
       required_string("ref_strategy"),
       required_string("srcpkg"),
       required_string("binpkg"),
       required_string("debian_version_stub"),
+      required_string("target_workspace"),
       optional_string("pkg_linux_qcom_ref"),
       optional_string("debusine_parent_workspace"),
       optional_string("localversion"),
@@ -156,15 +141,6 @@ validation_errors=$(jq -r '
       if (.debian_version_stub | type) == "string" and (.debian_version_stub | test("~$"))
       then "debian_version_stub must not end in ~"
       else empty end,
-      if (has("debian_version_suffix") | not) or (.debian_version_suffix | type) != "string"
-      then "missing or invalid debian_version_suffix"
-      elif .type == "Daily" and .debian_version_suffix != "~"
-      then "debian_version_suffix must be \"~\" for Daily rows (got \"" + (.debian_version_suffix | tostring) + "\")"
-      elif .type == "Weekly" and .debian_version_suffix != ""
-      then "debian_version_suffix must be \"\" for Weekly rows (got \"" + (.debian_version_suffix | tostring) + "\")"
-      else empty end,
-      if (.type == "Daily" or .type == "Weekly")
-      then empty else "type must be Daily or Weekly" end,
       if (.ref_strategy == "latest_tag" or .ref_strategy == "branch_tip")
       then empty
       else "ref_strategy must be latest_tag or branch_tip; every delivery resolves its ref at run time"
@@ -173,12 +149,6 @@ validation_errors=$(jq -r '
       then required_string("tag_pattern")
       elif has("tag_pattern")
       then "tag_pattern is only valid with ref_strategy=latest_tag"
-      else empty
-      end,
-      if .type == "Weekly"
-      then required_string("target_workspace")
-      elif has("target_workspace")
-      then "target_workspace is only valid for Weekly"
       else empty
         end
       ] | .[] | "row " + ($index | tostring) + " (" + (($row.kernel_variant // "unknown") | tostring) + "): " + .
@@ -204,25 +174,10 @@ validation_errors=$(jq -r '
         | .[]
         | . as $rows
         | (($rows[0].kernel_variant // "unknown") | tostring) as $variant
-        | ([ $rows[] | select(.type == "Daily") ] | length) as $dailies
-        | ([ $rows[] | select(.type == "Weekly") ] | length) as $weeklies
-        | ([ $rows[].srcpkg ] | unique) as $srcpkgs
-        | ([ $rows[].binpkg ] | unique) as $binpkgs
-        | ([ $rows[].debian_version_stub ] | unique) as $stubs
-        | if $dailies > 1
-          then "kernel_variant " + $variant + " must define at most one Daily row"
-          elif $weeklies > 1
-          then "kernel_variant " + $variant + " must define at most one Weekly row"
-          elif ($dailies + $weeklies) == 0
-          then "kernel_variant " + $variant + " must define a Daily or Weekly row"
-          elif ($rows | length) != ($dailies + $weeklies)
-          then "kernel_variant " + $variant + " must define only Daily and Weekly rows"
-          elif ($srcpkgs | length) != 1
-          then "kernel_variant " + $variant + " must use one srcpkg across its rows"
-          elif ($binpkgs | length) != 1
-          then "kernel_variant " + $variant + " must use one binpkg across its rows"
-          elif ($stubs | length) != 1
-          then "kernel_variant " + $variant + " must use one debian_version_stub across its rows"
+        | if ($rows | length) != 1
+          then "kernel_variant " + $variant + " is defined by "
+               + ($rows | length | tostring)
+               + " rows; each variant is one delivery and must appear once"
           else empty
           end
       ]
@@ -296,12 +251,10 @@ if [[ -n "$validation_errors" ]]; then
 fi
 
 result=$(jq -c \
-    --arg type "$TYPE" \
     --arg single_suite "$SINGLE_SUITE" \
     --arg kernel_variant "$KERNEL_VARIANT" '
       [
         .deliveries[]
-        | select(.type == $type)
         | select($kernel_variant == "" or .kernel_variant == $kernel_variant)
         | . as $row
         | (
@@ -318,38 +271,37 @@ result=$(jq -c \
       ]
       | if length == 0
         then error(
-          "no matrix entries found for type=" + $type
-          + (if $kernel_variant != "" then " kernel_variant=" + $kernel_variant else "" end)
+          "no matrix entries found"
+          + (if $kernel_variant != "" then " for kernel_variant=" + $kernel_variant else "" end)
           + (if $single_suite != "" then " suite=" + $single_suite else "" end)
         )
         else .
         end
     ' "$MATRIX_FILE") || {
-    echo "ERROR: Matrix resolution failed for type=$TYPE${KERNEL_VARIANT:+ kernel_variant=$KERNEL_VARIANT}${SINGLE_SUITE:+ suite=$SINGLE_SUITE}" >&2
+    echo "ERROR: Matrix resolution failed${KERNEL_VARIANT:+ for kernel_variant=$KERNEL_VARIANT}${SINGLE_SUITE:+ suite=$SINGLE_SUITE}" >&2
     exit 1
 }
 
-# Derive each leg's final debian_revision from debian_version_stub,
-# suite_suffix_mapping, and its delivery type. derive-debian-revision.sh is
-# the single implementation of the formula; build-kernel-deb.yml's direct
-# dispatch path calls the same script for the one-suite, no-matrix case.
+# Derive each leg's final debian_revision from debian_version_stub and
+# suite_suffix_mapping. derive-debian-revision.sh is the single implementation
+# of the formula; build-kernel-deb.yml's direct dispatch path calls the same
+# script for the one-suite, no-matrix case.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 final="[]"
 while IFS= read -r leg; do
     suite=$(jq -r '.suite' <<< "$leg")
     stub=$(jq -r '.debian_version_stub' <<< "$leg")
-    delivery_type=$(jq -r '.type' <<< "$leg")
     variant=$(jq -r '.kernel_variant' <<< "$leg")
 
     revision=$("$script_dir/derive-debian-revision.sh" \
-        --stub "$stub" --suite "$suite" --delivery-type "$delivery_type" \
+        --stub "$stub" --suite "$suite" \
         --matrix-file "$MATRIX_FILE") || {
-        echo "ERROR: Failed to derive Debian revision for kernel_variant=$variant suite=$suite type=$delivery_type" >&2
+        echo "ERROR: Failed to derive Debian revision for kernel_variant=$variant suite=$suite" >&2
         exit 1
     }
 
-    leg=$(jq -c --arg rev "$revision" '(. + {debian_revision: $rev}) | del(.debian_version_stub, .debian_version_suffix)' <<< "$leg")
+    leg=$(jq -c --arg rev "$revision" '(. + {debian_revision: $rev}) | del(.debian_version_stub)' <<< "$leg")
     final=$(jq -c --argjson leg "$leg" '. + [$leg]' <<< "$final")
 done < <(jq -c '.[]' <<< "$result")
 
