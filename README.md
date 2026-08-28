@@ -45,10 +45,10 @@ rows into an isolated `kernel_variant + suite` build leg.
 
 The two `qcom-next` variants build the same kernel ref.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
-variant produces a distinct kernel release — `-qcom-next-<date>` and
-`-qcom-next-debug-<date>` from a dated tag, `-arduino-g<sha>` from a branch
-tip — and therefore a distinct versioned image package that can be installed
-alongside the others.
+variant produces a distinct kernel release — `-qcom-next-<tag-date>-<build-date>`
+and `-qcom-next-debug-<tag-date>-<build-date>` from a dated tag,
+`-arduino-g<sha>-<build-date>` from a branch tip — and therefore a distinct
+versioned image package that can be installed alongside the others.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
 
@@ -116,7 +116,7 @@ delivery for a variant derives its final `debian_revision` as
 
 The revision records where a delivery is going, not which ref it was built
 from. Successive Weekly deliveries order against each other by kernel version,
-which is what carries the date.
+which carries the build date (see [Packages](#packages)).
 
 `~` always sorts below the same prefix without it in Debian version ordering,
 so Daily always sorts below Weekly for the same suite and stub.
@@ -264,7 +264,7 @@ Supporting scripts keep workflow YAML small and testable:
 | --- | --- |
 | `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
-| `ci/scripts/derive-localversion.sh` | Derives `LOCALVERSION` from the variant and resolved kernel ref. |
+| `ci/scripts/derive-localversion.sh` | Derives `LOCALVERSION` from the variant, resolved kernel ref, and build date. |
 | `ci/scripts/derive-debian-revision.sh` | Derives the final suite-specific `debian_revision` from `debian_version_stub`, `suite_suffix_mapping`, and delivery type. |
 
 ## Architecture
@@ -414,6 +414,22 @@ For the current matrix, package generation produces:
 | `linux-headers-qcom-next_<version>_arm64.deb` | Headers metapackage. |
 | `linux-image-<kernelrelease>-dbg_<version>_arm64.deb` | Kernel and module debug symbols. |
 
+Every LOCALVERSION ends in the build date, and the packaging rules read that
+trailing `-YYYYMMDD` as the package version's upstream date component:
+
+```text
+LOCALVERSION     -qcom-next-20260821-20260828   (tag date, then build date)
+uname -r      7.2.0-rc7-qcom-next-20260821-20260828
+version              7.2.0~rc7+20260828-0qli
+```
+
+The build date is what makes one delivery's version sort above the last. A tag
+date cannot do that job on its own — a week that adds no new tag would rebuild
+the same version — and a branch tip has no date at all, so its SHA identifies
+the commit while the build date orders the package. Two deliveries built the
+same day from the same base kernel version do still collide; the cadences are
+daily and weekly, so that only arises from re-running a build by hand.
+
 `-rcN` remains in `uname -r`, module paths, boot assets, and versioned package
 names. Only the Debian version field converts it to `~rcN`, so a release
 candidate correctly sorts before the corresponding final kernel release.
@@ -504,9 +520,10 @@ To add a kernel variant:
    must remain identical across the variant's rows. Set
    `debian_version_suffix` to `~` on a Daily row and `""` on a Weekly row;
    `resolve-matrix.sh` rejects any row that disagrees with its own `type`.
-3. Use `latest_tag` with a dated tag glob, or `branch_tip`. Prefer
-   `latest_tag`: the tag's date is what distinguishes one delivery's package
-   version from the next.
+3. Use `latest_tag` with a dated tag glob, or `branch_tip`. Either orders
+   correctly: `derive-localversion.sh` appends the build date whichever is
+   used. Prefer `latest_tag` where the tree publishes dated tags, since the
+   tag date also names the upstream snapshot in `uname -r`.
 4. Give the variant distinct `srcpkg` and `binpkg` values. Set
    `target_workspace` explicitly on a Weekly row.
 5. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
