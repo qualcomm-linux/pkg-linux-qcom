@@ -208,7 +208,6 @@ log_info "Copied $ACTUAL_DEBIAN_DIR -> $SOURCE_DIR/debian"
 # has already been applied.
 ACTIVE_DIR="$SOURCE_DIR/debian/config"
 AVAIL_DIR="$SOURCE_DIR/debian/config-available"
-INTREE_DIR="$SOURCE_DIR/arch/arm64/configs"
 mkdir -p "$ACTIVE_DIR"
 
 log_step "Applying all packaging fragments from debian/config-available/"
@@ -233,22 +232,45 @@ if [[ -n "$KERNEL_CONFIG" ]]; then
         if [[ "$cfg" == intree:* ]]; then
             # In-tree fragment, shipped by the kernel source rather than by this
             # repository. Referenced instead of vendored so it stays versioned
-            # with the kernel it targets.
-            frag="${cfg#intree:}"
-            frag="${frag%.config}.config"
-            src="$INTREE_DIR/$frag"
-            [[ -f "$src" ]] || {
-                log_error "In-tree fragment not found: arch/arm64/configs/$frag"
-                log_error "Available: $(ls "$INTREE_DIR"/*.config 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
+            # with the kernel it targets. The entry spells the whole path
+            # relative to the kernel source root, so fragments outside
+            # arch/arm64/configs/ are reachable too (kernel/configs/debug.config).
+            path="${cfg#intree:}"
+            case "$path" in
+                "" | /* | ".." | "../"* | *"/../"* | *"/..")
+                    log_error "Invalid in-tree fragment: ${cfg}"
+                    log_error "Expected a path relative to the kernel source root, e.g. intree:arch/arm64/configs/qcom_debug.config"
+                    exit 1
+                    ;;
+            esac
+            # debian/rules globs debian/config/*.config, so a fragment named
+            # anything else would be copied in and then silently ignored.
+            [[ "$path" == *.config ]] || {
+                log_error "In-tree fragment must name a .config file: $cfg"
+                log_error "Spell the whole path, e.g. intree:arch/arm64/configs/qcom_debug.config"
                 exit 1
             }
+            src="$SOURCE_DIR/$path"
+            frag="$(basename "$path")"
+            dir="$(dirname "$path")"
+            [[ -f "$src" ]] || {
+                log_error "In-tree fragment not found: $path"
+                log_error "Paths are relative to the kernel source root ($SOURCE_DIR)."
+                avail="$(ls "$SOURCE_DIR/$dir"/*.config 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
+                [[ -n "$avail" ]] && log_error "Available in $dir/: $avail"
+                exit 1
+            }
+            # The fragment keeps only its basename in debian/config/, so two
+            # in-tree paths can collide with each other as well as with a
+            # packaging fragment (kernel/configs/hardening.config and
+            # arch/arm64/configs/hardening.config both exist).
             [[ -e "$ACTIVE_DIR/$frag" ]] && {
                 log_error "Fragment name collision in debian/config/: $frag"
-                log_error "An in-tree fragment must not share a filename with a packaging fragment."
+                log_error "An in-tree fragment must not share a filename with an already applied fragment."
                 exit 1
             }
             cp "$src" "$ACTIVE_DIR/$frag"
-            log_info "  Applied: $frag (from arch/arm64/configs)"
+            log_info "  Applied: $frag (from $dir)"
         else
             frag="${cfg%.config}.config"
             [[ -f "$AVAIL_DIR/$frag" ]] || {
