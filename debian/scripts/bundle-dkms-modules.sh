@@ -447,9 +447,42 @@ for name in $DKMS_MODULES; do
         install -D -m 644 "$ko" "$dest"
 
         # Stage 2: extract debug symbols before stripping (non-destructive read)
+        # Falling back to a full copy keeps the -dbg package usable when objcopy
+        # cannot extract, but that is a degradation, not a normal outcome:
+        # report what objcopy said instead of discarding it.
         mkdir -p "${dbg%/*}"
-        "$OBJCOPY" --only-keep-debug "$dest" "$dbg" 2>/dev/null \
-            || cp -a "$dest" "$dbg"
+        if ! objcopy_err="$("$OBJCOPY" --only-keep-debug "$dest" "$dbg" 2>&1)"; then
+            log_warn "objcopy --only-keep-debug failed for $b; copying the module instead"
+            printf '%s\n' "$objcopy_err" | sed 's/^/  | /' >&2
+            cp -a "$dest" "$dbg"
+        fi
+
+        # Stage 2b: the extraction above succeeds even when there is nothing to
+        # extract, so assert the result actually carries DWARF.
+        #
+        # Capture readelf's output rather than piping it into `grep -q`: grep -q
+        # exits at the first match, readelf dies of SIGPIPE on its next write,
+        # and under `set -o pipefail` the pipeline reports that failure — firing
+        # this assertion on a file that does carry DWARF. Whether readelf gets
+        # far enough to be killed depends on stdio flush timing, so the pipeline
+        # form fails only sometimes, which is worse than failing always.
+        if ! dbg_sections="$(readelf -SW "$dbg" 2>&1)"; then
+            log_error "readelf failed on the extracted debug file for $b"
+            log_error "  debug:  $dbg"
+            printf '%s\n' "$dbg_sections" | sed 's/^/  | /' >&2
+            exit 1
+        fi
+        if ! grep -q '\.debug_info' <<< "$dbg_sections"; then
+            log_error "No DWARF in the extracted debug file for $b"
+            log_error "  module: $ko"
+            log_error "  debug:  $dbg"
+            log_error "The -dbg package would ship a debug file with no symbols."
+            log_error "Check that the module was compiled with debug information"
+            log_error "and that nothing stripped it before this script ran."
+            log_error "Sections in the extracted debug file:"
+            printf '%s\n' "$dbg_sections" | sed 's/^/  | /' >&2
+            exit 1
+        fi
 
         # Stage 3: strip the shipped copy in place
         strip --strip-debug "$dest"
