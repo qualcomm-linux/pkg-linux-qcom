@@ -60,7 +60,9 @@ The final Production matrix is conceptually:
       "tag_pattern": "qcom-next-*",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
-      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "kernel_config": [
+        "squashfs", "systemd-boot", "qcom-imsdk", "docker", "qemu-boot", "usb-can"
+      ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -74,7 +76,9 @@ The final Production matrix is conceptually:
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
-      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "kernel_config": [
+        "squashfs", "systemd-boot", "qcom-imsdk", "docker", "qemu-boot", "usb-can"
+      ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
@@ -183,7 +187,7 @@ its own values for:
 | `tag_pattern` | Required only for `latest_tag`; matching tags must end in `-YYYYMMDD`, which determines newest-first ordering. |
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
-| `kernel_config` | Comma-separated fragments activated from `debian/config-available/`. |
+| `kernel_config` | Array of fragments activated from `debian/config-available/`, one per element. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |

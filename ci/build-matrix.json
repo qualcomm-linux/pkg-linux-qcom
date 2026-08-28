@@ -19,7 +19,14 @@
       "tag_pattern": "qcom-next-*",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
-      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "kernel_config": [
+        "squashfs",
+        "systemd-boot",
+        "qcom-imsdk",
+        "docker",
+        "qemu-boot",
+        "usb-can"
+      ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -37,7 +44,14 @@
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
-      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can",
+      "kernel_config": [
+        "squashfs",
+        "systemd-boot",
+        "qcom-imsdk",
+        "docker",
+        "qemu-boot",
+        "usb-can"
+      ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -55,7 +69,15 @@
       "tag_pattern": "qcom-next-*",
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
-      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can,intree:qcom_debug",
+      "kernel_config": [
+        "squashfs",
+        "systemd-boot",
+        "qcom-imsdk",
+        "docker",
+        "qemu-boot",
+        "usb-can",
+        "intree:qcom_debug"
+      ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -73,7 +95,15 @@
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
-      "kernel_config": "squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can,intree:qcom_debug",
+      "kernel_config": [
+        "squashfs",
+        "systemd-boot",
+        "qcom-imsdk",
+        "docker",
+        "qemu-boot",
+        "usb-can",
+        "intree:qcom_debug"
+      ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
