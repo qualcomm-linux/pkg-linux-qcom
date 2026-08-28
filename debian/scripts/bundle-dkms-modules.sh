@@ -447,11 +447,15 @@ for name in $DKMS_MODULES; do
                          | sed -n 's/^[[:space:]]*BUILD_EXCLUSIVE_CONFIG=//p' \
                          | tr -d '"')"
                     [[ -n "$c" ]] || continue
-                    if grep -q "^${c}=[ym]" "$kernel_config" 2>/dev/null; then
-                        echo "  | $c is set in this kernel's config" >&2
-                    else
-                        echo "  | $c is NOT set in this kernel's config" >&2
-                    fi
+                    # BUILD_EXCLUSIVE_CONFIG may name several options, space
+                    # separated, all of which must be set.
+                    for one in $c; do
+                        if grep -q "^${one}=[ym]" "$kernel_config" 2>/dev/null; then
+                            echo "  | $one is set in this kernel's config" >&2
+                        else
+                            echo "  | $one is NOT set in this kernel's config" >&2
+                        fi
+                    done
                 done <<< "$gates"
                 echo "  This kernel: $KVER, dkms arch $DKMS_ARCH." >&2
             else
