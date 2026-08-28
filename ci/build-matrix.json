@@ -5,6 +5,39 @@
   },
   "variants": [
     {
+      "variant": "linux-mainline",
+      "suites": [
+        "trixie",
+        "forky"
+      ],
+      "git_clone": "https://github.com/torvalds/linux",
+      "branch_or_tag": "master",
+      "ref_strategy": "branch_tip",
+      "srcpkg": "linux-mainline",
+      "binpkg": "linux-image-mainline",
+      "kernel_config": [],
+      "debian_version_stub": "0qli",
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
+    },
+    {
+      "variant": "linux-next",
+      "suites": [
+        "trixie",
+        "forky"
+      ],
+      "git_clone": "https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git",
+      "branch_or_tag": "master",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "next-*",
+      "srcpkg": "linux-next",
+      "binpkg": "linux-image-next",
+      "kernel_config": [],
+      "debian_version_stub": "0qli",
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
+    },
+    {
       "variant": "qcom-next",
       "suites": [
         "trixie",
@@ -51,39 +84,6 @@
       "ref_strategy": "branch_tip",
       "srcpkg": "linux-qcom-arduino",
       "binpkg": "linux-image-qcom-arduino",
-      "kernel_config": [],
-      "debian_version_stub": "0qli",
-      "pkg_linux_qcom_ref": "qcom/debian/latest",
-      "target_workspace": "qli"
-    },
-    {
-      "variant": "linux-mainline",
-      "suites": [
-        "trixie",
-        "forky"
-      ],
-      "git_clone": "https://github.com/torvalds/linux",
-      "branch_or_tag": "master",
-      "ref_strategy": "branch_tip",
-      "srcpkg": "linux-mainline",
-      "binpkg": "linux-image-mainline",
-      "kernel_config": [],
-      "debian_version_stub": "0qli",
-      "pkg_linux_qcom_ref": "qcom/debian/latest",
-      "target_workspace": "qli"
-    },
-    {
-      "variant": "linux-next",
-      "suites": [
-        "trixie",
-        "forky"
-      ],
-      "git_clone": "https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git",
-      "branch_or_tag": "master",
-      "ref_strategy": "latest_tag",
-      "tag_pattern": "next-*",
-      "srcpkg": "linux-next",
-      "binpkg": "linux-image-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
       "pkg_linux_qcom_ref": "qcom/debian/latest",

@@ -31,11 +31,11 @@ leg.
 
 | Variant | Source package | Image metapackage | Delivery (all trixie, forky) | Notes |
 |---------|----------------|-------------------|--------------------------------|-------|
+| `linux-mainline` | `linux-mainline` | `linux-image-mainline` | Weekly → `qli` | Tracks the tip of `master` in `torvalds/linux` |
+| `linux-next` | `linux-next` | `linux-image-next` | Weekly → `qli` | Tracks the newest `next-YYYYMMDD` tag of the linux-next tree |
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | Weekly → `qli` | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | Weekly → `qli` | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
 | `qcom-arduino` | `linux-qcom-arduino` | `linux-image-qcom-arduino` | Weekly → `qli` | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics` |
-| `linux-mainline` | `linux-mainline` | `linux-image-mainline` | Weekly → `qli` | Tracks the tip of `master` in `torvalds/linux` |
-| `linux-next` | `linux-next` | `linux-image-next` | Weekly → `qli` | Tracks the newest `next-YYYYMMDD` tag of the linux-next tree |
 
 The two `qcom-next` variants build the same kernel ref.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
@@ -251,7 +251,7 @@ flowchart TD
 
     subgraph matrix[Matrix entry point]
         B1["configure-matrix\nFlatten matrix rows"]
-        B2["variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\nqcom-arduino / trixie · forky\nlinux-mainline / trixie · forky\nlinux-next / trixie · forky"]
+        B2["variant + suite legs\nlinux-mainline / trixie · forky\nlinux-next / trixie · forky\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\nqcom-arduino / trixie · forky"]
     end
 
     subgraph orchestrator[build-kernel-deb.yml]
