@@ -12,7 +12,10 @@ set -euo pipefail
 #     Daily row and one Release row. A row declares every input needed by
 #     that delivery, including a debian_version_stub. Two fields are
 #     list-valued: suites, which is expanded into isolated legs, and
-#     kernel_config, which is one config fragment per element.
+#     kernel_config, which is one config fragment per element. A fragment is
+#     either a bare name from debian/config-available/ or an "intree:" entry
+#     naming a path relative to the kernel source root
+#     (e.g. intree:arch/arm64/configs/qcom_debug.config).
 #
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
@@ -103,6 +106,22 @@ validation_errors=$(jq -r '
     else "kernel_variant must use lowercase letters, digits, and internal hyphens"
     end;
 
+  # An "intree:" entry names a fragment shipped by the kernel source, as a
+  # path relative to the kernel source root (e.g.
+  # intree:arch/arm64/configs/qcom_debug.config). Reject absolute paths,
+  # ".." traversal, and anything not ending in .config so a typo fails here
+  # rather than deep inside prepare-source.sh.
+  def intree_path_valid:
+    .[7:] as $path |
+    ($path | test("^([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\\.config$"))
+    and (($path | test("(^|/)\\.\\.(/|$)")) | not);
+
+  # Every fragment lands in debian/config/ under its basename, so two entries
+  # sharing one basename (e.g. arch/arm64/configs/hardening.config and
+  # kernel/configs/hardening.config) collide there.
+  def fragment_basename:
+    sub("^intree:"; "") | sub("^.*/"; "") | sub("\\.config$"; "");
+
   def kernel_config_valid:
     if (.kernel_config | type) != "array"
     then "kernel_config must be an array"
@@ -112,6 +131,10 @@ validation_errors=$(jq -r '
     then "kernel_config entries must not contain commas; use one array element per fragment"
     elif ([.kernel_config[]] | unique | length) != (.kernel_config | length)
     then "kernel_config must not contain duplicates"
+    elif any(.kernel_config[]; startswith("intree:") and (intree_path_valid | not))
+    then "intree: entries must be a kernel-source-relative path ending in .config (e.g. intree:arch/arm64/configs/qcom_debug.config)"
+    elif ([.kernel_config[] | fragment_basename] | unique | length) != (.kernel_config | length)
+    then "kernel_config entries must not resolve to the same fragment filename"
     else empty
     end;
 

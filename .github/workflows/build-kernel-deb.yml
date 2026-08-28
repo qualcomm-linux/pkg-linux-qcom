@@ -43,7 +43,7 @@ on:
         required: false
         default: 'linux-image-qcom-next'
       kernel-config:
-        description: 'Advanced: extra config fragments applied on top of all of debian/config-available/ (e.g. intree:qcom_debug)'
+        description: 'Advanced: extra config fragments applied on top of all of debian/config-available/ (e.g. intree:arch/arm64/configs/qcom_debug.config)'
         required: false
         default: ''
       debian-version-stub:
@@ -118,7 +118,7 @@ on:
         type: string
         default: 'linux-image-qcom-next'
       kernel-config:
-        description: 'Extra config fragments applied on top of all of debian/config-available/ (e.g. intree:qcom_debug)'
+        description: 'Extra config fragments applied on top of all of debian/config-available/ (e.g. intree:arch/arm64/configs/qcom_debug.config)'
         type: string
         default: ''
       debian-revision:
