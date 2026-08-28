@@ -38,7 +38,7 @@
       "target_workspace": "qli"
     },
     {
-      "variant": "qcom-next",
+      "variant": "linux-qcom-next",
       "suites": [
         "trixie",
         "forky"
@@ -55,7 +55,7 @@
       "target_workspace": "qli"
     },
     {
-      "variant": "qcom-next-debug",
+      "variant": "linux-qcom-next-debug",
       "suites": [
         "trixie",
         "forky"
@@ -74,7 +74,7 @@
       "target_workspace": "qli"
     },
     {
-      "variant": "qcom-arduino",
+      "variant": "linux-qcom-arduino",
       "suites": [
         "trixie",
         "forky"

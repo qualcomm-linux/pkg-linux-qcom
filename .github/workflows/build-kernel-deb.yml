@@ -6,7 +6,7 @@ on:
       kernel-variant:
         description: 'Kernel variant identifier'
         required: true
-        default: 'qcom-next'
+        default: 'linux-qcom-next'
         type: string
       suite:
         description: 'Target suite'
@@ -88,7 +88,7 @@ on:
       kernel-variant:
         description: 'Kernel variant identifier'
         type: string
-        default: 'qcom-next'
+        default: 'linux-qcom-next'
       suite:
         description: 'Target suite (trixie, forky, noble, questing, resolute, sid)'
         type: string
@@ -179,7 +179,7 @@ jobs:
         shell: bash
         env:
           SUITE_INPUT: ${{ inputs.suite || 'trixie' }}
-          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
+          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'linux-qcom-next' }}
         run: |
           suite="$SUITE_INPUT"
           kernel_variant="$KERNEL_VARIANT_INPUT"
@@ -290,7 +290,7 @@ jobs:
           BRANCH_INPUT: ${{ inputs.kernel-branch || 'qcom-next' }}
           REF_STRATEGY_INPUT: ${{ inputs.ref-strategy || 'latest_tag' }}
           TAG_PATTERN_INPUT: ${{ inputs.tag-pattern || 'qcom-next-*' }}
-          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
+          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'linux-qcom-next' }}
         run: |
           set -euo pipefail
           BRANCH="$BRANCH_INPUT"
@@ -331,7 +331,7 @@ jobs:
       - name: Derive LOCALVERSION
         env:
           LOCALVERSION_INPUT: ${{ inputs.localversion }}
-          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
+          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'linux-qcom-next' }}
         run: |
           set -euo pipefail
           OVERRIDE_LV="$LOCALVERSION_INPUT"
@@ -471,7 +471,7 @@ jobs:
     uses: ./.github/workflows/build-kernel-debusine.yml
     with:
       suite: ${{ inputs.suite || 'trixie' }}
-      kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
+      kernel-variant: ${{ inputs.kernel-variant || 'linux-qcom-next' }}
       srcpkg: ${{ inputs.srcpkg || 'linux-qcom-next' }}
       debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
       target-workspace: ${{ inputs.target-workspace || '' }}
@@ -490,5 +490,5 @@ jobs:
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
       distro: ${{ inputs.suite || 'resolute' }}
-      kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
+      kernel-variant: ${{ inputs.kernel-variant || 'linux-qcom-next' }}
       pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}

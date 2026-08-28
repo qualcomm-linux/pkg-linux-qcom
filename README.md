@@ -24,8 +24,7 @@ build passes. No delivery pins a ref, so a matrix row is a standing description
 of what to track rather than a record of one chosen commit, and a delivery
 advances without anyone editing the matrix. There is no delivery type to
 choose: a row has nothing left to say about how it is delivered. The resolver
-expands every suite in a row into an isolated `variant + suite` build
-leg.
+expands every suite in a row into an isolated `variant + suite` build leg.
 
 ### Configured variants
 
@@ -33,16 +32,20 @@ leg.
 |---------|----------------|-------------------|--------------------------------|-------|
 | `linux-mainline` | `linux-mainline` | `linux-image-mainline` | Weekly → `qli` | Tracks the tip of `master` in `torvalds/linux` |
 | `linux-next` | `linux-next` | `linux-image-next` | Weekly → `qli` | Tracks the newest `next-YYYYMMDD` tag of the linux-next tree |
-| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | Weekly → `qli` | Standard kernel |
-| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | Weekly → `qli` | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
-| `qcom-arduino` | `linux-qcom-arduino` | `linux-image-qcom-arduino` | Weekly → `qli` | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics` |
+| `linux-qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | Weekly → `qli` | Standard kernel |
+| `linux-qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | Weekly → `qli` | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
+| `linux-qcom-arduino` | `linux-qcom-arduino` | `linux-image-qcom-arduino` | Weekly → `qli` | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics` |
 
-The two `qcom-next` variants build the same kernel ref.
+Every variant name carries the `linux-` prefix and matches its source package,
+so one name identifies the variant, the row, and the package it produces.
+
+The two `linux-qcom-next` variants build the same kernel ref.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
-variant produces a distinct kernel release — `-qcom-next-<tag-date>-<build-date>`
-and `-qcom-next-debug-<tag-date>-<build-date>` from a dated tag,
-`-qcom-arduino-g<sha>-<build-date>` from a branch tip — and therefore a distinct
-versioned image package that can be installed alongside the others.
+variant produces a distinct kernel release —
+`-linux-qcom-next-<tag-date>-<build-date>` and
+`-linux-qcom-next-debug-<tag-date>-<build-date>` from a dated tag,
+`-linux-qcom-arduino-g<sha>-<build-date>` from a branch tip — and therefore a
+distinct versioned image package that can be installed alongside the others.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
 
@@ -64,7 +67,7 @@ The final Production matrix is conceptually:
   },
   "variants": [
     {
-      "variant": "qcom-next",
+      "variant": "linux-qcom-next",
       "suites": ["trixie", "forky"],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
       "branch_or_tag": "qcom-next",
@@ -251,7 +254,7 @@ flowchart TD
 
     subgraph matrix[Matrix entry point]
         B1["configure-matrix\nFlatten matrix rows"]
-        B2["variant + suite legs\nlinux-mainline / trixie · forky\nlinux-next / trixie · forky\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\nqcom-arduino / trixie · forky"]
+        B2["variant + suite legs\nlinux-mainline / trixie · forky\nlinux-next / trixie · forky\nlinux-qcom-next / trixie · forky\nlinux-qcom-next-debug / trixie · forky\nlinux-qcom-arduino / trixie · forky"]
     end
 
     subgraph orchestrator[build-kernel-deb.yml]
@@ -366,8 +369,8 @@ Every LOCALVERSION ends in the build date, and the packaging rules read that
 trailing `-YYYYMMDD` as the package version's upstream date component:
 
 ```text
-LOCALVERSION     -qcom-next-20260821-20260828   (tag date, then build date)
-uname -r      7.2.0-rc7-qcom-next-20260821-20260828
+LOCALVERSION     -linux-qcom-next-20260821-20260828   (tag date, then build date)
+uname -r      7.2.0-rc7-linux-qcom-next-20260821-20260828
 version              7.2.0~rc7+20260828-0qli
 ```
 
@@ -413,7 +416,7 @@ The available inputs are:
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `kernel-variant` | `qcom-next` | Stable variant identifier used in artifact and workspace identity. |
+| `kernel-variant` | `linux-qcom-next` | Stable variant identifier used in artifact and workspace identity. |
 | `suite` | `trixie` | Target suite. |
 | `ref-strategy` | `latest_tag` | `latest_tag`, `branch_tip`, or `pinned_ref`. `pinned_ref` exists only for one-off dispatches; no matrix row may use it. |
 | `kernel-branch` | `qcom-next` | Branch for `branch_tip`, or immutable ref for `pinned_ref`; ignored by `latest_tag`. |

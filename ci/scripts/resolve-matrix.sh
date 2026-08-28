@@ -26,7 +26,7 @@ set -euo pipefail
 # Usage:
 #   ci/scripts/resolve-matrix.sh
 #   ci/scripts/resolve-matrix.sh --single-suite trixie
-#   ci/scripts/resolve-matrix.sh --kernel-variant qcom-next
+#   ci/scripts/resolve-matrix.sh --kernel-variant linux-qcom-next
 #   ci/scripts/resolve-matrix.sh --matrix-file path/to/matrix.json
 #
 # Options:

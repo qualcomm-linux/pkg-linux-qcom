@@ -46,7 +46,7 @@ on:
       kernel-variant:
         description: 'Kernel variant to build and promote (ignored for Full matrix)'
         required: true
-        default: 'qcom-next'
+        default: 'linux-qcom-next'
         type: string
       suite:
         description: 'Target suite (used only for Selected variant and suite)'

@@ -18,22 +18,22 @@ set -euo pipefail
 #   because it names the upstream snapshot; the build date is what makes the
 #   version advance.
 #   Example: qcom-next-7.2-rc3-20260722 built on 2026-08-28
-#            -> -qcom-next-20260722-20260828
+#            -> -linux-qcom-next-20260722-20260828
 #
 # For branch-tip builds (ref does not end in a date):
 #   Uses the kernel variant, a short SHA to identify the commit, and the build
 #   date.
-#   Example: qcom-next @ 07f50dc44edd built on 2026-08-28
-#            -> -qcom-next-g07f50dc44edd-20260828
+#   Example: linux-qcom-next @ 07f50dc44edd built on 2026-08-28
+#            -> -linux-qcom-next-g07f50dc44edd-20260828
 #   --sha is required for branch-tip builds.
 #
 # Usage:
-#   ci/scripts/derive-localversion.sh --variant qcom-next --ref qcom-next-7.2-rc3-20260722
+#   ci/scripts/derive-localversion.sh --variant linux-qcom-next --ref qcom-next-7.2-rc3-20260722
 #   ci/scripts/derive-localversion.sh --variant qcom-arduino --ref main --sha 07f50dc44edd
 #   ci/scripts/derive-localversion.sh --variant linux-next --ref next-20260827 --build-date 20260828
 #
 # Options:
-#   --variant VARIANT     Kernel variant identifier. Defaults to qcom-next.
+#   --variant VARIANT     Kernel variant identifier. Defaults to linux-qcom-next.
 #   --ref REF             Kernel ref (tag name or branch name). Required.
 #   --sha SHA             Short commit SHA (required for branch-tip builds).
 #   --build-date YYYYMMDD Build date to append. Defaults to today in UTC. Each
@@ -45,14 +45,14 @@ set -euo pipefail
 #
 # Output:
 #   LOCALVERSION suffix printed to stdout
-#   (e.g. -qcom-next-20260722-20260828). Always starts with a dash and always
+#   (e.g. -linux-qcom-next-20260722-20260828). Always starts with a dash and always
 #   ends in an 8-digit date.
 #
 # Exit codes:
 #   0  Success.
 #   1  Error (invalid args, branch-tip without --sha, malformed build date).
 
-VARIANT="qcom-next"
+VARIANT="linux-qcom-next"
 REF=""
 SHA=""
 BUILD_DATE=""
