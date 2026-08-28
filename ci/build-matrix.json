@@ -1,8 +1,7 @@
 {
   "suite_suffix_mapping": {
     "trixie": "~bpo13+1",
-    "forky": "",
-    "resolute": "~26.04.1"
+    "forky": ""
   },
   "deliveries": [
     {
@@ -10,8 +9,7 @@
       "type": "Daily",
       "suites": [
         "trixie",
-        "forky",
-        "resolute"
+        "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
       "branch_or_tag": "qcom-next",
