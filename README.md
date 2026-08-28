@@ -217,9 +217,6 @@ clone → prepare → build. Run it from the repo root.
 # Build with explicit LOCALVERSION
 ./build-kernel.sh --tag qcom-next-7.2-rc7-20260826 --localversion qcom-next-20260826
 
-# Build debug variant
-./build-kernel.sh --latest-tag --localversion debug --profiles debug
-
 # Use local kernel source (skip clone)
 ./build-kernel.sh --local-source /path/to/kernel-source --localversion qcom-next-20260826
 
@@ -442,7 +439,6 @@ this fixed order:
 | 2 | `debian/rules` | Disable `CONFIG_LOCALVERSION_AUTO` (prevents git hash in `uname -r`) |
 | 3 | Unified fragment pipeline | `arch/arm64/configs/prune.config`, then `arch/arm64/configs/qcom.config` (both if present), then `debian/config/*.config` (sorted) |
 | 4 | `debian/rules` | Re-check `CONFIG_LOCALVERSION_AUTO` (merges may re-enable it) |
-| 5 | `arch/arm64/configs/debug.config` | Debug options — only when `DEB_BUILD_PROFILES=debug` |
 
 ### Unified config fragment pipeline (step 3)
 
@@ -562,18 +558,6 @@ EOF
 Commit it to `config-available/`. It will not affect any build until explicitly
 activated via `--enable-configs my-feature` or a manual copy to `config/`.
 
-### Debug build (step 5)
-
-```bash
-# Via build-kernel.sh
-./build-kernel.sh --latest-tag --profiles debug
-
-# Via dpkg-buildpackage directly
-DEB_BUILD_PROFILES=debug dpkg-buildpackage -us -uc -b
-```
-
-Merges `arch/arm64/configs/debug.config` from the kernel source if present.
-
 ---
 
 ## Configuration knobs
@@ -585,7 +569,6 @@ Merges `arch/arm64/configs/debug.config` from the kernel source if present.
 | Always-on config | Add `*.config` to `debian/config/` | Applied on every build |
 | Optional config | `--enable-configs name` or copy from `debian/config-available/` | Activated per build |
 | Out-of-tree build dir | `O=<dir>` or `KBUILD_OUTPUT=<dir>` | Reads artifacts from objdir |
-| Debug build | `DEB_BUILD_PROFILES=debug` or `--profiles debug` | Merges `arch/arm64/configs/debug.config` |
 | Parallel jobs | `DEB_BUILD_OPTIONS=parallel=N` | Controls `make -jN` |
 
 ---
