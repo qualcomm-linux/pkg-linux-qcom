@@ -1,0 +1,113 @@
+name: pr-build
+
+# Build the matrix on every proposed change, and promote nothing.
+#
+# This is the validation counterpart to weekly.yml: the same rows, resolved by
+# the same ci/scripts/resolve-matrix.sh, built by the same
+# build-kernel-deb.yml. The one difference is that no leg passes a
+# target-workspace, so build-kernel-debusine.yml takes the S3 artifact path
+# instead of the lib/release promotion path, runs in the Staging environment
+# rather than Production, and its release job is skipped outright. The
+# release credential is not passed to the callee at all, so this workflow
+# cannot promote even if a row asked it to.
+#
+# The matrix is resolved with --non-promoting, so every leg's Debian revision
+# takes the trailing ~ that sorts it below the promoted package with the same
+# stub and suite. A PR build can never produce a version that outranks a real
+# delivery.
+#
+# Triggers are limited to changes that can affect a build: the matrix, the CI
+# scripts, and the workflows themselves. A README-only change does not spend
+# ten kernel builds.
+#
+# Push is restricted to main, which is what makes the concurrency group below
+# correct: every push run shares the empty pull_request.number, so grouping
+# them together means a new push to main cancels the previous main build,
+# while each PR keeps its own group keyed by its number.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'ci/**'
+      - '.github/workflows/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'ci/**'
+      - '.github/workflows/**'
+
+concurrency:
+  group: pr-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # configure-matrix: validate ci/build-matrix.json and flatten it into one
+  # entry per leg.
+  #
+  # This job needs no secrets, so it runs for fork pull requests too and gives
+  # them the matrix validation that resolve-matrix.sh performs — malformed
+  # variant names, duplicate rows, shared package names, unmapped suites.
+  # ---------------------------------------------------------------------------
+  configure-matrix:
+    name: Configure PR matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Generate PR matrix
+        id: set-matrix
+        run: |
+          set -euo pipefail
+
+          MATRIX=$(ci/scripts/resolve-matrix.sh --non-promoting)
+
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+          echo "$MATRIX" | jq -r '.[] | "  \(.variant) / \(.suite)  \(.debian_revision)"'
+
+  # ---------------------------------------------------------------------------
+  # build: one parallel job per flat matrix entry, build-only.
+  #
+  # target-workspace is deliberately absent, and DEBUSINE_RELEASE_TOKEN is not
+  # forwarded. Fork pull requests are skipped rather than started, because the
+  # Debusine credentials a build needs are not available to them.
+  # ---------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.variant }} / ${{ matrix.suite }}
+    needs: configure-matrix
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/build-kernel-deb.yml
+    with:
+      suite: ${{ matrix.suite }}
+      kernel-variant: ${{ matrix.variant }}
+      git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: ${{ matrix.kver_extra || '' }}
+      debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+      pkg-linux-qcom-ref: ${{ matrix.pkg_linux_qcom_ref || 'qcom/debian/latest' }}
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}

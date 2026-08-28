@@ -49,10 +49,12 @@ distinct versioned image package that can be installed alongside the others.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
 
-One scheduled entry point drives the pipeline:
+Two entry points resolve the matrix:
 
 - **Weekly** resolves each row's latest tag or branch tip, builds it, and
   promotes each leg whose build passed to that row's Debusine workspace.
+- **PR build** resolves the same rows the same way on pull requests and pushes
+  to `main`, and promotes nothing.
 
 `build-kernel-deb.yml` can also be dispatched by hand for a one-off build. It
 never promotes; its packages go to S3.
@@ -89,7 +91,7 @@ suite referenced by any row's `suites` must have an entry here, and every
 delivery derives its final `debian_revision` as
 `debian_version_stub + suite_suffix_mapping[suite]`. For the values above:
 
-| Suite | Delivery | Direct dispatch |
+| Suite | Delivery | Not promoted |
 | --- | --- | --- |
 | Trixie | `0qli~bpo13+1` | `0qli~bpo13+1~` |
 | Forky | `0qli` | `0qli~` |
@@ -99,9 +101,10 @@ the build date (see [Packages](#packages)); the revision does not vary between
 them.
 
 A build that is not promoted takes a trailing `~`, which always sorts below the
-same prefix without it in Debian version ordering. Today the only such builds
-are direct `build-kernel-deb.yml` dispatches, so a hand-run validation build can
-never produce a version that outranks a real delivery.
+same prefix without it in Debian version ordering. Such builds are direct
+`build-kernel-deb.yml` dispatches and `pr-build.yml`'s matrix builds, so
+neither a hand-run validation build nor a pull request can produce a version
+that outranks a real delivery.
 Ordering across *different* suites depends entirely on the configured
 suffixes: with the mapping above, Trixie < Forky, matching a
 Debian-backports-then-unstable promotion chain.
@@ -117,6 +120,7 @@ variant is a one-row matrix change, not a workflow redesign.
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
 | `weekly.yml` | Resolves and runs the matrix, promoting each leg that builds. | Scheduled Saturdays at `11:00 UTC`, or manual dispatch. |
+| `pr-build.yml` | Resolves and runs the same matrix without promoting anything. | Pull requests against `main` and pushes to `main` that touch `ci/**` or `.github/workflows/**`. |
 | `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by `weekly.yml`. |
 | `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either promotes to a target workspace or publishes artifacts to S3. | Called by `build-kernel-deb.yml`. |
 | `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
@@ -156,6 +160,31 @@ way, and it bumps itself.
 Direct `build-kernel-deb.yml` dispatches are build-only. Promotion is initiated
 exclusively by `weekly.yml`, which owns the target workspace and production
 release controls.
+
+### PR build
+
+`pr-build.yml` answers "would the weekly run still work?" before the change
+lands. It builds every matrix leg the weekly run builds, through the same
+resolver and the same `build-kernel-deb.yml`, and differs from it in exactly
+three ways:
+
+- It passes no `target-workspace`, so `build-kernel-debusine.yml` takes the S3
+  artifact path, runs in the **Staging** environment, and skips its release job.
+- It does not forward `DEBUSINE_RELEASE_TOKEN`, so it cannot promote even if a
+  row asked it to.
+- It resolves the matrix with `--non-promoting`, so every leg's
+  `debian_revision` carries the trailing `~` that sorts it below the promoted
+  package with the same stub and suite.
+
+It runs on pull requests against `main` and on pushes to `main`, restricted to
+changes under `ci/**` or `.github/workflows/**` — a README-only change does not
+spend ten kernel builds. Concurrency is grouped per pull request with
+`cancel-in-progress`, so a new push to a PR cancels that PR's in-flight build
+and leaves every other PR alone.
+
+Matrix validation runs for fork pull requests, which gives them the checks
+`resolve-matrix.sh` performs. The build legs themselves are skipped for forks,
+since the Debusine credentials they need are not available to a fork.
 
 ## Matrix Model
 
@@ -235,7 +264,7 @@ flowchart LR
     R -->|"resolute"| UBU["Ubuntu path\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh in Docker\nBuild binary packages"]
 
     DEB --> DOUT{"target-workspace set?"}
-    DOUT -->|"No (direct dispatch)"| S3["Download .deb files\nPublish to S3"]
+    DOUT -->|"No (PR or direct dispatch)"| S3["Download .deb files\nPublish to S3"]
     DOUT -->|"Yes (delivery)"| QLI["Promote source and binaries\nto qli"]
     UBU --> US3["Publish .deb files to S3"]
 ```
@@ -250,6 +279,7 @@ flowchart TD
         A1["weekly.yml\nScheduled Saturday full matrix"]
         A2["weekly.yml\nManual full or filtered variant + suite"]
         A3["build-kernel-deb.yml\nManual one-off build"]
+        A4["pr-build.yml\nPull request or push to main"]
     end
 
     subgraph matrix[Matrix entry point]
@@ -265,12 +295,13 @@ flowchart TD
     end
 
     subgraph outputs[Outputs]
-        D1["S3 artifacts\ndirect dispatch"]
+        D1["S3 artifacts\nPR and direct dispatch"]
         D2["qli APT repository\nscheduled delivery"]
     end
 
     A1 --> B1
     A2 --> B1
+    A4 --> B1
     B1 --> B2 --> C1
     A3 --> C1
     C1 --> C2

@@ -27,11 +27,16 @@ set -euo pipefail
 #   ci/scripts/resolve-matrix.sh
 #   ci/scripts/resolve-matrix.sh --single-suite trixie
 #   ci/scripts/resolve-matrix.sh --kernel-variant linux-qcom-next
+#   ci/scripts/resolve-matrix.sh --non-promoting
 #   ci/scripts/resolve-matrix.sh --matrix-file path/to/matrix.json
 #
 # Options:
 #   --single-suite SUITE       Emit only entries for this suite.
 #   --kernel-variant VARIANT   Emit only entries for this kernel variant.
+#   --non-promoting            Derive every leg's debian_revision with a
+#                                trailing ~, for a caller that builds the
+#                                matrix without promoting it (pr-build.yml).
+#                                Omit for the promoting weekly run.
 #   --matrix-file FILE         Path to the matrix JSON file
 #                                (default: ci/build-matrix.json relative to CWD).
 #
@@ -50,6 +55,7 @@ set -euo pipefail
 
 SINGLE_SUITE=""
 KERNEL_VARIANT=""
+NON_PROMOTING="false"
 MATRIX_FILE="ci/build-matrix.json"
 
 usage() {
@@ -61,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --single-suite)   SINGLE_SUITE="$2";   shift 2 ;;
         --kernel-variant) KERNEL_VARIANT="$2"; shift 2 ;;
+        --non-promoting)  NON_PROMOTING="true"; shift ;;
         --matrix-file)    MATRIX_FILE="$2";    shift 2 ;;
         -h|--help)        usage ;;
         *) echo "ERROR: Unknown option: $1" >&2; usage ;;
@@ -285,8 +292,13 @@ result=$(jq -c \
 # Derive each leg's final debian_revision from debian_version_stub and
 # suite_suffix_mapping. derive-debian-revision.sh is the single implementation
 # of the formula; build-kernel-deb.yml's direct dispatch path calls the same
-# script for the one-suite, no-matrix case.
+# script for the one-suite, no-matrix case. --non-promoting is passed straight
+# through, so a caller that builds the matrix without promoting it gets the
+# same trailing ~ a direct dispatch gets.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+revision_args=()
+[[ "$NON_PROMOTING" == "true" ]] && revision_args+=(--non-promoting)
 
 final="[]"
 while IFS= read -r leg; do
@@ -296,6 +308,7 @@ while IFS= read -r leg; do
 
     revision=$("$script_dir/derive-debian-revision.sh" \
         --stub "$stub" --suite "$suite" \
+        ${revision_args[@]+"${revision_args[@]}"} \
         --matrix-file "$MATRIX_FILE") || {
         echo "ERROR: Failed to derive Debian revision for variant=$variant suite=$suite" >&2
         exit 1

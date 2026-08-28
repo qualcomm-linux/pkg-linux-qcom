@@ -10,9 +10,10 @@ set -euo pipefail
 #
 # A matrix delivery is promoted to a production workspace and takes no trailing
 # "~". A build that is not promoted takes one, which sorts it below every
-# promoted package with the same stub and suite. Today the only non-promoted
-# builds are direct build-kernel-deb.yml dispatches, so a hand-run validation
-# build can never produce a version that outranks a real delivery.
+# promoted package with the same stub and suite. The non-promoted builds are
+# direct build-kernel-deb.yml dispatches and pr-build.yml's matrix builds, so
+# neither a hand-run validation build nor a pull request can produce a version
+# that outranks a real delivery.
 #
 # This is the single implementation of the formula. It is called both by
 # resolve-matrix.sh (once per flattened leg) and by build-kernel-deb.yml's
