@@ -41,7 +41,7 @@
       "target_workspace": "qli"
     },
     {
-      "variant": "arduino",
+      "variant": "qcom-arduino",
       "suites": [
         "trixie",
         "forky"
@@ -49,8 +49,8 @@
       "git_clone": "https://github.com/qualcomm-linux/kernel-topics",
       "branch_or_tag": "early/hwe/arduino",
       "ref_strategy": "branch_tip",
-      "srcpkg": "linux-arduino",
-      "binpkg": "linux-image-arduino",
+      "srcpkg": "linux-qcom-arduino",
+      "binpkg": "linux-image-qcom-arduino",
       "kernel_config": [],
       "debian_version_stub": "0qli",
       "pkg_linux_qcom_ref": "qcom/debian/latest",

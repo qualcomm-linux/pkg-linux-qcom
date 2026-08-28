@@ -29,7 +29,7 @@ set -euo pipefail
 #
 # Usage:
 #   ci/scripts/derive-localversion.sh --variant qcom-next --ref qcom-next-7.2-rc3-20260722
-#   ci/scripts/derive-localversion.sh --variant arduino --ref main --sha 07f50dc44edd
+#   ci/scripts/derive-localversion.sh --variant qcom-arduino --ref main --sha 07f50dc44edd
 #   ci/scripts/derive-localversion.sh --variant next --ref next-20260827 --build-date 20260828
 #
 # Options:

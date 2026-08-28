@@ -33,7 +33,7 @@ leg.
 |---------|----------------|-------------------|--------------------------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | Weekly → `qli` | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | Weekly → `qli` | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
-| `arduino` | `linux-arduino` | `linux-image-arduino` | Weekly → `qli` | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics` |
+| `qcom-arduino` | `linux-qcom-arduino` | `linux-image-qcom-arduino` | Weekly → `qli` | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics` |
 | `mainline` | `linux-mainline` | `linux-image-mainline` | Weekly → `qli` | Tracks the tip of `master` in `torvalds/linux` |
 | `next` | `linux-next` | `linux-image-next` | Weekly → `qli` | Tracks the newest `next-YYYYMMDD` tag of the linux-next tree |
 
@@ -41,7 +41,7 @@ The two `qcom-next` variants build the same kernel ref.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
 variant produces a distinct kernel release — `-qcom-next-<tag-date>-<build-date>`
 and `-qcom-next-debug-<tag-date>-<build-date>` from a dated tag,
-`-arduino-g<sha>-<build-date>` from a branch tip — and therefore a distinct
+`-qcom-arduino-g<sha>-<build-date>` from a branch tip — and therefore a distinct
 versioned image package that can be installed alongside the others.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
@@ -251,7 +251,7 @@ flowchart TD
 
     subgraph matrix[Matrix entry point]
         B1["configure-matrix\nFlatten matrix rows"]
-        B2["variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\narduino / trixie · forky\nmainline / trixie · forky\nnext / trixie · forky"]
+        B2["variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\nqcom-arduino / trixie · forky\nmainline / trixie · forky\nnext / trixie · forky"]
     end
 
     subgraph orchestrator[build-kernel-deb.yml]
