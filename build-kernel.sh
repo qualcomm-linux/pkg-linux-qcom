@@ -53,8 +53,8 @@ OPTIONS:
     --profiles PROFILES     DEB_BUILD_PROFILES (e.g. debug)
     --kernel-config LIST    Extra config fragments, beyond debian/config-available/
                             which is always applied in full. An "intree:" prefix
-                            resolves to arch/arm64/configs/<name>.config in the
-                            kernel source (e.g. intree:qcom_debug)
+                            names a path relative to the kernel source root
+                            (e.g. intree:arch/arm64/configs/qcom_debug.config)
 
   Paths:
     -k, --kernel-dir DIR    Kernel source directory (default: $KERNEL_DIR)
