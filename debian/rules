@@ -175,7 +175,9 @@ override_dh_auto_configure:
 	#           debian/config-available/, plus any intree: fragments named in
 	#           --kernel-config. Applied in LC_ALL=C filename order so the
 	#           result does not depend on the builder's locale.
-	#      All fragments: append to .config + make olddefconfig.
+	#      All fragments are merged in one scripts/kconfig/merge_config.sh -m -r
+	#      invocation (later fragments win, overrides are reported), followed by
+	#      make olddefconfig to resolve the resulting dependencies.
 	#   4. Re-check CONFIG_LOCALVERSION_AUTO (merges may re-enable it)
 	#   5. arch/arm64/configs/debug.config — only when DEB_BUILD_PROFILES=debug
 	# ---------------------------------------------------------------------------
@@ -219,10 +221,14 @@ override_dh_auto_configure:
 		echo "Note: no packaging fragments in debian/config/ (none activated via --kernel-config)"; \
 	fi; \
 	if [ -n "$$FRAGMENTS" ]; then \
-		for frag in $$FRAGMENTS; do \
-			echo "Applying config fragment: $$frag"; \
-			cat "$$frag" >> "$$CONFIG_FILE"; \
-		done; \
+		[ -x scripts/kconfig/merge_config.sh ] || { \
+			echo "ERROR: scripts/kconfig/merge_config.sh not found or not executable"; \
+			exit 1; \
+		}; \
+		echo "Merging config fragments into $$CONFIG_FILE:$$FRAGMENTS"; \
+		ARCH=$(ARCH) scripts/kconfig/merge_config.sh -m -r \
+			$(if $(BUILD_OBJ),-O $(BUILD_OBJ)) \
+			"$$CONFIG_FILE" $$FRAGMENTS; \
 		echo "Running olddefconfig to resolve all fragment conflicts..."; \
 		$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) olddefconfig; \
 	else \
