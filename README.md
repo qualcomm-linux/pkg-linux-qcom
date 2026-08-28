@@ -24,7 +24,7 @@ build passes. No delivery pins a ref, so a matrix row is a standing description
 of what to track rather than a record of one chosen commit, and a delivery
 advances without anyone editing the matrix. There is no delivery type to
 choose: a row has nothing left to say about how it is delivered. The resolver
-expands every suite in a row into an isolated `kernel_variant + suite` build
+expands every suite in a row into an isolated `variant + suite` build
 leg.
 
 ### Configured variants
@@ -62,9 +62,9 @@ The final Production matrix is conceptually:
     "trixie": "~bpo13+1",
     "forky": ""
   },
-  "deliveries": [
+  "variants": [
     {
-      "kernel_variant": "qcom-next",
+      "variant": "qcom-next",
       "suites": ["trixie", "forky"],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
       "branch_or_tag": "qcom-next",
@@ -156,16 +156,16 @@ release controls.
 
 ## Matrix Model
 
-`ci/build-matrix.json` is an object with two top-level keys: `deliveries`
+`ci/build-matrix.json` is an object with two top-level keys: `variants`
 (the matrix rows) and `suite_suffix_mapping` (matrix-wide Debian suffix
 policy, shared by every variant). `ci/scripts/resolve-matrix.sh` validates the
-document, requires each `kernel_variant` to appear in exactly one row, and
+document, requires each `variant` to appear in exactly one row, and
 flattens each `suites` array into independent suite legs. Each leg carries its
 own values for:
 
 | Field | Purpose |
 | --- | --- |
-| `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
+| `variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
 | `suites` | Suites to flatten into individual build legs. Each must have a `suite_suffix_mapping` entry. |
 | `git_clone` | Kernel source repository. |
 | `branch_or_tag` | Source branch, used by `branch_tip`. Records the tracked branch for `latest_tag`, which ignores it. |
@@ -197,7 +197,7 @@ context) calls the same script with `--non-promoting` for the one suite it was
 given.
 
 Each leg has a distinct prepared-source artifact, Debusine child workspace, and
-S3 path keyed by `kernel_variant + suite`. This prevents two variants that both
+S3 path keyed by `variant + suite`. This prevents two variants that both
 build, for example, `trixie` from consuming or publishing each other's inputs
 or outputs.
 
@@ -206,8 +206,8 @@ dispatches, use these layouts, where `<run>` is
 `<github.run_id>-<github.run_attempt>`:
 
 ```text
-<org>/pkg/debusine/<repo>/<kernel_variant>/<suite>/<run>/
-<org>/pkg/temp/<repo>/<kernel_variant>/<suite>/<run>/
+<org>/pkg/debusine/<repo>/<variant>/<suite>/<run>/
+<org>/pkg/temp/<repo>/<variant>/<suite>/<run>/
 ```
 
 The first layout is for Debian/Debusine builds; the second is for Ubuntu Docker
@@ -459,8 +459,8 @@ and keeps production approval controls in the workflow path.
 
 To add a kernel variant:
 
-1. Add one row to `deliveries`. A variant is exactly one row;
-   `resolve-matrix.sh` rejects a `kernel_variant` that appears more than once.
+1. Add one row to `variants`. A variant is exactly one row;
+   `resolve-matrix.sh` rejects a `variant` that appears more than once.
 2. Define all package identity, source/ref strategy, configuration,
    `debian_version_stub`, `target_workspace`, and suite values in that row. Do
    not rely on another variant's values.

@@ -3,9 +3,9 @@
     "trixie": "~bpo13+1",
     "forky": ""
   },
-  "deliveries": [
+  "variants": [
     {
-      "kernel_variant": "qcom-next",
+      "variant": "qcom-next",
       "suites": [
         "trixie",
         "forky"
@@ -22,7 +22,7 @@
       "target_workspace": "qli"
     },
     {
-      "kernel_variant": "qcom-next-debug",
+      "variant": "qcom-next-debug",
       "suites": [
         "trixie",
         "forky"
@@ -41,7 +41,7 @@
       "target_workspace": "qli"
     },
     {
-      "kernel_variant": "arduino",
+      "variant": "arduino",
       "suites": [
         "trixie",
         "forky"
@@ -57,7 +57,7 @@
       "target_workspace": "qli"
     },
     {
-      "kernel_variant": "mainline",
+      "variant": "mainline",
       "suites": [
         "trixie",
         "forky"
@@ -73,7 +73,7 @@
       "target_workspace": "qli"
     },
     {
-      "kernel_variant": "next",
+      "variant": "next",
       "suites": [
         "trixie",
         "forky"

@@ -8,7 +8,7 @@ set -euo pipefail
 # The matrix root is an object with two top-level keys:
 #   - "suite_suffix_mapping": a suite -> Debian suffix map shared by every
 #     kernel variant and delivery type (e.g. "trixie": "~bpo13+1").
-#   - "deliveries": the matrix rows, one per kernel_variant. Every delivery is
+#   - "variants": the matrix rows, one per variant. Every delivery is
 #     the same kind of thing — resolve the row's ref at run time from its
 #     latest_tag or branch_tip strategy, build it, and promote it to
 #     target_workspace if the build passes — so a row needs no delivery type to
@@ -37,7 +37,7 @@ set -euo pipefail
 #
 # Output:
 #   Compact JSON array to stdout. Every entry has a single suite, the
-#   kernel_variant that scopes its artifacts, Debusine workspace, and logs,
+#   variant that scopes its artifacts, Debusine workspace, and logs,
 #   and a suite-specific debian_revision (debian_version_stub is consumed and
 #   removed). kernel_config is joined
 #   into the comma-separated string that build-kernel-deb.yml's kernel-config
@@ -86,11 +86,11 @@ validation_errors=$(jq -r '
     end;
 
   def variant_name_valid:
-    if (.kernel_variant | type) != "string"
+    if (.variant | type) != "string"
     then empty
-    elif (.kernel_variant | test("^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$"))
+    elif (.variant | test("^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$"))
     then empty
-    else "kernel_variant must use lowercase letters, digits, and internal hyphens"
+    else "variant must use lowercase letters, digits, and internal hyphens"
     end;
 
   def kernel_config_valid:
@@ -123,7 +123,7 @@ validation_errors=$(jq -r '
     else
       . as $row |
       [
-        required_string("kernel_variant"),
+        required_string("variant"),
       required_string("git_clone"),
       required_string("branch_or_tag"),
       required_string("ref_strategy"),
@@ -151,31 +151,31 @@ validation_errors=$(jq -r '
       then "tag_pattern is only valid with ref_strategy=latest_tag"
       else empty
         end
-      ] | .[] | "row " + ($index | tostring) + " (" + (($row.kernel_variant // "unknown") | tostring) + "): " + .
+      ] | .[] | "row " + ($index | tostring) + " (" + (($row.variant // "unknown") | tostring) + "): " + .
     end;
 
   if type != "object"
-  then "matrix root must be an object with suite_suffix_mapping and deliveries"
-  elif (.deliveries | type) != "array"
-  then "deliveries must be an array"
-  elif (.deliveries | length) == 0
-  then "deliveries must contain at least one row"
+  then "matrix root must be an object with suite_suffix_mapping and variants"
+  elif (.variants | type) != "array"
+  then "variants must be an array"
+  elif (.variants | length) == 0
+  then "variants must contain at least one row"
   elif (.suite_suffix_mapping | type) != "object"
   then "suite_suffix_mapping is missing or not an object"
   else
-    .deliveries as $matrix |
+    .variants as $matrix |
     .suite_suffix_mapping as $mapping |
     (
       [range(0; ($matrix | length)) as $index | $matrix[$index] | row_errors($index)]
       +
       [
         [$matrix[] | select(type == "object")]
-        | group_by(.kernel_variant)
+        | group_by(.variant)
         | .[]
         | . as $rows
-        | (($rows[0].kernel_variant // "unknown") | tostring) as $variant
+        | (($rows[0].variant // "unknown") | tostring) as $variant
         | if ($rows | length) != 1
-          then "kernel_variant " + $variant + " is defined by "
+          then "variant " + $variant + " is defined by "
                + ($rows | length | tostring)
                + " rows; each variant is one delivery and must appear once"
           else empty
@@ -186,12 +186,12 @@ validation_errors=$(jq -r '
         [
           $matrix[]
           | select(type == "object")
-          | select((.kernel_variant | type) == "string")
+          | select((.variant | type) == "string")
           | select((.srcpkg | type) == "string" and (.srcpkg | length) > 0)
-          | {package: .srcpkg, kernel_variant: .kernel_variant}
+          | {package: .srcpkg, variant: .variant}
         ]
         | group_by(.package)[]
-        | ([.[].kernel_variant] | unique) as $variants
+        | ([.[].variant] | unique) as $variants
         | select($variants | length > 1)
         | "srcpkg " + .[0].package + " is shared by kernel variants " + ($variants | join(", "))
       ]
@@ -200,12 +200,12 @@ validation_errors=$(jq -r '
         [
           $matrix[]
           | select(type == "object")
-          | select((.kernel_variant | type) == "string")
+          | select((.variant | type) == "string")
           | select((.binpkg | type) == "string" and (.binpkg | length) > 0)
-          | {package: .binpkg, kernel_variant: .kernel_variant}
+          | {package: .binpkg, variant: .variant}
         ]
         | group_by(.package)[]
-        | ([.[].kernel_variant] | unique) as $variants
+        | ([.[].variant] | unique) as $variants
         | select($variants | length > 1)
         | "binpkg " + .[0].package + " is shared by kernel variants " + ($variants | join(", "))
       ]
@@ -252,10 +252,10 @@ fi
 
 result=$(jq -c \
     --arg single_suite "$SINGLE_SUITE" \
-    --arg kernel_variant "$KERNEL_VARIANT" '
+    --arg variant "$KERNEL_VARIANT" '
       [
-        .deliveries[]
-        | select($kernel_variant == "" or .kernel_variant == $kernel_variant)
+        .variants[]
+        | select($variant == "" or .variant == $variant)
         | . as $row
         | (
             if $single_suite == ""
@@ -272,13 +272,13 @@ result=$(jq -c \
       | if length == 0
         then error(
           "no matrix entries found"
-          + (if $kernel_variant != "" then " for kernel_variant=" + $kernel_variant else "" end)
+          + (if $variant != "" then " for variant=" + $variant else "" end)
           + (if $single_suite != "" then " suite=" + $single_suite else "" end)
         )
         else .
         end
     ' "$MATRIX_FILE") || {
-    echo "ERROR: Matrix resolution failed${KERNEL_VARIANT:+ for kernel_variant=$KERNEL_VARIANT}${SINGLE_SUITE:+ suite=$SINGLE_SUITE}" >&2
+    echo "ERROR: Matrix resolution failed${KERNEL_VARIANT:+ for variant=$KERNEL_VARIANT}${SINGLE_SUITE:+ suite=$SINGLE_SUITE}" >&2
     exit 1
 }
 
@@ -292,12 +292,12 @@ final="[]"
 while IFS= read -r leg; do
     suite=$(jq -r '.suite' <<< "$leg")
     stub=$(jq -r '.debian_version_stub' <<< "$leg")
-    variant=$(jq -r '.kernel_variant' <<< "$leg")
+    variant=$(jq -r '.variant' <<< "$leg")
 
     revision=$("$script_dir/derive-debian-revision.sh" \
         --stub "$stub" --suite "$suite" \
         --matrix-file "$MATRIX_FILE") || {
-        echo "ERROR: Failed to derive Debian revision for kernel_variant=$variant suite=$suite" >&2
+        echo "ERROR: Failed to derive Debian revision for variant=$variant suite=$suite" >&2
         exit 1
     }
 

@@ -17,7 +17,7 @@ name: weekly
 # Matrix schema: ci/build-matrix.json
 #   Each row is one kernel variant, expanded by ci/scripts/resolve-matrix.sh:
 #   the "suites" array is flattened into one job per suite. All other fields
-#   (kernel_variant, srcpkg, binpkg, kernel_config, debian_revision, git_clone,
+#   (variant, srcpkg, binpkg, kernel_config, debian_revision, git_clone,
 #   branch_or_tag, ref_strategy, target_workspace) are passed through to
 #   build-kernel-deb.yml as inputs.
 #
@@ -124,7 +124,7 @@ jobs:
   # contingent on the build passing.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
+    name: ${{ matrix.variant }} / ${{ matrix.suite }}
     needs: configure-matrix
     strategy:
       fail-fast: false
@@ -133,7 +133,7 @@ jobs:
     uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
-      kernel-variant: ${{ matrix.kernel_variant }}
+      kernel-variant: ${{ matrix.variant }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
       ref-strategy: ${{ matrix.ref_strategy }}
