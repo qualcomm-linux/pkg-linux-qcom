@@ -57,7 +57,7 @@
       "target_workspace": "qli"
     },
     {
-      "variant": "mainline",
+      "variant": "linux-mainline",
       "suites": [
         "trixie",
         "forky"
