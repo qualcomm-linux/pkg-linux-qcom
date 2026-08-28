@@ -82,7 +82,7 @@
     },
     {
       "kernel_variant": "arduino",
-      "type": "Daily",
+      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
@@ -94,12 +94,13 @@
       "binpkg": "linux-image-arduino",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": "",
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
     },
     {
       "kernel_variant": "mainline",
-      "type": "Daily",
+      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
@@ -111,12 +112,13 @@
       "binpkg": "linux-image-mainline",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": "",
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
     },
     {
       "kernel_variant": "next",
-      "type": "Daily",
+      "type": "Weekly",
       "suites": [
         "trixie",
         "forky"
@@ -129,8 +131,9 @@
       "binpkg": "linux-image-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": "",
+      "pkg_linux_qcom_ref": "qcom/debian/latest",
+      "target_workspace": "qli"
     }
   ]
 }

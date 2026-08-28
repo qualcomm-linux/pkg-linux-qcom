@@ -7,12 +7,16 @@ set -euo pipefail
 #
 # Formula:
 #   debian_revision = stub + suite_suffix_mapping[suite] + delivery_suffix
-#   delivery_suffix: Daily -> "~", Release -> ""
+#   delivery_suffix: Daily -> "~", Weekly and Release -> ""
+#
+# Weekly and Release share the empty suffix because both promote into a
+# production workspace; they differ only in how the kernel ref is chosen
+# (autobumped versus pinned), which the revision does not encode.
 #
 # This is the single implementation of the formula. It is called both by
-# resolve-matrix.sh (once per flattened Daily/Release leg) and by
-# build-kernel-deb.yml's direct-dispatch path (one suite, no full matrix
-# context), so the derivation and its validation live in exactly one place.
+# resolve-matrix.sh (once per flattened leg) and by build-kernel-deb.yml's
+# direct-dispatch path (one suite, no full matrix context), so the derivation
+# and its validation live in exactly one place.
 #
 # Usage:
 #   ci/scripts/derive-debian-revision.sh --stub 0qli --suite trixie --delivery-type Daily
@@ -24,7 +28,7 @@ set -euo pipefail
 #                            trailing ~). Required.
 #   --suite SUITE          Target suite; must have an entry in
 #                            suite_suffix_mapping. Required.
-#   --delivery-type TYPE   Daily or Release. Required.
+#   --delivery-type TYPE   Daily, Weekly, or Release. Required.
 #   --matrix-file FILE     Path to the matrix JSON containing
 #                            suite_suffix_mapping
 #                            (default: ci/build-matrix.json relative to CWD).
@@ -109,10 +113,10 @@ SUFFIX=$(jq -r --arg suite "$SUITE" '.suite_suffix_mapping[$suite] // "__MISSING
 }
 
 case "$DELIVERY_TYPE" in
-    Daily)   DELIVERY_SUFFIX="~" ;;
-    Release) DELIVERY_SUFFIX="" ;;
+    Daily)           DELIVERY_SUFFIX="~" ;;
+    Weekly|Release)  DELIVERY_SUFFIX="" ;;
     *)
-        echo "ERROR: --delivery-type must be Daily or Release (got '$DELIVERY_TYPE')" >&2
+        echo "ERROR: --delivery-type must be Daily, Weekly, or Release (got '$DELIVERY_TYPE')" >&2
         exit 1
         ;;
 esac

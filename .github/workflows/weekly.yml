@@ -1,0 +1,154 @@
+name: weekly
+
+# Weekly kernel package builds with automatic promotion. Runs at 3:00 AM PST
+# (11:00 UTC) every Saturday, one parallel build per Weekly entry in
+# ci/build-matrix.json after suite flattening.
+#
+# A Weekly entry is a Release that bumps itself: the kernel ref comes from the
+# row's latest_tag or branch_tip strategy rather than a pinned tag, and each
+# leg is promoted to the row's target_workspace only when its Debusine build
+# succeeds. Nothing is promoted for a leg whose build fails, and fail-fast is
+# disabled so one variant's failure does not cancel another's promotion.
+#
+# This is the delivery path for variants that track a moving upstream tree,
+# where pinning a ref for every delivery would be busywork. Variants whose
+# releases are cut deliberately keep their pinned Release rows and release.yml.
+#
+# Matrix schema: ci/build-matrix.json
+#   Each row with "type": "Weekly" is expanded by ci/scripts/resolve-matrix.sh:
+#   the "suites" array is flattened into one job per suite. All other fields
+#   (kernel_variant, srcpkg, binpkg, kernel_config, debian_revision, git_clone,
+#   branch_or_tag, ref_strategy, target_workspace) are passed through to
+#   build-kernel-deb.yml as inputs.
+#
+# To add a weekly build-and-promote target: add a row to ci/build-matrix.json
+# with "type": "Weekly" and a "target_workspace". No workflow changes needed.
+#
+# Promotion runs in the Production GitHub environment, which supplies the
+# release credential. Any approval protection configured on that environment
+# still applies: the build runs unattended, and the promotion waits for it.
+
+on:
+  schedule:
+    # 3:00 AM PST Saturday == 11:00 UTC Saturday. Twelve hours clear of the
+    # 23:00 UTC daily run so the two do not contend for the same runners.
+    - cron: '0 11 * * 6'
+  workflow_dispatch:
+    inputs:
+      build-scope:
+        description: 'Choose all variants, all suites for one variant, or one variant and suite'
+        type: choice
+        required: true
+        default: 'Selected variant (all suites)'
+        options:
+          - 'Full matrix'
+          - 'Selected variant (all suites)'
+          - 'Selected variant and suite'
+      kernel-variant:
+        description: 'Kernel variant to build and promote (ignored for Full matrix)'
+        required: true
+        default: 'next'
+        type: string
+      suite:
+        description: 'Target suite (used only for Selected variant and suite)'
+        required: true
+        default: 'trixie'
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # configure-matrix: flatten the Weekly rows from ci/build-matrix.json.
+  #
+  # Delegates to ci/scripts/resolve-matrix.sh which filters type=Weekly rows
+  # and expands each row's "suites" array into one flat entry per suite. The
+  # scheduled run always takes the complete matrix; manual dispatch can narrow
+  # it to one variant, or one variant and suite.
+  # ---------------------------------------------------------------------------
+  configure-matrix:
+    name: Configure weekly matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Generate weekly matrix
+        id: set-matrix
+        env:
+          BUILD_SCOPE_INPUT: ${{ github.event.inputs.build-scope }}
+          INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
+          INPUT_SUITE: ${{ github.event.inputs.suite }}
+        run: |
+          set -euo pipefail
+
+          BUILD_SCOPE="$BUILD_SCOPE_INPUT"
+
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            BUILD_SCOPE="Full matrix"
+          fi
+
+          case "$BUILD_SCOPE" in
+            "Full matrix")
+              echo "Source: ci/build-matrix.json (full Weekly matrix)"
+              args=(--type Weekly)
+              ;;
+            "Selected variant (all suites)")
+              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
+              args=(--type Weekly --kernel-variant "$INPUT_VARIANT")
+              ;;
+            "Selected variant and suite")
+              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
+              args=(--type Weekly --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
+              ;;
+            *)
+              echo "ERROR: unsupported build scope: $BUILD_SCOPE" >&2
+              exit 1
+              ;;
+          esac
+          MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
+
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+
+  # ---------------------------------------------------------------------------
+  # build: one parallel job per flat Weekly matrix entry.
+  #
+  # Passes target_workspace, so build-kernel-debusine.yml takes the Debusine
+  # promotion path (lib/release) instead of the S3 publish path. That job is
+  # conditional on the build succeeding, which is what makes promotion
+  # contingent on the build passing.
+  # ---------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
+    needs: configure-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/build-kernel-deb.yml
+    with:
+      suite: ${{ matrix.suite }}
+      kernel-variant: ${{ matrix.kernel_variant }}
+      git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: ${{ matrix.kver_extra || '' }}
+      debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+      target-workspace: ${{ matrix.target_workspace }}
+      pkg-linux-qcom-ref: ${{ matrix.pkg_linux_qcom_ref || 'qcom/debian/latest' }}
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}

@@ -17,21 +17,29 @@ kernel variants, each with independent source/package identity, kernel source
 and ref strategy, configuration fragments, Debian revision, target suites, and
 release destination.
 
-Every kernel variant owns exactly one complete `Daily` matrix row, and at most
-one `Release` row. A variant that is delivered to production carries both; a
-variant that only tracks an upstream tree, and is never promoted, carries the
-`Daily` row alone. The resolver expands every suite in those rows into an
-isolated `kernel_variant + suite` build leg.
+A kernel variant owns at most one row of each delivery type, and at least one
+build cadence:
+
+| Type | Kernel ref | Outcome |
+| --- | --- | --- |
+| `Daily` | Autobumped (`latest_tag` or `branch_tip`) | Artifacts to S3. Never promoted. |
+| `Weekly` | Autobumped (`latest_tag` or `branch_tip`) | Promoted to `target_workspace` when the build passes. |
+| `Release` | Pinned (`pinned_ref`) | Promoted to `target_workspace`. |
+
+A variant whose releases are cut deliberately carries `Daily` plus `Release`. A
+variant that tracks a moving upstream tree carries `Weekly` alone: there is no
+ref worth pinning, so the delivery bumps itself. The resolver expands every
+suite in those rows into an isolated `kernel_variant + suite` build leg.
 
 ### Configured variants
 
-| Variant | Source package | Image metapackage | Daily suites | Release suites | Notes |
-|---------|----------------|-------------------|--------------|----------------|-------|
-| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky | trixie, forky | Standard kernel |
-| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
-| `arduino` | `linux-arduino` | `linux-image-arduino` | trixie, forky | — | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics`. Daily only |
-| `mainline` | `linux-mainline` | `linux-image-mainline` | trixie, forky | — | Tracks the tip of `master` in `torvalds/linux`. Daily only |
-| `next` | `linux-next` | `linux-image-next` | trixie, forky | — | Tracks the newest `next-YYYYMMDD` tag of the linux-next tree. Daily only |
+| Variant | Source package | Image metapackage | Deliveries (all trixie, forky) | Notes |
+|---------|----------------|-------------------|--------------------------------|-------|
+| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | Daily; Release → `qli` | Standard kernel |
+| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | Daily; Release → `qli` | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:qcom_debug` |
+| `arduino` | `linux-arduino` | `linux-image-arduino` | Weekly → `qli` | Tracks the tip of `early/hwe/arduino` in `qualcomm-linux/kernel-topics` |
+| `mainline` | `linux-mainline` | `linux-image-mainline` | Weekly → `qli` | Tracks the tip of `master` in `torvalds/linux` |
+| `next` | `linux-next` | `linux-image-next` | Weekly → `qli` | Tracks the newest `next-YYYYMMDD` tag of the linux-next tree |
 
 The two `qcom-next` variants build the same kernel ref.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
@@ -42,10 +50,12 @@ alongside the others.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
 
-Two entry points use the same reusable build pipeline:
+Three entry points use the same reusable build pipeline:
 
 - **Daily** uses the matrix-selected latest-tag or branch-tip strategy and
   builds every configured Daily suite.
+- **Weekly** uses the same autobumping strategies as Daily, then promotes each
+  leg whose build passed to that row's Debusine workspace.
 - **Release** uses a pinned matrix ref and promotes successful Debian packages
   to the selected production Debusine workspace.
 
@@ -96,16 +106,21 @@ The final Production matrix is conceptually:
 suite referenced by any row's `suites` must have an entry here, and every
 delivery for a variant derives its final `debian_revision` as
 `debian_version_stub + suite_suffix_mapping[suite] + delivery_suffix`, where
-`delivery_suffix` is `~` for Daily and empty for Release. For the values
-above:
+`delivery_suffix` is `~` for Daily and empty for Weekly and Release. For the
+values above:
 
-| Suite | Daily | Release |
+| Suite | Daily | Weekly and Release |
 | --- | --- | --- |
 | Trixie | `0qli~bpo13+1~` | `0qli~bpo13+1` |
 | Forky | `0qli~` | `0qli` |
 
-`~` always sorts below the same prefix without it in Debian version
-ordering, so Daily always sorts below Release for the same suite and stub.
+Weekly and Release share a revision because both land in a production
+workspace; the revision encodes where a package is going, not how its ref was
+chosen. Successive Weekly deliveries still order correctly against each other
+because each carries a newer kernel version, exactly as successive Releases do.
+
+`~` always sorts below the same prefix without it in Debian version ordering,
+so Daily always sorts below a promoted delivery for the same suite and stub.
 Ordering across *different* suites depends entirely on the configured
 suffixes: with the mapping above, Trixie < Forky for the same delivery type,
 matching a Debian-backports-then-unstable promotion chain.
@@ -117,16 +132,17 @@ not sort below Forky Daily even though Trixie Release sorts below Forky
 Release. This does not affect the supported Release-to-Release upgrade path.
 
 `ci/build-matrix.json` is the authoritative configuration. Adding a kernel
-variant is a one- or two-row matrix change, not a workflow redesign.
+variant is a one- to three-row matrix change, not a workflow redesign.
 
 ## Workflows
 
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
 | `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
+| `weekly.yml` | Resolves and runs the Weekly matrix, promoting each leg that builds. | Scheduled Saturdays at `11:00 UTC`, or manual dispatch. |
 | `release.yml` | Resolves and runs the Release matrix. | Manual dispatch only. |
-| `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily and Release. |
-| `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes Releases. | Called by `build-kernel-deb.yml`. |
+| `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily, Weekly, and Release. |
+| `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes to a target workspace. | Called by `build-kernel-deb.yml`. |
 | `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
 
 ### Daily
@@ -146,6 +162,27 @@ Daily is the recurring build and artifact-publication path.
   (`resolute`, say) takes the Docker-based Ubuntu path and uploads its package
   outputs to the existing temporary-package S3 location; it also needs a
   `suite_suffix_mapping` entry restored.
+
+### Weekly
+
+Weekly is the self-bumping promotion path, for variants that follow a moving
+upstream tree.
+
+- The scheduled run is every Saturday at `11:00 UTC` and resolves the full
+  `Weekly` matrix. A manual run offers the same three **Build scopes** as
+  Daily.
+- The ref comes from the row's `latest_tag` or `branch_tip` strategy, resolved
+  at run time. Nothing is pinned, so each week picks up whatever that tree has
+  moved to; a Weekly row never needs editing to advance.
+- Each leg builds in its own Debusine CI workspace and is promoted to the row's
+  `target_workspace` only if that build succeeded. A leg whose build fails
+  promotes nothing, and `fail-fast` is off, so one variant failing does not
+  cancel another variant's promotion.
+- Promotion runs in the **Production** GitHub environment, which supplies the
+  release credential. Whatever approval protection that environment carries
+  applies here too: the Saturday build runs unattended and the promotion waits
+  on it. Making the promotion fully unattended is a change to that
+  environment's protection rules, not to this workflow.
 
 ### Release
 
@@ -167,26 +204,27 @@ Release is the controlled promotion path.
   the release credential and enforces the required approval gate before
   promotion to `qli`.
 
-Direct `build-kernel-deb.yml` dispatches are build-only. Release promotion is
-initiated exclusively by `release.yml`, which owns the target workspace and
-production release controls.
+Direct `build-kernel-deb.yml` dispatches are build-only. Promotion is initiated
+exclusively by `weekly.yml` and `release.yml`, which own the target workspace
+and production release controls.
 
 ## Matrix Model
 
 `ci/build-matrix.json` is an object with two top-level keys: `deliveries`
 (the matrix rows) and `suite_suffix_mapping` (matrix-wide Debian suffix
 policy, shared by every variant and delivery type). `ci/scripts/resolve-matrix.sh`
-validates the document, requires each `kernel_variant` to have exactly one
-`Daily` row and at most one `Release` row in `deliveries`, filters by delivery
-type, and flattens each `suites` array into independent suite legs. A variant
-with no `Release` row simply has nothing to resolve when `release.yml` is
-dispatched for it, and the resolver fails with "no matrix entries found". Each
-leg carries its own values for:
+validates the document, requires each `kernel_variant` to have at most one row
+of each delivery type and at least one of `Daily` or `Weekly` in `deliveries`,
+filters by delivery type, and flattens each `suites` array into independent
+suite legs. A variant with no row of the requested type simply has nothing to
+resolve — dispatching `release.yml` for a Weekly-only variant fails with "no
+matrix entries found" before any build job starts. Each leg carries its own
+values for:
 
 | Field | Purpose |
 | --- | --- |
 | `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
-| `type` | `Daily` or `Release`. |
+| `type` | `Daily`, `Weekly`, or `Release`. |
 | `suites` | Suites to flatten into individual build legs. Each must have a `suite_suffix_mapping` entry. |
 | `git_clone` | Kernel source repository. |
 | `branch_or_tag` | Source branch or pinned tag, according to `ref_strategy`. |
@@ -195,28 +233,30 @@ leg carries its own values for:
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. Empty for variants that need nothing beyond it; today it carries only `intree:` fragments shipped by the kernel source. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
-| `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
-| `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
+| `debian_version_stub` | Base Debian revision, shared by all of a variant's rows. Must not end in `~`; the suite suffix is derived, not stored here. |
+| `debian_version_suffix` | `~` for Daily rows, empty for Weekly and Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `pkg_linux_qcom_ref` | Packaging branch or commit used during source preparation. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
-| `target_workspace` | Debusine destination for Release entries only. |
+| `target_workspace` | Debusine destination. Weekly and Release entries only. |
 
-`target_workspace` is required for `Release` and rejected for `Daily`.
+`target_workspace` is required for `Weekly` and `Release`, and rejected for
+`Daily`.
 `tag_pattern` is required for `latest_tag` and rejected for other strategies.
 The resolver selects the most recent trailing `YYYYMMDD` date, and rejects
 duplicate suites and malformed variant identifiers before any build jobs
 start. It also rejects a matrix where any configured suite has no
 `suite_suffix_mapping` entry, where two suites share the same suffix, where a
-suffix is non-empty and doesn't start with `~`, where a variant's Daily
-and Release rows disagree on `debian_version_stub`, or where a row's
+suffix is non-empty and doesn't start with `~`, where a variant's rows
+disagree on `debian_version_stub`, or where a row's
 `debian_version_suffix` doesn't match what its `type` implies — all before
 any build job starts.
 
 Each flattened leg's final `debian_revision` is derived by
 `ci/scripts/derive-debian-revision.sh` from `debian_version_stub`,
 `suite_suffix_mapping[suite]`, and the delivery type
-(`stub + suffix + "~"` for Daily, `stub + suffix` for Release). This script is
+(`stub + suffix + "~"` for Daily, `stub + suffix` for Weekly and Release).
+This script is
 the single implementation of the formula: `resolve-matrix.sh` calls it once
 per flattened leg, and `build-kernel-deb.yml`'s direct-dispatch path (which
 has no full-matrix context) calls the same script for the one suite it was
@@ -256,9 +296,9 @@ flowchart LR
     R -->|"trixie · forky"| DEB["Debian path\nbuild-kernel-debusine.yml\nGenerate source package\nSubmit with lib/build\nDebusine builds binaries"]
     R -->|"resolute"| UBU["Ubuntu path\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh in Docker\nBuild binary packages"]
 
-    DEB --> DOUT{"Build type"}
-    DOUT -->|Daily| S3["Download .deb files\nPublish to S3"]
-    DOUT -->|Release| QLI["Promote source and binaries\nto qli"]
+    DEB --> DOUT{"target-workspace set?"}
+    DOUT -->|"No (Daily)"| S3["Download .deb files\nPublish to S3"]
+    DOUT -->|"Yes (Weekly · Release)"| QLI["Promote source and binaries\nto qli"]
     UBU --> US3["Publish .deb files to S3"]
 ```
 
@@ -271,15 +311,19 @@ flowchart TD
     subgraph triggers[Triggers]
         A1["daily.yml\nScheduled full matrix"]
         A2["daily.yml\nManual full or filtered variant + suite"]
-        A3["release.yml\nManual full or filtered variant + suite"]
-        A4["build-kernel-deb.yml\nManual one-off build"]
+        A3["weekly.yml\nScheduled Saturday full matrix"]
+        A4["weekly.yml\nManual full or filtered variant + suite"]
+        A5["release.yml\nManual full or filtered variant + suite"]
+        A6["build-kernel-deb.yml\nManual one-off build"]
     end
 
     subgraph matrix[Matrix entry points]
         B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\narduino / trixie · forky\nmainline / trixie · forky\nnext / trixie · forky"]
-        B3["Release configure-matrix\nFlatten Release rows"]
-        B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
+        B3["Weekly configure-matrix\nFlatten Weekly rows"]
+        B4["Weekly variant + suite legs\narduino / trixie · forky\nmainline / trixie · forky\nnext / trixie · forky"]
+        B5["Release configure-matrix\nFlatten Release rows"]
+        B6["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
     end
 
     subgraph orchestrator[build-kernel-deb.yml]
@@ -291,15 +335,18 @@ flowchart TD
 
     subgraph outputs[Outputs]
         D1["Daily S3 artifacts"]
-        D2["Release qli APT repository"]
+        D2["qli APT repository\nWeekly · Release"]
     end
 
     A1 --> B1
     A2 --> B1
     A3 --> B3
+    A4 --> B3
+    A5 --> B5
     B1 --> B2 --> C1
     B3 --> B4 --> C1
-    A4 --> C1
+    B5 --> B6 --> C1
+    A6 --> C1
     C1 --> C2
     C2 --> C3 & C4
     C3 --> D1 & D2
@@ -414,8 +461,8 @@ out-of-tree module builds are required.
 ## Manual Builds
 
 Use **Actions** → **build-kernel-deb** for a one-off build. It is an explicit
-override workflow, not a matrix-derived delivery flow: use `daily.yml` and
-`release.yml` for normal Daily and Release operations.
+override workflow, not a matrix-derived delivery flow: use `daily.yml`,
+`weekly.yml`, and `release.yml` for normal delivery operations.
 
 `kernel-variant`, `suite`, and `ref-strategy` are the required build selection.
 All remaining package, configuration, and PR inputs are advanced overrides for
@@ -443,8 +490,8 @@ The available inputs are:
 | `pkg-linux-qcom-ref` | `qcom/debian/latest` | Advanced packaging revision used to prepare the source tree. |
 
 The workflow also supports advanced Qualcomm-only PR overrides for validation
-builds. Direct builds are artifact builds; Release promotion is performed only
-through `release.yml`.
+builds. Direct builds are artifact builds; promotion is performed only through
+`weekly.yml` and `release.yml`.
 
 ## Configuration
 
@@ -465,7 +512,7 @@ through `release.yml`.
 | `DEBUSINE_TOKEN` | Repository | Token for Debusine build and artifact operations. |
 | `DEBUSINE_RELEASE_TOKEN` | Production environment | Token used only to promote Release artifacts to `qli`. |
 
-The Debian build and Release jobs select the **Production** GitHub environment.
+The Debian build and promotion jobs select the **Production** GitHub environment.
 This makes environment-scoped release credentials available to the promotion job
 and keeps production approval controls in the workflow path.
 
@@ -473,36 +520,40 @@ and keeps production approval controls in the workflow path.
 
 To add a kernel variant:
 
-1. Add exactly two rows to `deliveries` with the same `kernel_variant`: one
-   `Daily` and one `Release`.
+1. Choose the variant's deliveries and add one row per type to `deliveries`,
+   all sharing the same `kernel_variant`. A variant with deliberate releases
+   takes `Daily` plus `Release`; one that tracks a moving upstream tree takes
+   `Weekly` alone. At least one of `Daily` or `Weekly` is required.
 2. Define all package identity, source/ref strategy, configuration,
-   `debian_version_stub`, and suite values in both rows. Do not rely on
+   `debian_version_stub`, and suite values in every row. Do not rely on
    another variant's values. `srcpkg`, `binpkg`, and `debian_version_stub`
-   must remain identical across the pair. Set `debian_version_suffix` to `~`
-   on the Daily row and `""` on the Release row; `resolve-matrix.sh` rejects
-   the pair if either disagrees with its row's `type`.
-3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
-   `pinned_ref` for Release, and update that ref through a reviewed PR.
-4. Give the variant distinct `srcpkg` and `binpkg` values. Set the Release
-   `target_workspace` explicitly.
+   must remain identical across the variant's rows. Set
+   `debian_version_suffix` to `~` on a Daily row and `""` on a Weekly or
+   Release row; `resolve-matrix.sh` rejects any row that disagrees with its
+   own `type`.
+3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily and
+   Weekly. Use `pinned_ref` for Release, and update that ref through a
+   reviewed PR.
+4. Give the variant distinct `srcpkg` and `binpkg` values. Set
+   `target_workspace` explicitly on Weekly and Release rows.
 5. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
    the Docker path.
-6. Run a filtered Daily validation for the new variant, then its full Daily and
-   Release flows.
+6. Run one filtered leg for the new variant first, then its full flows. For a
+   Weekly variant, remember that a full run promotes to `target_workspace`.
 
 To add a new suite (for an existing or new variant):
 
 1. Add an entry for it to the shared top-level `suite_suffix_mapping`, empty
    or starting with `~`, and distinct from every other suite's suffix.
-2. Add the suite to the `suites` array of the relevant Daily and/or Release
-   rows. `resolve-matrix.sh` rejects any configured suite with no mapping
+2. Add the suite to the `suites` array of every relevant row for that
+   variant. `resolve-matrix.sh` rejects any configured suite with no mapping
    entry before any build job starts.
 3. Choose the suffix so the suite sorts where it belongs relative to the
    others for the same delivery type (see the ordering discussion in
    [Overview](#overview)).
 
-No workflow dispatch choices need to be updated: manual Daily and Release
-inputs accept matrix-defined variant and suite strings.
+No workflow dispatch choices need to be updated: manual Daily, Weekly, and
+Release inputs accept matrix-defined variant and suite strings.
 
 ## Contributing
 

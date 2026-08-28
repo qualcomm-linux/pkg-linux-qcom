@@ -8,11 +8,15 @@ set -euo pipefail
 # The matrix root is an object with two top-level keys:
 #   - "suite_suffix_mapping": a suite -> Debian suffix map shared by every
 #     kernel variant and delivery type (e.g. "trixie": "~bpo13+1").
-#   - "deliveries": the matrix rows. Each kernel_variant owns exactly one
-#     Daily row and at most one Release row; a variant that is only ever
-#     tracked, never promoted to production, omits the Release row. A row
-#     declares every input needed by that delivery, including a
-#     debian_version_stub. Two fields are
+#   - "deliveries": the matrix rows. Each kernel_variant owns at most one row
+#     of each delivery type, and at least one build cadence:
+#       Daily    autobumped ref, artifacts to S3, never promoted.
+#       Weekly   autobumped ref, promoted to target_workspace when the build
+#                passes. The ref moves on its own; nothing is pinned.
+#       Release  pinned ref, promoted to target_workspace.
+#     A variant carries Daily or Weekly (or both), and Release only when a
+#     pinned promotion is wanted alongside. A row declares every input needed
+#     by that delivery, including a debian_version_stub. Two fields are
 #     list-valued: suites, which is expanded into isolated legs, and
 #     kernel_config, which is one config fragment per element.
 #
@@ -20,22 +24,23 @@ set -euo pipefail
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
 # ci/scripts/derive-debian-revision.sh, so the formula has exactly one
 # implementation shared with build-kernel-deb.yml's direct-dispatch path. Each
-# row also carries debian_version_suffix ("~" for Daily, "" for Release) as a
-# visible, validated record of that same delivery-type mapping; it is checked
+# row also carries debian_version_suffix ("~" for Daily, "" for Weekly and
+# Release) as a visible, validated record of that mapping; it is checked
 # against the row's type but never fed into derivation, so a copy/paste error
 # here fails fast instead of silently drifting from the formula's single
 # implementation.
 #
 # Usage:
 #   ci/scripts/resolve-matrix.sh --type Daily
+#   ci/scripts/resolve-matrix.sh --type Weekly
 #   ci/scripts/resolve-matrix.sh --type Release
 #   ci/scripts/resolve-matrix.sh --type Daily --single-suite trixie
 #   ci/scripts/resolve-matrix.sh --type Daily --kernel-variant qcom-next
 #   ci/scripts/resolve-matrix.sh --type Daily --matrix-file path/to/matrix.json
 #
 # Options:
-#   --type TYPE                Delivery type to filter (Daily or Release).
-#                                Required.
+#   --type TYPE                Delivery type to filter (Daily, Weekly, or
+#                                Release). Required.
 #   --single-suite SUITE       Emit only entries for this suite.
 #   --kernel-variant VARIANT   Emit only entries for this kernel variant.
 #   --matrix-file FILE         Path to the matrix JSON file
@@ -75,8 +80,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ "$TYPE" == "Daily" || "$TYPE" == "Release" ]] || {
-    echo "ERROR: --type must be Daily or Release" >&2
+[[ "$TYPE" == "Daily" || "$TYPE" == "Weekly" || "$TYPE" == "Release" ]] || {
+    echo "ERROR: --type must be Daily, Weekly, or Release" >&2
     exit 1
 }
 [[ -f "$MATRIX_FILE" ]] || { echo "ERROR: Matrix file not found: $MATRIX_FILE" >&2; exit 1; }
@@ -157,15 +162,16 @@ validation_errors=$(jq -r '
       then "missing or invalid debian_version_suffix"
       elif .type == "Daily" and .debian_version_suffix != "~"
       then "debian_version_suffix must be \"~\" for Daily rows (got \"" + (.debian_version_suffix | tostring) + "\")"
-      elif .type == "Release" and .debian_version_suffix != ""
-      then "debian_version_suffix must be \"\" for Release rows (got \"" + (.debian_version_suffix | tostring) + "\")"
+      elif (.type == "Weekly" or .type == "Release") and .debian_version_suffix != ""
+      then "debian_version_suffix must be \"\" for " + .type + " rows (got \"" + (.debian_version_suffix | tostring) + "\")"
       else empty end,
-      if (.type == "Daily" or .type == "Release")
-      then empty else "type must be Daily or Release" end,
+      if (.type == "Daily" or .type == "Weekly" or .type == "Release")
+      then empty else "type must be Daily, Weekly, or Release" end,
       if (.ref_strategy == "latest_tag" or .ref_strategy == "branch_tip" or .ref_strategy == "pinned_ref")
       then empty else "ref_strategy must be latest_tag, branch_tip, or pinned_ref" end,
-      if .type == "Daily" and (.ref_strategy != "latest_tag" and .ref_strategy != "branch_tip")
-      then "Daily rows must use ref_strategy=latest_tag or ref_strategy=branch_tip"
+      if (.type == "Daily" or .type == "Weekly")
+           and (.ref_strategy != "latest_tag" and .ref_strategy != "branch_tip")
+      then .type + " rows must use ref_strategy=latest_tag or ref_strategy=branch_tip"
       elif .type == "Release" and .ref_strategy != "pinned_ref"
       then "Release rows must use ref_strategy=pinned_ref"
       else empty
@@ -176,10 +182,10 @@ validation_errors=$(jq -r '
       then "tag_pattern is only valid with ref_strategy=latest_tag"
       else empty
       end,
-      if .type == "Release"
+      if (.type == "Weekly" or .type == "Release")
       then required_string("target_workspace")
       elif has("target_workspace")
-      then "target_workspace is only valid for Release"
+      then "target_workspace is only valid for Weekly and Release"
       else empty
         end
       ] | .[] | "row " + ($index | tostring) + " (" + (($row.kernel_variant // "unknown") | tostring) + "): " + .
@@ -206,16 +212,21 @@ validation_errors=$(jq -r '
         | . as $rows
         | (($rows[0].kernel_variant // "unknown") | tostring) as $variant
         | ([ $rows[] | select(.type == "Daily") ] | length) as $dailies
+        | ([ $rows[] | select(.type == "Weekly") ] | length) as $weeklies
         | ([ $rows[] | select(.type == "Release") ] | length) as $releases
         | ([ $rows[].srcpkg ] | unique) as $srcpkgs
         | ([ $rows[].binpkg ] | unique) as $binpkgs
         | ([ $rows[].debian_version_stub ] | unique) as $stubs
-        | if $dailies != 1
-          then "kernel_variant " + $variant + " must define exactly one Daily row"
+        | if $dailies > 1
+          then "kernel_variant " + $variant + " must define at most one Daily row"
+          elif $weeklies > 1
+          then "kernel_variant " + $variant + " must define at most one Weekly row"
           elif $releases > 1
           then "kernel_variant " + $variant + " must define at most one Release row"
-          elif ($rows | length) != ($dailies + $releases)
-          then "kernel_variant " + $variant + " must define only Daily and Release rows"
+          elif ($dailies + $weeklies) == 0
+          then "kernel_variant " + $variant + " must define a Daily or Weekly row"
+          elif ($rows | length) != ($dailies + $weeklies + $releases)
+          then "kernel_variant " + $variant + " must define only Daily, Weekly, and Release rows"
           elif ($srcpkgs | length) != 1
           then "kernel_variant " + $variant + " must use one srcpkg across its rows"
           elif ($binpkgs | length) != 1
