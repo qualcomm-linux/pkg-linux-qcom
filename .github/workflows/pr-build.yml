@@ -16,14 +16,9 @@ name: pr-build
 # stub and suite. A PR build can never produce a version that outranks a real
 # delivery.
 #
-# Triggers are limited to changes that can affect a build: the matrix, the CI
-# scripts, and the workflows themselves. A README-only change does not spend
-# ten kernel builds.
-#
-# Push is restricted to main, which is what makes the concurrency group below
-# correct: every push run shares the empty pull_request.number, so grouping
-# them together means a new push to main cancels the previous main build,
-# while each PR keeps its own group keyed by its number.
+# Pull request triggers are limited to changes that can affect a build: the
+# matrix, the CI scripts, and the workflows themselves. A README-only pull
+# request does not spend ten kernel builds.
 
 on:
   pull_request:
@@ -32,6 +27,19 @@ on:
     paths:
       - 'ci/**'
       - '.github/workflows/**'
+  # TODO: push currently fires on every branch and every path, which the
+  # concurrency group below does not cope with. On a push event
+  # github.event.pull_request is null, so the group evaluates to the constant
+  # "pr-build-" and every push run on every branch shares it — with
+  # cancel-in-progress, a push to one branch cancels an in-flight build on an
+  # unrelated one. Fix by keying pushes on the ref:
+  #
+  #   group: pr-build-${{ github.event.pull_request.number || github.ref }}
+  #
+  # Two more things to settle at the same time: a same-repo branch with an open
+  # pull request builds the whole matrix twice, once per trigger, and without a
+  # paths filter a README-only commit spends ten kernel builds. Restoring the
+  # branches and paths restrictions below addresses both.
   push:
     #branches:
     #  - main

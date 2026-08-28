@@ -53,8 +53,8 @@ Two entry points resolve the matrix:
 
 - **Weekly** resolves each row's latest tag or branch tip, builds it, and
   promotes each leg whose build passed to that row's Debusine workspace.
-- **PR build** resolves the same rows the same way on pull requests and pushes
-  to `main`, and promotes nothing.
+- **PR build** resolves the same rows the same way on pull requests and pushes,
+  and promotes nothing.
 
 `build-kernel-deb.yml` can also be dispatched by hand for a one-off build. It
 never promotes; its packages go to S3.
@@ -120,7 +120,7 @@ variant is a one-row matrix change, not a workflow redesign.
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
 | `weekly.yml` | Resolves and runs the matrix, promoting each leg that builds. | Scheduled Saturdays at `11:00 UTC`, or manual dispatch. |
-| `pr-build.yml` | Resolves and runs the same matrix without promoting anything. | Pull requests against `main` and pushes to `main` that touch `ci/**` or `.github/workflows/**`. |
+| `pr-build.yml` | Resolves and runs the same matrix without promoting anything. | Pull requests against `main` that touch `ci/**` or `.github/workflows/**`, and every push. |
 | `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by `weekly.yml`. |
 | `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either promotes to a target workspace or publishes artifacts to S3. | Called by `build-kernel-deb.yml`. |
 | `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
@@ -176,11 +176,15 @@ three ways:
   `debian_revision` carries the trailing `~` that sorts it below the promoted
   package with the same stub and suite.
 
-It runs on pull requests against `main` and on pushes to `main`, restricted to
-changes under `ci/**` or `.github/workflows/**` — a README-only change does not
-spend ten kernel builds. Concurrency is grouped per pull request with
-`cancel-in-progress`, so a new push to a PR cancels that PR's in-flight build
-and leaves every other PR alone.
+It runs on pull requests against `main` that touch `ci/**` or
+`.github/workflows/**`, and on every push. Concurrency is grouped per pull
+request with `cancel-in-progress`, so a new push to a PR cancels that PR's
+in-flight build and leaves every other PR alone.
+
+The push trigger is not finished: it carries no branch or path restriction, and
+the concurrency group keys on the pull request number, which a push event does
+not have. Every push run therefore shares one group and cancels the others. The
+`TODO` above the trigger in `pr-build.yml` records the fix.
 
 Matrix validation runs for fork pull requests, which gives them the checks
 `resolve-matrix.sh` performs. The build legs themselves are skipped for forks,
@@ -279,7 +283,7 @@ flowchart TD
         A1["weekly.yml\nScheduled Saturday full matrix"]
         A2["weekly.yml\nManual full or filtered variant + suite"]
         A3["build-kernel-deb.yml\nManual one-off build"]
-        A4["pr-build.yml\nPull request or push to main"]
+        A4["pr-build.yml\nPull request or push"]
     end
 
     subgraph matrix[Matrix entry point]
