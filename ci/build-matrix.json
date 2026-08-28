@@ -113,6 +113,24 @@
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
+    },
+    {
+      "kernel_variant": "next",
+      "type": "Daily",
+      "suites": [
+        "trixie",
+        "forky"
+      ],
+      "git_clone": "https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git",
+      "branch_or_tag": "master",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "next-*",
+      "srcpkg": "linux-next",
+      "binpkg": "linux-image-next",
+      "kernel_config": [],
+      "debian_version_stub": "0qli",
+      "debian_version_suffix": "~",
+      "pkg_linux_qcom_ref": "qcom/debian/latest"
     }
   ]
 }
