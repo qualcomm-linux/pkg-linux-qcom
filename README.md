@@ -504,18 +504,26 @@ verbatim so drift is a plain diff; only the SPDX header is added locally.
 | `usb-can.config` | slcan, gs_usb, peak_usb | USB CAN adapter demos/testing |
 
 **In-tree fragments.** `--kernel-config` carries fragments applied *in addition*
-to the set above. Today that means fragments shipped by the kernel source under
-`arch/arm64/configs/`, referenced with an `intree:` prefix rather than copied
-into this repository so they stay versioned with the kernel they target:
+to the set above. Today that means fragments shipped by the kernel source,
+referenced with an `intree:` prefix rather than copied into this repository so
+they stay versioned with the kernel they target:
 
 ```
---kernel-config intree:qcom_debug
+--kernel-config intree:arch/arm64/configs/qcom_debug.config,intree:kernel/configs/debug.config
 ```
 
-`intree:<name>` resolves to `arch/arm64/configs/<name>.config`. A bare name is
-still accepted for compatibility but is redundant, since that fragment is
-already applied. An in-tree fragment sharing a filename with a packaging
-fragment is rejected rather than silently overwriting it.
+`intree:<path>` names a file relative to the kernel source root, so any
+directory in the tree can be used, not just `arch/arm64/configs/`. The path must
+end in `.config`, and an absolute path or one containing `..` is rejected. The
+fragment is copied into `debian/config/` under its basename, so two entries
+resolving to the same filename — whether two in-tree paths
+(`arch/arm64/configs/hardening.config` and `kernel/configs/hardening.config`) or
+an in-tree path and a packaging fragment — are rejected rather than one silently
+overwriting the other.
+
+A bare name (no `intree:` prefix) is still accepted for compatibility but is
+redundant, since every fragment in `debian/config-available/` is already
+applied.
 
 **Activating via `build-kernel.sh`:**
 

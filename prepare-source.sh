@@ -65,11 +65,13 @@ OPTIONS:
     --kernel-config LIST      Comma-separated fragments to apply in addition to
                               debian/config-available/, every entry of which is
                               applied to every build regardless of this option.
-                              An "intree:" prefix resolves to
-                              arch/arm64/configs/<name>.config in the kernel
-                              source, for fragments that ship with the kernel
-                              and are versioned with it
-                              (e.g. intree:qcom_debug).
+                              An "intree:" prefix names a path relative to the
+                              kernel source root, for fragments that ship with
+                              the kernel and are versioned with it
+                              (e.g. intree:arch/arm64/configs/qcom_debug.config
+                              or intree:kernel/configs/debug.config). The path
+                              must end in .config; absolute paths and ".." are
+                              rejected.
                               A bare name is accepted for compatibility but is
                               redundant, since that fragment is already applied.
                               Entries are processed in LC_ALL=C sorted order.
