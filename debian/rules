@@ -168,8 +168,8 @@ override_dh_auto_configure:
 	#   1. ARM64 base defconfig
 	#   2. Disable CONFIG_LOCALVERSION_AUTO (must happen before any merges)
 	#   3. Config fragments applied in a single unified pipeline:
-	#        a. arch/arm64/configs/qcom.config   (kernel-source, always applied if present)
-	#        b. arch/arm64/configs/prune.config  (kernel-source, always applied if present)
+	#        a. arch/arm64/configs/prune.config  (kernel-source, always applied if present)
+	#        b. arch/arm64/configs/qcom.config   (kernel-source, always applied if present)
 	#        c. debian/config/*.config            (packaging fragments)
 	#           Populated by prepare-source.sh: every fragment in
 	#           debian/config-available/, plus any intree: fragments named in
@@ -200,17 +200,17 @@ override_dh_auto_configure:
 	# Step 3: Unified config fragment pipeline.
 	@CONFIG_FILE="$(if $(BUILD_OBJ),$(BUILD_OBJ)/).config"; \
 	FRAGMENTS=""; \
-	if [ -f arch/arm64/configs/qcom.config ]; then \
-		echo "Found kernel-source fragment: arch/arm64/configs/qcom.config"; \
-		FRAGMENTS="arch/arm64/configs/qcom.config"; \
-	else \
-		echo "Note: arch/arm64/configs/qcom.config not found (not a qcom-next tree?)"; \
-	fi; \
 	if [ -f arch/arm64/configs/prune.config ]; then \
 		echo "Found kernel-source fragment: arch/arm64/configs/prune.config"; \
-		FRAGMENTS="$$FRAGMENTS arch/arm64/configs/prune.config"; \
+		FRAGMENTS="arch/arm64/configs/prune.config"; \
 	else \
 		echo "Note: arch/arm64/configs/prune.config not found (skipping)"; \
+	fi; \
+	if [ -f arch/arm64/configs/qcom.config ]; then \
+		echo "Found kernel-source fragment: arch/arm64/configs/qcom.config"; \
+		FRAGMENTS="$$FRAGMENTS arch/arm64/configs/qcom.config"; \
+	else \
+		echo "Note: arch/arm64/configs/qcom.config not found (not a qcom-next tree?)"; \
 	fi; \
 	if [ -d debian/config ] && ls debian/config/*.config >/dev/null 2>&1; then \
 		for f in $$(ls debian/config/*.config | LC_ALL=C sort); do \
