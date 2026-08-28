@@ -412,6 +412,14 @@ override_dh_auto_install:
 	    --objcopy         "$(OBJCOPY)" \
 	    --modules-manifest "$(CURDIR)/debian/dkms-modules"
 
+# Ignore files shipped in debug package.
+override_dh_dwz:
+	dh_dwz -X/usr/lib/debug/
+
+# Ignore files shipped in debug package.
+override_dh_strip:
+	dh_strip -X/usr/lib/debug/
+
 # Skip automatic dh_installmodules — called manually in override_dh_installdeb.
 override_dh_installmodules:
 	@echo "Skipping automatic dh_installmodules (called manually in override_dh_installdeb)"
