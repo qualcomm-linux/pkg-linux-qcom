@@ -14,7 +14,6 @@ Packages follow the standard Debian/Ubuntu kernel naming convention:
 | `linux-image-<KVER>` | Kernel image, modules, DTBs | `linux-image-7.2.0-qcom-next-20260826` |
 | `linux-headers-<KVER>` | Headers for out-of-tree modules | `linux-headers-7.2.0-qcom-next-20260826` |
 | `linux-image-<KVER>-dbg` | Debug symbols | `linux-image-7.2.0-qcom-next-20260826-dbg` |
-| `linux-headers-<KVER>-dbgsym` | Headers debug symbols, generated automatically by debhelper | `linux-headers-7.2.0-qcom-next-20260826-dbgsym` |
 | `<BINPKG>` | Image metapackage tracking the newest kernel image | `linux-image-qcom-next` |
 | `<HDRPKG>` | Headers metapackage tracking the newest headers | `linux-headers-qcom-next` |
 
@@ -28,9 +27,10 @@ build matrix (`binpkg` / derived headers name). They stay constant across
 snapshots and depend on the newest versioned package, so installing
 `linux-image-qcom-next` follows the latest build of that variant.
 
-`debian/control.in` declares five of these; the `-dbgsym` package is produced by
-debhelper rather than declared, so a build publishes six binary packages per
-variant.
+`debian/control.in` declares all five, so a build publishes five binary packages
+per variant. `dh_strip` is run with `--no-automatic-dbgsym`, so debhelper
+generates no additional `-dbgsym` package: debug symbols are shipped only by the
+declared `linux-image-<KVER>-dbg`.
 
 **`-qcom`** is a static flavour suffix appended by the packaging, identifying
 Qualcomm-packaged kernels independently of the branch name.
