@@ -375,7 +375,7 @@ override_dh_auto_install:
 			src_mod="$$mod"; \
 			[ -n "$$OBJ_DIR" ] && src_mod="$$OBJ_DIR/$$mod"; \
 			[ -f "$$src_mod" ] || continue; \
-			dbg="$$DBG_PKG/usr/lib/debug/lib/modules/$$BASE/$$mod"; \
+			dbg="$$DBG_PKG/usr/lib/debug/lib/modules/$$BASE/kernel/$$mod"; \
 			mkdir -p "$${dbg%/*}"; \
 			$(OBJCOPY) --only-keep-debug "$$src_mod" "$$dbg" 2>/dev/null || \
 				cp -a "$$src_mod" "$$dbg"; \
