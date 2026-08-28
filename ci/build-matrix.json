@@ -56,7 +56,8 @@
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
       "kernel_config": [
-        "intree:arch/arm64/configs/qcom_debug.config"
+        "intree:arch/arm64/configs/qcom_debug.config",
+        "intree:kernel/configs/debug.config"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
@@ -76,7 +77,8 @@
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
       "kernel_config": [
-        "intree:arch/arm64/configs/qcom_debug.config"
+        "intree:arch/arm64/configs/qcom_debug.config",
+        "intree:kernel/configs/debug.config"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",

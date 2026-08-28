@@ -24,7 +24,7 @@ isolated `kernel_variant + suite` build leg.
 | Variant | Source package | Image metapackage | Daily suites | Release suites | Notes |
 |---------|----------------|-------------------|--------------|----------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
-| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` from the kernel source via `intree:arch/arm64/configs/qcom_debug.config` |
+| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
 
 Both build the same kernel ref. `derive-localversion.sh` folds the variant name
 into LOCALVERSION, so each produces a distinct kernel release
