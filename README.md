@@ -60,9 +60,7 @@ The final Production matrix is conceptually:
       "tag_pattern": "qcom-next-*",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
-      "kernel_config": [
-        "squashfs", "systemd-boot", "qcom-imsdk", "docker", "qemu-boot", "usb-can"
-      ],
+      "kernel_config": [],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~",
       "pkg_linux_qcom_ref": "qcom/debian/latest"
@@ -76,9 +74,7 @@ The final Production matrix is conceptually:
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
-      "kernel_config": [
-        "squashfs", "systemd-boot", "qcom-imsdk", "docker", "qemu-boot", "usb-can"
-      ],
+      "kernel_config": [],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "pkg_linux_qcom_ref": "qcom/debian/latest",
@@ -187,7 +183,7 @@ its own values for:
 | `tag_pattern` | Required only for `latest_tag`; matching tags must end in `-YYYYMMDD`, which determines newest-first ordering. |
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
-| `kernel_config` | Array of fragments activated from `debian/config-available/`, one per element. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
+| `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. Empty for variants that need nothing beyond it; today it carries only `intree:` fragments shipped by the kernel source. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
@@ -306,7 +302,7 @@ flowchart LR
     K["Matrix-selected kernel repository\nDaily: latest tag or branch tip\nRelease: pinned ref"] --> PS
     M["pkg-linux-qcom\nMatrix-selected packaging ref\nFinal: qcom/debian/latest"] --> PS
 
-    PS["prepare-source.sh\n\nInject debian/\nActivate selected config fragments\nGenerate control, changelog, localversion, pkgversion"] --> TAR
+    PS["prepare-source.sh\n\nInject debian/\nApply all config-available fragments plus any extras\nGenerate control, changelog, localversion, pkgversion"] --> TAR
     TAR["tar czf kernel-srcpkg-variant-suite.tar.gz\nPreserves execute permissions"] --> ART
     ART["GitHub Actions artifact\nOne prepared source tree per variant + suite"]
 ```
@@ -365,7 +361,7 @@ flowchart LR
 ```
 
 `--skip-prepare` is safe because `prepare-source.sh` has already generated the
-packaging metadata and activated the selected fragments before the artifact is
+packaging metadata and applied the config fragments before the artifact is
 created.
 
 ## Packages
@@ -428,7 +424,7 @@ The available inputs are:
 | `kernel-url` | `qualcomm-linux/kernel` | Advanced alternate kernel repository. |
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
-| `kernel-config` | `squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can` | Advanced packaging fragments to activate. |
+| `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:qcom_debug`. |
 | `debian-version-stub` | `0qli` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |

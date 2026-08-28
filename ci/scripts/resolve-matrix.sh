@@ -104,8 +104,8 @@ validation_errors=$(jq -r '
     end;
 
   def kernel_config_valid:
-    if (.kernel_config | type) != "array" or (.kernel_config | length) == 0
-    then "kernel_config must be a non-empty array"
+    if (.kernel_config | type) != "array"
+    then "kernel_config must be an array"
     elif any(.kernel_config[]; type != "string" or length == 0)
     then "kernel_config must contain only non-empty strings"
     elif any(.kernel_config[]; test(","))
