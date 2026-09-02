@@ -61,7 +61,7 @@ The final Production matrix is conceptually:
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
-      "dkms": ["kgsl"],
+      "dkms": ["kgsl", "camx", "iris-vpu"],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~"
     },
@@ -75,7 +75,7 @@ The final Production matrix is conceptually:
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
-      "dkms": ["kgsl"],
+      "dkms": ["kgsl", "camx", "iris-vpu"],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
       "target_workspace": "qli"
