@@ -4,9 +4,9 @@ CI orchestration for ARM64 Linux kernel package variants. The configured
 variants build from
 [`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel).
 
-This branch owns the build matrix and GitHub Actions workflows. The Debian
-packaging tree and local packaging tools live on
-[`qcom/debian/latest`](https://github.com/qualcomm-linux/pkg-linux-qcom/tree/qcom/debian/latest).
+This branch owns both halves of the chain: the build matrix and GitHub Actions
+workflows, and the Debian packaging tree and local packaging tools. Every build
+takes its packaging and its CI scripts from the same commit.
 
 ## Overview
 
@@ -62,8 +62,7 @@ The final Production matrix is conceptually:
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": "~"
     },
     {
       "kernel_variant": "qcom-next",
@@ -77,7 +76,6 @@ The final Production matrix is conceptually:
       "kernel_config": [],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "",
-      "pkg_linux_qcom_ref": "qcom/debian/latest",
       "target_workspace": "qli"
     }
   ]
@@ -187,7 +185,6 @@ its own values for:
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
-| `pkg_linux_qcom_ref` | Packaging branch or commit used during source preparation. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
 | `target_workspace` | Debusine destination for Release entries only. |
 
@@ -309,7 +306,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     K["Matrix-selected kernel repository\nDaily: latest tag or branch tip\nRelease: pinned ref"] --> PS
-    M["pkg-linux-qcom\nMatrix-selected packaging ref\nFinal: qcom/debian/latest"] --> PS
+    M["pkg-linux-qcom\ndebian/ and ci/ from this commit"] --> PS
 
     PS["prepare-source.sh\n\nInject debian/\nApply all config-available fragments plus any extras\nGenerate control, changelog, localversion, pkgversion"] --> TAR
     TAR["tar czf kernel-srcpkg-variant-suite.tar.gz\nPreserves execute permissions"] --> ART
@@ -438,7 +435,6 @@ The available inputs are:
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
 | `debug-build` | `false` | Advanced debug configuration toggle. |
-| `pkg-linux-qcom-ref` | `qcom/debian/latest` | Advanced packaging revision used to prepare the source tree. |
 
 The workflow also supports advanced Qualcomm-only PR overrides for validation
 builds. Direct builds are artifact builds; Release promotion is performed only

@@ -1,10 +1,10 @@
 name: PR Build
 
-# Build-test packaging PRs through the same pipeline the daily builds use.
+# Build-test PRs through the same pipeline the daily builds use.
 
 on:
   pull_request:
-    branches: [ debian/*, qcom/** ]
+    branches: [ main ]
 
 concurrency:
   group: pr-build-${{ github.event.number }}
@@ -16,23 +16,21 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Daily rows from main's ci/build-matrix.json.
+  # configure-matrix: flatten the Daily rows from the PR's build-matrix.json.
   #
-  # The matrix and its resolver only exist on main, so this job checks main out
-  # rather than the PR head. Nothing from the PR is read here; the PR is only
-  # ever consumed downstream, as a packaging ref.
+  # The PR head, not the merge commit: a push mid-run must not change what this
+  # run tested. A SHA also resolves for fork PRs, whose head branch does not
+  # exist in this repository.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      ci-sha: ${{ steps.set-matrix.outputs.ci-sha }}
     steps:
-      - name: Checkout CI branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
       - name: Generate build matrix
@@ -42,11 +40,6 @@ jobs:
           MATRIX=$(ci/scripts/resolve-matrix.sh --type Daily)
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
-          # Report the exact commit this matrix came from, so the build legs
-          # load their CI scripts from the same tree that produced their inputs.
-          CI_SHA=$(git rev-parse HEAD)
-          echo "ci-sha=$CI_SHA" >> "$GITHUB_OUTPUT"
-          echo "CI ref: $CI_SHA"
 
   # ---------------------------------------------------------------------------
   # build: one parallel job per flat matrix entry, mirroring daily.yml.
@@ -61,7 +54,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: qualcomm-linux/pkg-linux-qcom/.github/workflows/build-kernel-deb.yml@main
+    uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}
@@ -77,13 +70,6 @@ jobs:
       # Mark the version so PR artifacts never collide with the daily build's
       # in the shared Debusine workspace.
       kver-extra: -pr${{ github.event.number }}
-      # The reviewed commit, not the branch tip: a push mid-run must not change
-      # what this run tested. A SHA also resolves for fork PRs, whose head
-      # branch does not exist in this repository.
-      pkg-linux-qcom-ref: ${{ github.event.pull_request.head.sha }}
-      # Required from a packaging branch: build-kernel-deb.yml otherwise looks
-      # for ci/scripts at the caller's own commit, which here carries none.
-      ci-ref: ${{ needs.configure-matrix.outputs.ci-sha }}
     secrets:
       # No DEBUSINE_RELEASE_TOKEN: PR builds never promote to a release
       # workspace, so they leave target-workspace empty.

@@ -63,14 +63,6 @@ on:
         type: boolean
         required: false
         default: false
-      pkg-linux-qcom-ref:
-        description: 'Advanced: pkg-linux-qcom packaging ref (branch or commit)'
-        required: false
-        default: 'qcom/debian/latest'
-      self-pr:
-        description: 'Advanced: pkg-linux-qcom PR number to apply before building (e.g. 42)'
-        required: false
-        default: ''
       qcom-next-pr:
         description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
         type: string
@@ -139,14 +131,6 @@ on:
         default: ''
       target-workspace:
         description: 'Debusine target workspace for release promotion (empty = daily/S3 path)'
-        type: string
-        default: ''
-      pkg-linux-qcom-ref:
-        description: 'pkg-linux-qcom packaging ref'
-        type: string
-        default: 'qcom/debian/latest'
-      ci-ref:
-        description: 'CI branch ref holding ci/scripts and ci/build-matrix.json (empty = the calling workflow''s own commit)'
         type: string
         default: ''
     secrets:
@@ -218,59 +202,10 @@ jobs:
 
     steps:
       - name: Checkout pkg-linux-qcom
+        # debian/ and ci/ live on the same branch, so one checkout supplies
+        # both the packaging and resolve-kernel-ref.sh, derive-localversion.sh,
+        # derive-debian-revision.sh and the suite_suffix_mapping.
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}
-
-      - name: Checkout CI scripts
-        # ci/scripts/ and ci/build-matrix.json live on the CI branch (main),
-        # not on the packaging branch (qcom/debian/latest). Check out the CI
-        # branch into a separate path so resolve-kernel-ref.sh,
-        # derive-localversion.sh, derive-debian-revision.sh, and the
-        # suite_suffix_mapping are available.
-        #
-        # github.sha is the *caller's* commit, so it only names a CI commit
-        # when the caller itself runs on main, as daily.yml and release.yml do.
-        # A caller on a packaging branch must pass ci-ref, or the sparse
-        # checkout silently yields nothing and the copy below fails.
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.ci-ref || github.sha }}
-          path: .ci-branch
-          sparse-checkout: |
-            ci/scripts
-            ci/build-matrix.json
-          fetch-depth: 1
-
-      - name: Install CI scripts into workspace
-        env:
-          CI_REF: ${{ inputs.ci-ref || github.sha }}
-        run: |
-          set -euo pipefail
-          # Fail with the cause rather than a bare 'cp: cannot stat'.
-          if [[ ! -d .ci-branch/ci/scripts ]]; then
-            echo "ERROR: no ci/scripts in the CI checkout of '$CI_REF'." >&2
-            echo "       That ref carries no CI tree. Pass ci-ref pointing at" >&2
-            echo "       the CI branch (main) when calling from elsewhere." >&2
-            exit 1
-          fi
-          mkdir -p ci/scripts
-          cp .ci-branch/ci/scripts/*.sh ci/scripts/
-          chmod +x ci/scripts/*.sh
-          cp .ci-branch/ci/build-matrix.json ci/build-matrix.json
-          rm -rf .ci-branch
-
-      - name: Apply packaging PR (if specified)
-        if: ${{ inputs.self-pr != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SELF_PR: ${{ inputs.self-pr }}
-        run: |
-          [[ "$SELF_PR" =~ ^[0-9]+$ ]] || { echo "ERROR: self-pr must be numeric (got '$SELF_PR')"; exit 1; }
-          echo "Applying pkg-linux-qcom PR #$SELF_PR..."
-          git fetch origin "pull/$SELF_PR/head:pr-$SELF_PR"
-          git checkout "pr-$SELF_PR"
 
       - name: Checkout docker-pkg-build
         uses: actions/checkout@v4
@@ -492,4 +427,3 @@ jobs:
     with:
       distro: ${{ inputs.suite || 'resolute' }}
       kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
-      pkg-linux-qcom-ref: ${{ inputs.pkg-linux-qcom-ref || 'qcom/debian/latest' }}

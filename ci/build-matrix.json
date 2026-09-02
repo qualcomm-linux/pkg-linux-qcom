@@ -21,8 +21,7 @@
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": "~"
     },
     {
       "kernel_variant": "qcom-next",
@@ -39,8 +38,7 @@
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": ""
     },
     {
       "kernel_variant": "qcom-next-debug",
@@ -60,8 +58,7 @@
         "intree:kernel/configs/debug.config"
       ],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "~",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": "~"
     },
     {
       "kernel_variant": "qcom-next-debug",
@@ -81,8 +78,7 @@
         "intree:kernel/configs/debug.config"
       ],
       "debian_version_stub": "0qli",
-      "debian_version_suffix": "",
-      "pkg_linux_qcom_ref": "qcom/debian/latest"
+      "debian_version_suffix": ""
     }
   ]
 }

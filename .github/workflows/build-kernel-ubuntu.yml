@@ -23,14 +23,6 @@ on:
         description: 'Kernel variant identifier used to isolate prepared-source artifacts and published packages'
         type: string
         required: true
-      pkg-linux-qcom-ref:
-        description: |
-          pkg-linux-qcom ref to check out. Provides build-kernel.sh and the
-          debian/ packaging tree. Should match the ref used by the caller's
-          prepare job so that build-kernel.sh is consistent with the prepared
-          source tree.
-        type: string
-        default: 'qcom/debian/latest'
 
 permissions:
   contents: read
@@ -48,10 +40,7 @@ jobs:
 
     steps:
       - name: Checkout pkg-linux-qcom
-        # build-kernel.sh; ref must match the caller's prepare job.
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.pkg-linux-qcom-ref }}
 
       # Pinned to @main while native kernel-build support is still landing
       # upstream in qualcomm-linux/docker-pkg-build.
