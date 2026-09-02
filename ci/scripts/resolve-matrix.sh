@@ -10,12 +10,14 @@ set -euo pipefail
 #     kernel variant and delivery type (e.g. "trixie": "~bpo13+1").
 #   - "deliveries": the matrix rows. Each kernel_variant owns exactly one
 #     Daily row and one Release row. A row declares every input needed by
-#     that delivery, including a debian_version_stub. Two fields are
-#     list-valued: suites, which is expanded into isolated legs, and
-#     kernel_config, which is one config fragment per element. A fragment is
+#     that delivery, including a debian_version_stub. Three fields are
+#     list-valued: suites, which is expanded into isolated legs;
+#     kernel_config, which is one config fragment per element; and dkms,
+#     which is one out-of-tree module per element. A fragment is
 #     either a bare name from debian/config-available/ or an "intree:" entry
 #     naming a path relative to the kernel source root
-#     (e.g. intree:arch/arm64/configs/qcom_debug.config).
+#     (e.g. intree:arch/arm64/configs/qcom_debug.config). A dkms entry is the
+#     stem of a <name>-dkms package, e.g. "kgsl".
 #
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
@@ -46,9 +48,10 @@ set -euo pipefail
 #   Compact JSON array to stdout. Every entry has a single suite, the
 #   kernel_variant that scopes its artifacts, Debusine workspace, and logs,
 #   and a suite-specific debian_revision (debian_version_stub and
-#   debian_version_suffix are consumed and removed). kernel_config is joined
-#   into the comma-separated string that build-kernel-deb.yml's kernel-config
-#   input and prepare-source.sh's --kernel-config expect.
+#   debian_version_suffix are consumed and removed). kernel_config and dkms are
+#   joined into the comma-separated strings that build-kernel-deb.yml's
+#   kernel-config and dkms inputs — and in turn prepare-source.sh's
+#   --kernel-config and --dkms — expect.
 #
 # Exit codes:
 #   0  Success, at least one entry emitted.
@@ -138,6 +141,26 @@ validation_errors=$(jq -r '
     else empty
     end;
 
+  # Out-of-tree modules to build and bundle, each named as the stem of its
+  # <name>-dkms package. The same shape rules debian/rules prepare enforces,
+  # applied here so a typo fails before any build job starts rather than in
+  # the middle of one.
+  def dkms_valid:
+    if (.dkms | type) != "array"
+    then "dkms must be an array"
+    elif any(.dkms[]; type != "string" or length == 0)
+    then "dkms must contain only non-empty strings"
+    elif any(.dkms[]; test(","))
+    then "dkms entries must not contain commas; use one array element per module"
+    elif any(.dkms[]; endswith("-dkms"))
+    then "dkms entries must omit the -dkms suffix (e.g. kgsl, not kgsl-dkms)"
+    elif any(.dkms[]; test("^[a-z0-9][a-z0-9+.-]*$") | not)
+    then "dkms entries must be package name stems (lowercase letters, digits, + . -)"
+    elif ([.dkms[]] | unique | length) != (.dkms | length)
+    then "dkms must not contain duplicates"
+    else empty
+    end;
+
   def suites_valid:
     if (.suites | type) != "array" or (.suites | length) == 0
     then "suites must be a non-empty array"
@@ -170,6 +193,7 @@ validation_errors=$(jq -r '
       variant_name_valid,
       suites_valid,
       kernel_config_valid,
+      dkms_valid,
       if (.debian_version_stub | type) == "string" and (.debian_version_stub | test("~$"))
       then "debian_version_stub must not end in ~"
       else empty end,
@@ -330,7 +354,11 @@ result=$(jq -c \
           )[] as $suite
         | $row
         | del(.suites)
-        | . + {"suite": $suite, "kernel_config": ($row.kernel_config | join(","))}
+        | . + {
+            "suite": $suite,
+            "kernel_config": ($row.kernel_config | join(",")),
+            "dkms": ($row.dkms | join(","))
+          }
       ]
       | if length == 0
         then error(

@@ -9,7 +9,7 @@ name: daily
 # Matrix schema: ci/build-matrix.json
 #   Each row with "type": "Daily" is expanded by ci/scripts/resolve-matrix.sh:
 #   the "suites" array is flattened into one job per suite. All other fields
-#   (kernel_variant, srcpkg, binpkg, kernel_config, debian_revision,
+#   (kernel_variant, srcpkg, binpkg, kernel_config, dkms, debian_revision,
 #   git_clone, branch_or_tag, ref_strategy) are passed through to
 #   build-kernel-deb.yml as inputs.
 #
@@ -105,7 +105,7 @@ jobs:
   # build: one parallel job per flat matrix entry.
   #
   # Each entry calls build-kernel-deb.yml as a reusable workflow. The full
-  # set of matrix fields (suite, srcpkg, binpkg, kernel_config, etc.) is
+  # set of matrix fields (suite, srcpkg, binpkg, kernel_config, dkms, etc.) is
   # threaded through as inputs. fail-fast is disabled so a failed trixie
   # build does not cancel the forky build.
   # ---------------------------------------------------------------------------
@@ -127,6 +127,7 @@ jobs:
       srcpkg: ${{ matrix.srcpkg }}
       binpkg: ${{ matrix.binpkg }}
       kernel-config: ${{ matrix.kernel_config }}
+      dkms: ${{ matrix.dkms }}
       debian-revision: ${{ matrix.debian_revision }}
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
