@@ -238,6 +238,15 @@ Supporting scripts keep workflow YAML small and testable:
 
 ## Architecture
 
+This repository contains two separate parts:
+- the CI generator (`.github/workflows/`, `ci/`) that decides *what* to build,
+- the Debian packaging (`debian/`, `prepare-source.sh`, `build-kernel.sh`) that
+  decides *how* it is built.
+
+This document covers the CI generator. For the packaging internals: `debian/rules`
+targets, the config fragment merge pipeline, DKMS module bundling and the produced
+package layout see [debian/README.md](debian/README.md).
+
 ```mermaid
 flowchart LR
     IN["Matrix variant + suite input"] --> R{"Resolve suite family"}

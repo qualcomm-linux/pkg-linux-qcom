@@ -1,7 +1,10 @@
 # linux-image-qcom — Debian/Ubuntu Kernel Packaging
 
-This repository provides the `debian/` packaging tree for building and
+This directory provides the `debian/` packaging tree for building and
 distributing the Qualcomm ARM64 Linux kernel as standard Debian/Ubuntu packages.
+
+For the CI generator that drives these builds, including the build matrix, CI
+workflows and the Debusine and Ubuntu paths, see the [top-level README](../README.md).
 
 ---
 
