@@ -23,6 +23,9 @@ DEFAULT_DISTRO="trixie"
 DEFAULT_SRCPKG="linux-qcom-next"
 DEFAULT_BINPKG="linux-image-qcom-next"
 DEFAULT_DEBIAN_REVISION="0qcom1"
+# Temporary: matches the module set the current CI workflow bundles. Drop this
+# default once every caller passes --dkms explicitly.
+DEFAULT_DKMS_MODULES="kgsl"
 DEBIAN_DIR="$SCRIPT_DIR/debian"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -85,7 +88,8 @@ OPTIONS:
                               suffix (e.g. --dkms kgsl,camx). Each entry needs a
                               <name>-dkms package available to the build; the
                               Build-Depends entry is generated from this list.
-                              Empty (the default) bundles no modules.
+                              Pass an empty list to bundle no modules
+                              (default: $DEFAULT_DKMS_MODULES)
 
   Paths:
     --debian-dir DIR          Path to the debian/ packaging directory
@@ -120,7 +124,7 @@ SRCPKG="$DEFAULT_SRCPKG"
 BINPKG="$DEFAULT_BINPKG"
 DEBIAN_REVISION="$DEFAULT_DEBIAN_REVISION"
 KERNEL_CONFIG=""
-DKMS_MODULES=""
+DKMS_MODULES="$DEFAULT_DKMS_MODULES"
 
 while [[ $# -gt 0 ]]; do
     case $1 in

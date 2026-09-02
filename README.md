@@ -346,6 +346,11 @@ comes in as a comma-separated list (`prepare-source.sh --dkms`,
 prepare`), and CI supplies it from the `dkms` field of its build matrix. No
 modules are bundled when the list is empty.
 
+`prepare-source.sh` currently defaults the list to `kgsl` when `--dkms` is not
+given, so a build that says nothing about DKMS matches what the existing
+workflow produces. That default is temporary and goes away once every caller
+passes the list explicitly.
+
 ### How it works
 
 `debian/rules` calls `debian/scripts/bundle-dkms-modules.sh` at the end of
