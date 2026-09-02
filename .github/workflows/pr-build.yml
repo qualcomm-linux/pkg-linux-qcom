@@ -65,6 +65,7 @@ jobs:
       srcpkg: ${{ matrix.srcpkg }}
       binpkg: ${{ matrix.binpkg }}
       kernel-config: ${{ matrix.kernel_config }}
+      dkms: ${{ matrix.dkms }}
       debian-revision: ${{ matrix.debian_revision }}
       localversion: ${{ matrix.localversion || '' }}
       # Mark the version so PR artifacts never collide with the daily build's

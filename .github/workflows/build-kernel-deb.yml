@@ -46,6 +46,10 @@ on:
         description: 'Advanced: extra config fragments applied on top of all of debian/config-available/ (e.g. intree:arch/arm64/configs/qcom_debug.config)'
         required: false
         default: ''
+      dkms:
+        description: 'Advanced: out-of-tree DKMS modules to build and bundle into the kernel image, comma-separated and without the -dkms suffix (e.g. kgsl,camx); empty bundles nothing'
+        required: false
+        default: ''
       debian-version-stub:
         description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
         required: false
@@ -111,6 +115,10 @@ on:
         default: 'linux-image-qcom-next'
       kernel-config:
         description: 'Extra config fragments applied on top of all of debian/config-available/ (e.g. intree:arch/arm64/configs/qcom_debug.config)'
+        type: string
+        default: ''
+      dkms:
+        description: 'Out-of-tree DKMS modules to build and bundle into the kernel image, comma-separated and without the -dkms suffix (e.g. kgsl,camx); empty bundles nothing'
         type: string
         default: ''
       debian-revision:
@@ -359,6 +367,7 @@ jobs:
           BINPKG_INPUT: ${{ inputs.binpkg || 'linux-image-qcom-next' }}
           KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
           KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
+          DKMS_INPUT: ${{ inputs.dkms }}
           DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
         run: |
           # No -x here: keep xtrace off for this step as it assembles the
@@ -376,6 +385,9 @@ jobs:
           [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
           [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
           [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
+          # Always passed, unlike the optional inputs above: an empty list is a
+          # genuine "bundle nothing" rather than a request for some default.
+          ARGS+=(--dkms "$DKMS_INPUT")
           [[ "$DEBUG_BUILD_INPUT" == "true" ]] && ARGS+=(--debug)
 
           docker run -i --rm \
