@@ -21,7 +21,9 @@
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "dkms": [
-        "kgsl"
+        "kgsl",
+        "camx",
+        "iris-vpu"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~"
@@ -41,7 +43,9 @@
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "dkms": [
-        "kgsl"
+        "kgsl",
+        "camx",
+        "iris-vpu"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": ""
@@ -64,7 +68,9 @@
         "intree:kernel/configs/debug.config"
       ],
       "dkms": [
-        "kgsl"
+        "kgsl",
+        "camx",
+        "iris-vpu"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~"
@@ -87,7 +93,9 @@
         "intree:kernel/configs/debug.config"
       ],
       "dkms": [
-        "kgsl"
+        "kgsl",
+        "camx",
+        "iris-vpu"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": ""
