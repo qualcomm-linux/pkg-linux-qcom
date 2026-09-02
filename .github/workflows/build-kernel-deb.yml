@@ -194,6 +194,8 @@ jobs:
   prepare:
     name: Prepare kernel source
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    # TEMPORARY, with the DKMS override in "Prepare source" below.
+    needs: resolve
 
     env:
       KERNEL_URL: ${{ inputs.git-clone || inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
@@ -368,11 +370,28 @@ jobs:
           KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
           KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
           DKMS_INPUT: ${{ inputs.dkms }}
+          # TEMPORARY, consumed by the DKMS override below.
+          SUITE_FAMILY: ${{ needs.resolve.outputs.family }}
           DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
         run: |
           # No -x here: keep xtrace off for this step as it assembles the
           # prepare-source.sh argument list which may include sensitive paths.
           set -euo pipefail
+
+          DKMS_LIST="$DKMS_INPUT"
+
+          # TEMPORARY: camx and iris-vpu are bundled on non-Ubuntu builds only.
+          # A listed module is a presence contract, so an Ubuntu leg that asked
+          # for them would hard-fail rather than quietly ship without them.
+          #
+          # This is delivery policy and belongs in ci/build-matrix.json, which
+          # cannot express a per-suite dkms list yet. Revert this override —
+          # and the "needs: resolve"/SUITE_FAMILY plumbing that feeds it — once
+          # the matrix can.
+          if [[ "$SUITE_FAMILY" == "ubuntu" ]]; then
+            DKMS_LIST="kgsl"
+            echo "Ubuntu build: DKMS list overridden to '$DKMS_LIST' (was '$DKMS_INPUT')"
+          fi
 
           ARGS=(
             --source-dir "$KERNEL_DIR"
@@ -387,7 +406,7 @@ jobs:
           [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
           # Always passed, unlike the optional inputs above: an empty list is a
           # genuine "bundle nothing" rather than a request for some default.
-          ARGS+=(--dkms "$DKMS_INPUT")
+          ARGS+=(--dkms "$DKMS_LIST")
           [[ "$DEBUG_BUILD_INPUT" == "true" ]] && ARGS+=(--debug)
 
           docker run -i --rm \

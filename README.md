@@ -191,6 +191,11 @@ its own values for:
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
 | `target_workspace` | Debusine destination for Release entries only. |
 
+`dkms` currently has one exception the matrix cannot express: `build-kernel-deb.yml`
+replaces the resolved list with `kgsl` on Ubuntu-family legs, so `camx` and
+`iris-vpu` are bundled on Debian suites only. That override is temporary and goes
+away once the matrix gains per-suite `dkms` lists.
+
 `target_workspace` is required for `Release` and rejected for `Daily`.
 `tag_pattern` is required for `latest_tag` and rejected for other strategies.
 The resolver selects the most recent trailing `YYYYMMDD` date, and rejects
