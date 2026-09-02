@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# preinst for linux-image-<kver>-qcom
+#
+# Each kernel version is a uniquely named package (the version is part of the
+# package name), so dpkg handles coexistence of multiple installed kernels
+# automatically. There is no need to remove other kernel versions here.
+#
+# Kernels should only be removed explicitly by the administrator:
+#   sudo dpkg -r linux-image-<kver>-qcom
+# or via apt autoremove when the package is no longer needed.
+#
+# No pre-installation cleanup is performed.
+exit 0

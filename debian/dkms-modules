@@ -1,0 +1,12 @@
+# DKMS modules to build and bundle into linux-image-<KVER>-qcom.
+#
+# One entry per line: the DKMS package name without the -dkms suffix.
+# A corresponding Build-Depends entry must exist in debian/control.in.
+#
+# To add a module:
+#   1. Append the module name here.
+#   2. Add <name>-dkms (>= <version>) to Build-Depends in debian/control.in.
+#
+# To disable a module temporarily: comment out the line with #.
+# debian/rules and debian/scripts/bundle-dkms-modules.sh are untouched in either case.
+kgsl

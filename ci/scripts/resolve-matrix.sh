@@ -164,7 +164,6 @@ validation_errors=$(jq -r '
       required_string("srcpkg"),
       required_string("binpkg"),
       required_string("debian_version_stub"),
-      optional_string("pkg_linux_qcom_ref"),
       optional_string("debusine_parent_workspace"),
       optional_string("localversion"),
       optional_string("kver_extra"),
