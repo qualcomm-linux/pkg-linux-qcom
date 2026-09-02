@@ -1,0 +1,8 @@
+@SRCPKG@ (@PKGVER@) @DISTRO@; urgency=medium
+
+  * Qualcomm ARM64 Linux kernel package
+  * Kernel version: @KVER@
+  * Source: @GITCLONE@ @BRANCH@
+  * Includes kernel image, modules, DTBs, headers, and debug symbols
+
+ -- Bjordis Collaku <bcollaku@qti.qualcomm.com>  Fri, 14 Nov 2025 10:00:00 -0800
