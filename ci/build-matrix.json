@@ -23,7 +23,8 @@
       "dkms": [
         "kgsl",
         "camx",
-        "iris-vpu"
+        "iris-vpu",
+        "audioreach"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~"
@@ -45,7 +46,8 @@
       "dkms": [
         "kgsl",
         "camx",
-        "iris-vpu"
+        "iris-vpu",
+        "audioreach"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": ""
@@ -70,7 +72,8 @@
       "dkms": [
         "kgsl",
         "camx",
-        "iris-vpu"
+        "iris-vpu",
+        "audioreach"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": "~"
@@ -95,7 +98,8 @@
       "dkms": [
         "kgsl",
         "camx",
-        "iris-vpu"
+        "iris-vpu",
+        "audioreach"
       ],
       "debian_version_stub": "0qli",
       "debian_version_suffix": ""
