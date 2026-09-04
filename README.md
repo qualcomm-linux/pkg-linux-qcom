@@ -62,7 +62,7 @@ The final Production matrix is conceptually:
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "dkms": ["kgsl", "camx", "iris-vpu"],
-      "debian_version_stub": "0qli",
+      "debian_version_stub": "0qli1",
       "debian_version_suffix": "~"
     },
     {
@@ -76,7 +76,7 @@ The final Production matrix is conceptually:
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "dkms": ["kgsl", "camx", "iris-vpu"],
-      "debian_version_stub": "0qli",
+      "debian_version_stub": "0qli1",
       "debian_version_suffix": "",
       "target_workspace": "qli"
     }
@@ -93,9 +93,9 @@ above:
 
 | Suite | Daily | Release |
 | --- | --- | --- |
-| Trixie | `0qli~bpo13+1~` | `0qli~bpo13+1` |
-| Forky | `0qli~` | `0qli` |
-| Resolute | `0qli~26.04.1~` | (not a configured Release suite) |
+| Trixie | `0qli1~bpo13+1~` | `0qli1~bpo13+1` |
+| Forky | `0qli1~` | `0qli1` |
+| Resolute | `0qli1~26.04.1~` | (not a configured Release suite) |
 
 `~` always sorts below the same prefix without it in Debian version
 ordering, so Daily always sorts below Release for the same suite and stub.
@@ -439,7 +439,7 @@ The available inputs are:
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
 | `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:arch/arm64/configs/qcom_debug.config`. |
-| `debian-version-stub` | `0qli` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
+| `debian-version-stub` | `0qli1` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
 | `debug-build` | `false` | Advanced debug configuration toggle. |
