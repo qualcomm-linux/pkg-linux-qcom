@@ -5,17 +5,17 @@ set -euo pipefail
 
 # Derive the version fields for a build from a kernel variant and resolved ref.
 #
-# Emits LOCALVERSION (the kernel release suffix) and SNAPSHOT (the dated
-# component of the Debian version), both derived from the ref in one place.
-# SNAPSHOT is emitted alongside rather than recovered from LOCALVERSION later:
-# reading it back out means guessing where the date ends in a string that also
-# carries a variant name and, for branch-tip builds, a hex SHA that can end in
-# eight digits of its own.
+# Emits LOCALVERSION (the kernel release suffix), SNAPSHOT (the dated component
+# of the Debian version) and GITSHA, all derived from the ref in one place.
+# SNAPSHOT and GITSHA are emitted alongside rather than recovered from
+# LOCALVERSION later: reading them back out means guessing where each field ends
+# in a string that also carries a variant name, and a hex SHA can end in eight
+# digits of its own.
 #
 # For dated tag builds (ref ends in -YYYYMMDD, optionally .<respin>):
-#   Produces +<kernel-variant>-<date>[.<respin>].
-#   Example: qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722
-#            qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1
+#   Produces +<kernel-variant>-<date>[.<respin>]-g<12 hex>.
+#   Example: qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722-g07f50dc44edd
+#            qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1-g07f50dc44edd
 #
 #   The respin ordinal distinguishes a second tag cut on the same day. It is
 #   carried verbatim rather than normalised, so the first tag of a day stays
@@ -23,10 +23,12 @@ set -euo pipefail
 #   behind it, so an absent ordinal already sorts below a present one and no
 #   build has to spell a ".0".
 #
+#   The SHA names the commit the tag pointed at when the build was cut, so a
+#   moved tag cannot silently produce two different kernels under one release.
+#
 # For branch-tip builds (ref does not end in a date):
-#   Uses the kernel variant and a short SHA for uniqueness.
+#   Uses the kernel variant and the SHA alone; there is no date to order by.
 #   Example: qcom-next @ 07f50dc44edd -> +qcom-next-g07f50dc44edd
-#   --sha is required for branch-tip builds.
 #
 # Why the leading '+' and not '-':
 #   The suffix ends up in KERNELRELEASE (uname -r), which is the 'version' field
@@ -43,19 +45,20 @@ set -euo pipefail
 #   which spells the release candidate ~rcN and orders correctly either way.
 #
 # Usage:
-#   ci/scripts/derive-localversion.sh --variant qcom-next --ref qcom-next-7.2-rc3-20260722
+#   ci/scripts/derive-localversion.sh --variant qcom-next --ref qcom-next-7.2-rc3-20260722 --sha 07f50dc44edd
 #   ci/scripts/derive-localversion.sh --variant arduino --ref main --sha 07f50dc44edd
 #
 # Options:
 #   --variant VARIANT  Kernel variant identifier. Defaults to qcom-next.
 #   --ref REF          Kernel ref (tag name or branch name). Required.
-#   --sha SHA          Short commit SHA (required for branch-tip builds).
+#   --sha SHA          Commit SHA, truncated to 12 hex characters. Required.
 #
 # Output:
-#   Two KEY=VALUE lines on stdout, in GITHUB_ENV / 'set -a' form:
+#   Three KEY=VALUE lines on stdout, in GITHUB_ENV / 'set -a' form:
 #
-#     LOCALVERSION=+qcom-next-20260722.1
+#     LOCALVERSION=+qcom-next-20260722.1-g07f50dc44edd
 #     SNAPSHOT=20260722.1
+#     GITSHA=07f50dc44edd
 #
 #   LOCALVERSION always starts with a plus. SNAPSHOT is empty for branch-tip
 #   builds, which have no date; the Debian version then carries no snapshot
@@ -63,7 +66,7 @@ set -euo pipefail
 #
 # Exit codes:
 #   0  Success.
-#   1  Error (invalid args, branch-tip without --sha).
+#   1  Error (invalid args, missing or malformed --sha).
 
 VARIANT="qcom-next"
 REF=""
@@ -89,24 +92,28 @@ done
     echo "ERROR: --variant must use lowercase letters, digits, and internal hyphens" >&2
     exit 1
 }
+# Every build identifies its commit, so --sha is required for all of them, not
+# just the branch tips that cannot be identified any other way.
+[[ "$SHA" =~ ^[0-9a-f]{12,40}$ ]] || {
+    echo "ERROR: --sha is required and must be at least 12 lowercase hex characters (got '$SHA')" >&2
+    exit 1
+}
+# 12 chars is upstream's own abbreviation width in -g<hash>, and short enough
+# to keep the kernel release readable in a boot menu.
+GITSHA="${SHA:0:12}"
 
 # Dated tags use a trailing YYYYMMDD snapshot, optionally followed by a respin
 # ordinal. The matrix selects the tag set; the variant supplies the stable
 # package identity used in LOCALVERSION.
 if [[ "$REF" =~ -([0-9]{8}(\.[0-9]+)?)$ ]]; then
     SNAPSHOT="${BASH_REMATCH[1]}"
-    LOCALVERSION="+${VARIANT}-${SNAPSHOT}"
+    LOCALVERSION="+${VARIANT}-${SNAPSHOT}-g${GITSHA}"
 else
-    # Branch-tip build: need SHA for uniqueness.
-    [[ -n "$SHA" ]] || {
-        echo "ERROR: --sha is required for branch-tip builds (ref '$REF' is not a dated tag)" >&2
-        exit 1
-    }
-    # Use first 12 chars of SHA for a compact but unambiguous suffix.
-    SHORT_SHA="${SHA:0:12}"
-    LOCALVERSION="+${VARIANT}-g${SHORT_SHA}"
+    # Branch-tip build: no date, so the SHA is the whole identity.
+    LOCALVERSION="+${VARIANT}-g${GITSHA}"
     SNAPSHOT=""
 fi
 
 echo "LOCALVERSION=${LOCALVERSION}"
 echo "SNAPSHOT=${SNAPSHOT}"
+echo "GITSHA=${GITSHA}"

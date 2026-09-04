@@ -54,6 +54,9 @@ KREL_FILE := debian/kernel.release
 #   SNAPSHOT       Dated component of the Debian version: YYYYMMDD with an
 #                  optional .<respin> ordinal, e.g. 20260722 or 20260722.1.
 #                  Empty for branch-tip builds, which have no snapshot date.
+#   GITSHA         Commit the build was cut from, 12 hex characters. Appended to
+#                  the snapshot as a final discriminator. Ignored without a
+#                  SNAPSHOT to discriminate.
 #   DISTRO         Target Debian/Ubuntu suite (default: unstable).
 #   SRCPKG         Source package name (default: linux-qcom-next).
 #   BINPKG         Binary metapackage name (default: linux-image-qcom-next).
@@ -81,6 +84,7 @@ KREL_FILE := debian/kernel.release
 # ---------------------------------------------------------------------------
 KVER_EXTRA       ?=
 SNAPSHOT         ?=
+GITSHA           ?=
 DISTRO           ?= unstable
 SRCPKG           ?= linux-qcom-next
 BINPKG           ?= linux-image-qcom-next
@@ -117,10 +121,23 @@ prepare:
 	fi; \
 	\
 	# ── Derive package version ───────────────────────────────────────────────
-	# Package version format: <base_kver>+git<snapshot>-<debian_revision>
+	# Package version format: <base_kver>+git<snapshot>~g<sha>-<debian_revision>
 	# where base_kver = kernel version without the LOCALVERSION suffix, and
 	# snapshot = the SNAPSHOT input (YYYYMMDD with an optional respin ordinal).
 	# For branch-tip builds, which have no snapshot, version = <base_kver>-<debian_revision>.
+	#
+	# The snapshot orders these; the SHA only discriminates two builds that
+	# share one. It is joined with '~' rather than '.' because dpkg alternates
+	# digit and non-digit runs and reads an exhausted run as lower than a
+	# letter, so a '.' would put a respin BELOW the build it respins:
+	#
+	#   7.2.0+git20260826.g3f2f3ca1a81e  >  7.2.0+git20260826.1.gabcdef123456
+	#
+	# '~' sorts below everything, including the empty string, so the ordinal is
+	# always compared before the SHA is reached and no build has to spell a
+	# ".0" to hold the position. The cost is that a version reads as preceding
+	# the same snapshot without a SHA -- a slot nothing ever occupies, since
+	# every snapshot build carries one.
 	#
 	# Extract base_kver: read directly from kernel Makefile (same as above but
 	# without LOCALVERSION appended), so it is always the pure kernel version.
@@ -145,6 +162,13 @@ prepare:
 			exit 1; \
 		}; \
 		UPSTREAM_VER="$${BASE_KVER_CLEAN}+git$(SNAPSHOT)"; \
+		if [ -n "$(GITSHA)" ]; then \
+			echo "$(GITSHA)" | grep -qE '^[0-9a-f]{12}$$' || { \
+				echo "ERROR: GITSHA must be 12 lowercase hex characters (got '$(GITSHA)')"; \
+				exit 1; \
+			}; \
+			UPSTREAM_VER="$${UPSTREAM_VER}~g$(GITSHA)"; \
+		fi; \
 	else \
 		UPSTREAM_VER="$${BASE_KVER_CLEAN}"; \
 	fi; \

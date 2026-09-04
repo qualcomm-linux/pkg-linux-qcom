@@ -238,7 +238,7 @@ Supporting scripts keep workflow YAML small and testable:
 | --- | --- |
 | `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
-| `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant and resolved kernel ref, printing `LOCALVERSION=` and `SNAPSHOT=` lines. `SNAPSHOT` is the dated component of the Debian version and is empty for branch-tip builds. |
+| `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant, resolved kernel ref and HEAD, printing `LOCALVERSION=`, `SNAPSHOT=` and `GITSHA=` lines. `SNAPSHOT` is the dated component of the Debian version and is empty for branch-tip builds. |
 | `ci/scripts/derive-debian-revision.sh` | Derives the final suite-specific `debian_revision` from `debian_version_stub`, `suite_suffix_mapping`, and delivery type. |
 
 ## Architecture
@@ -398,6 +398,27 @@ For the current matrix, package generation produces:
 `-rcN` remains in `uname -r`, module paths, boot assets, and versioned package
 names. Only the Debian version field converts it to `~rcN`, so a release
 candidate correctly sorts before the corresponding final kernel release.
+
+Every build names both its snapshot and the commit it was cut from:
+
+| | Format | Example |
+| --- | --- | --- |
+| Kernel release (`uname -r`) | `<base>+<variant>-<date>[.<respin>]-g<sha>` | `7.2.0-rc7+qcom-next-20260826.1-g011a82096bee` |
+| Debian version | `<base>+git<date>[.<respin>]~g<sha>-<revision>` | `7.2.0~rc7+git20260826.1~g011a82096bee-0qli1~bpo13+1` |
+
+The date orders builds, the respin ordinal separates two tags cut on the same
+day, and the SHA is only a final discriminator so a moved tag cannot produce two
+different kernels under one version. Branch-tip builds have no date and are
+identified by the SHA alone (`7.2.0-rc7+qcom-next-g011a82096bee`).
+
+The two strings join the SHA differently because their comparators differ.
+`uname -r` is compared by systemd, which weighs the separator before the chunk
+behind it, so `-g<sha>` leaves an absent respin ordinal sorting below a present
+one. dpkg instead reads an exhausted run as lower than a letter, which would put
+a respin *below* the build it respins, so the Debian version joins with `~` —
+lower than everything, including the empty string. The visible cost is that a
+Debian version reads as preceding the same snapshot without a SHA; nothing ever
+occupies that slot, since every snapshot build carries one.
 
 `KVER_EXTRA` is supported for explicit suffixes such as `-ci42` or `-local`.
 The packaging rules verify that the declared versioned image package matches the
