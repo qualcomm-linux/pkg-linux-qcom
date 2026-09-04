@@ -12,9 +12,16 @@ set -euo pipefail
 # carries a variant name and, for branch-tip builds, a hex SHA that can end in
 # eight digits of its own.
 #
-# For dated tag builds (ref ends in -YYYYMMDD):
-#   Produces +<kernel-variant>-<date>.
-#   Example: qcom-next-7.2-rc3-20260722 -> +qcom-next-20260722
+# For dated tag builds (ref ends in -YYYYMMDD, optionally .<respin>):
+#   Produces +<kernel-variant>-<date>[.<respin>].
+#   Example: qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722
+#            qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1
+#
+#   The respin ordinal distinguishes a second tag cut on the same day. It is
+#   carried verbatim rather than normalised, so the first tag of a day stays
+#   plain +<variant>-<date>: systemd compares the separator before the chunk
+#   behind it, so an absent ordinal already sorts below a present one and no
+#   build has to spell a ".0".
 #
 # For branch-tip builds (ref does not end in a date):
 #   Uses the kernel variant and a short SHA for uniqueness.
@@ -47,8 +54,8 @@ set -euo pipefail
 # Output:
 #   Two KEY=VALUE lines on stdout, in GITHUB_ENV / 'set -a' form:
 #
-#     LOCALVERSION=+qcom-next-20260722
-#     SNAPSHOT=20260722
+#     LOCALVERSION=+qcom-next-20260722.1
+#     SNAPSHOT=20260722.1
 #
 #   LOCALVERSION always starts with a plus. SNAPSHOT is empty for branch-tip
 #   builds, which have no date; the Debian version then carries no snapshot
@@ -83,9 +90,10 @@ done
     exit 1
 }
 
-# Dated tags use a trailing YYYYMMDD snapshot. The matrix selects the tag set;
-# the variant supplies the stable package identity used in LOCALVERSION.
-if [[ "$REF" =~ -([0-9]{8})$ ]]; then
+# Dated tags use a trailing YYYYMMDD snapshot, optionally followed by a respin
+# ordinal. The matrix selects the tag set; the variant supplies the stable
+# package identity used in LOCALVERSION.
+if [[ "$REF" =~ -([0-9]{8}(\.[0-9]+)?)$ ]]; then
     SNAPSHOT="${BASH_REMATCH[1]}"
     LOCALVERSION="+${VARIANT}-${SNAPSHOT}"
 else

@@ -51,7 +51,8 @@ KREL_FILE := debian/kernel.release
 #                  Required unless KVER is given explicitly.
 #   KVER           Full kernelrelease string (uname -r). Overrides LOCALVERSION.
 #   KVER_EXTRA     Optional extra suffix appended after LOCALVERSION, e.g. -ci42.
-#   SNAPSHOT       Dated component of the Debian version, e.g. 20260722.
+#   SNAPSHOT       Dated component of the Debian version: YYYYMMDD with an
+#                  optional .<respin> ordinal, e.g. 20260722 or 20260722.1.
 #                  Empty for branch-tip builds, which have no snapshot date.
 #   DISTRO         Target Debian/Ubuntu suite (default: unstable).
 #   SRCPKG         Source package name (default: linux-qcom-next).
@@ -139,8 +140,8 @@ prepare:
 	# variant name whose shape is caller-supplied, and for branch-tip builds a
 	# 12-hex SHA that can itself end in eight digits.
 	if [ -n "$(SNAPSHOT)" ]; then \
-		echo "$(SNAPSHOT)" | grep -qE '^[0-9]{8}$$' || { \
-			echo "ERROR: SNAPSHOT must be YYYYMMDD (got '$(SNAPSHOT)')"; \
+		echo "$(SNAPSHOT)" | grep -qE '^[0-9]{8}(\.[0-9]+)?$$' || { \
+			echo "ERROR: SNAPSHOT must be YYYYMMDD with an optional .<respin> (got '$(SNAPSHOT)')"; \
 			exit 1; \
 		}; \
 		UPSTREAM_VER="$${BASE_KVER_CLEAN}+$(SNAPSHOT)"; \

@@ -54,10 +54,11 @@ OPTIONS:
     --localversion SUFFIX     LOCALVERSION suffix appended to the base kernel
                               version (e.g. +qcom-next-20260722).
                               Auto-detected from git tag if not specified.
-    --snapshot SNAPSHOT       Dated component of the Debian version, e.g.
-                              20260722. Auto-detected from git tag alongside
-                              --localversion; pass it explicitly whenever
-                              --localversion is passed explicitly.
+    --snapshot SNAPSHOT       Dated component of the Debian version: YYYYMMDD
+                              with an optional .<respin> ordinal (e.g.
+                              20260722 or 20260722.1). Auto-detected from git
+                              tag alongside --localversion; pass it explicitly
+                              whenever --localversion is passed explicitly.
     --kver-extra SUFFIX       Extra suffix appended to the final KVER
                               (e.g. -ci42).
 
@@ -159,14 +160,19 @@ VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 [[ -d "$DEBIAN_DIR" ]] || { log_error "Debian dir not found: $DEBIAN_DIR"; exit 1; }
 
 # ── Helper: derive LOCALVERSION and SNAPSHOT from a tag name ─────────────────
-# qcom-next-7.2-rc3-20260722 -> +qcom-next-20260722 / 20260722
+# qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722   / 20260722
+# qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1 / 20260722.1
+#
+# The trailing component is a YYYYMMDD snapshot with an optional respin ordinal
+# for a second tag cut on the same day. Matching the date width explicitly (and
+# not just "trailing digits") keeps the ordinal attached to it.
 #
 # Both fields come out of the tag together. Recovering the snapshot from
 # LOCALVERSION afterwards would mean parsing a string that also holds a variant
 # name and, for a branch tip, a hex SHA that can end in eight digits.
 _auto_version_fields() {
     local tag="$1"
-    if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$ ]]; then
+    if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]{8}(\.[0-9]+)?)$ ]]; then
         LOCALVERSION="+${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
         SNAPSHOT="${BASH_REMATCH[2]}"
     else
