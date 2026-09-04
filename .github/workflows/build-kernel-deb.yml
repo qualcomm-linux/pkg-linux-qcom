@@ -53,7 +53,7 @@ on:
       debian-version-stub:
         description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
         required: false
-        default: '0qli'
+        default: '0qli1'
       localversion:
         description: 'Advanced: LOCALVERSION override (auto-derived from the resolved ref if empty)'
         required: false
@@ -124,7 +124,7 @@ on:
       debian-revision:
         description: 'Debian revision component of the package version'
         type: string
-        default: '0qli~'
+        default: '0qli1~'
       localversion:
         description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
         type: string
@@ -301,7 +301,7 @@ jobs:
         # non-promoting.
         env:
           DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
-          DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli' }}
+          DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli1' }}
         run: |
           set -euo pipefail
           INPUT_REVISION="$DEBIAN_REVISION_INPUT"
