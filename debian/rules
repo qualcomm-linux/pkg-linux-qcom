@@ -47,10 +47,16 @@ KREL_FILE := debian/kernel.release
 # debian/control before invoking any debian/rules targets.
 #
 # Inputs (make variables):
-#   LOCALVERSION   Suffix appended to the base kernel version, e.g. -qcom-next-20260722.
+#   LOCALVERSION   Suffix appended to the base kernel version, e.g. +qcom-next-20260722.
 #                  Required unless KVER is given explicitly.
 #   KVER           Full kernelrelease string (uname -r). Overrides LOCALVERSION.
 #   KVER_EXTRA     Optional extra suffix appended after LOCALVERSION, e.g. -ci42.
+#   SNAPSHOT       Dated component of the Debian version: YYYYMMDD with an
+#                  optional .<respin> ordinal, e.g. 20260722 or 20260722.1.
+#                  Empty for branch-tip builds, which have no snapshot date.
+#   GITSHA         Commit the build was cut from, 12 hex characters. Appended to
+#                  the snapshot as a final discriminator. Ignored without a
+#                  SNAPSHOT to discriminate.
 #   DISTRO         Target Debian/Ubuntu suite (default: unstable).
 #   SRCPKG         Source package name (default: linux-qcom-next).
 #   BINPKG         Binary metapackage name (default: linux-image-qcom-next).
@@ -61,6 +67,11 @@ KREL_FILE := debian/kernel.release
 #                    nothing. Each name must have a <name>-dkms package available
 #                    in the build environment; the Build-Depends entry for it is
 #                    generated from this list, so nothing else declares it.
+#   GIT_CLONE        Kernel repository URL, recorded in debian/changelog.
+#   GIT_REF          Resolved kernel ref (tag or branch), recorded in the changelog.
+#   GIT_SHA          Full kernel HEAD commit SHA, recorded in the changelog.
+#                    GITSHA above is the same commit at 12 characters, for the
+#                    version strings; this is the unabbreviated value.
 #
 # Outputs (generated files, all listed in debian/clean):
 #   debian/control       Substituted from debian/control.in
@@ -70,18 +81,26 @@ KREL_FILE := debian/kernel.release
 #                        so an empty DKMS_MODULES is a genuine "bundle nothing"
 #                        rather than the missing-manifest misconfiguration that
 #                        the bundler rejects.
-#   debian/localversion  Plain file containing the LOCALVERSION suffix (e.g. -qcom-next-20260722).
+#   debian/localversion  Plain file containing the LOCALVERSION suffix (e.g. +qcom-next-20260722).
 #                        Read by override_dh_auto_build to pass LOCALVERSION= to make.
 #   debian/pkgversion    Plain file containing the full Debian package version
-#                        (e.g. 7.2.0-rc3+20260722-0qcom1).
+#                        (e.g. 7.2.0~rc3+git20260722-0qcom1).
 #                        Read by override_dh_gencontrol.
 # ---------------------------------------------------------------------------
 KVER_EXTRA       ?=
+SNAPSHOT         ?=
+GITSHA           ?=
 DISTRO           ?= unstable
 SRCPKG           ?= linux-qcom-next
 BINPKG           ?= linux-image-qcom-next
 DEBIAN_REVISION  ?= 0qcom1
 DKMS_MODULES     ?=
+# Source provenance recorded in debian/changelog. The version strings name the
+# commit but not the repository it came from, so without these a build cannot be
+# traced back to its source tree.
+GIT_CLONE        ?= unknown
+GIT_REF          ?= unknown
+GIT_SHA          ?= unknown
 
 .PHONY: prepare
 prepare:
@@ -93,8 +112,8 @@ prepare:
 	else \
 		[ -n "$(LOCALVERSION)" ] || { \
 			echo "ERROR: LOCALVERSION is required when KVER is not set."; \
-			echo "       Pass LOCALVERSION=<suffix> (e.g. LOCALVERSION=-qcom-next-20260722)"; \
-			echo "       or KVER=<full-kernelrelease> (e.g. KVER=7.2.0-rc3-qcom-next-20260722)"; \
+			echo "       Pass LOCALVERSION=<suffix> (e.g. LOCALVERSION=+qcom-next-20260722)"; \
+			echo "       or KVER=<full-kernelrelease> (e.g. KVER=7.2.0-rc3+qcom-next-20260722)"; \
 			exit 1; \
 		}; \
 		echo "Reading base kernel version from kernel Makefile..."; \
@@ -112,11 +131,24 @@ prepare:
 		echo "Appended KVER_EXTRA=$(KVER_EXTRA) -> KVER=$$KVER_RESOLVED"; \
 	fi; \
 	\
-	# ── Derive package version from KVER ─────────────────────────────────────
-	# Package version format: <base_kver>+<date>-<debian_revision>
-	# where base_kver = kernel version without the LOCALVERSION suffix,
-	# and date = the 8-digit date component of LOCALVERSION (if present).
-	# For branch-tip builds (no date in LOCALVERSION), version = <base_kver>-<debian_revision>.
+	# ── Derive package version ───────────────────────────────────────────────
+	# Package version format: <base_kver>+git<snapshot>~g<sha>-<debian_revision>
+	# where base_kver = kernel version without the LOCALVERSION suffix, and
+	# snapshot = the SNAPSHOT input (YYYYMMDD with an optional respin ordinal).
+	# For branch-tip builds, which have no snapshot, version = <base_kver>-<debian_revision>.
+	#
+	# The snapshot orders these; the SHA only discriminates two builds that
+	# share one. It is joined with '~' rather than '.' because dpkg alternates
+	# digit and non-digit runs and reads an exhausted run as lower than a
+	# letter, so a '.' would put a respin BELOW the build it respins:
+	#
+	#   7.2.0+git20260826.g3f2f3ca1a81e  >  7.2.0+git20260826.1.gabcdef123456
+	#
+	# '~' sorts below everything, including the empty string, so the ordinal is
+	# always compared before the SHA is reached and no build has to spell a
+	# ".0" to hold the position. The cost is that a version reads as preceding
+	# the same snapshot without a SHA -- a slot nothing ever occupies, since
+	# every snapshot build carries one.
 	#
 	# Extract base_kver: read directly from kernel Makefile (same as above but
 	# without LOCALVERSION appended), so it is always the pure kernel version.
@@ -131,10 +163,23 @@ prepare:
 	EXTRA_DEB=$$(echo "$$EXTRA" | sed 's/^-rc/~rc/'); \
 	BASE_KVER_CLEAN="$${VER}.$${PATCH}.$${SUB}$${EXTRA_DEB}$${TREE_LOCALVER}"; \
 	\
-	# Extract date from LOCALVERSION: last dash-delimited component if 8 digits.
-	DATE_PART=$$(echo "$(LOCALVERSION)" | grep -oE '[0-9]{8}$$' || true); \
-	if [ -n "$$DATE_PART" ]; then \
-		UPSTREAM_VER="$${BASE_KVER_CLEAN}+$${DATE_PART}"; \
+	# SNAPSHOT arrives as its own input rather than being recovered from the end
+	# of LOCALVERSION, because that string is not safely parseable: it carries a
+	# variant name whose shape is caller-supplied, and for branch-tip builds a
+	# 12-hex SHA that can itself end in eight digits.
+	if [ -n "$(SNAPSHOT)" ]; then \
+		echo "$(SNAPSHOT)" | grep -qE '^[0-9]{8}(\.[0-9]+)?$$' || { \
+			echo "ERROR: SNAPSHOT must be YYYYMMDD with an optional .<respin> (got '$(SNAPSHOT)')"; \
+			exit 1; \
+		}; \
+		UPSTREAM_VER="$${BASE_KVER_CLEAN}+git$(SNAPSHOT)"; \
+		if [ -n "$(GITSHA)" ]; then \
+			echo "$(GITSHA)" | grep -qE '^[0-9a-f]{12}$$' || { \
+				echo "ERROR: GITSHA must be 12 lowercase hex characters (got '$(GITSHA)')"; \
+				exit 1; \
+			}; \
+			UPSTREAM_VER="$${UPSTREAM_VER}~g$(GITSHA)"; \
+		fi; \
 	else \
 		UPSTREAM_VER="$${BASE_KVER_CLEAN}"; \
 	fi; \
@@ -193,8 +238,9 @@ prepare:
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
 		-e "s|@DISTRO@|$(DISTRO)|g" \
 		-e "s|@KVER@|$$KVER_RESOLVED|g" \
-		-e "s|@GITCLONE@||g" \
-		-e "s|@BRANCH@||g" \
+		-e "s|@GITCLONE@|$(GIT_CLONE)|g" \
+		-e "s|@BRANCH@|$(GIT_REF)|g" \
+		-e "s|@GITSHA@|$(GIT_SHA)|g" \
 		debian/changelog.in > debian/changelog; \
 	\
 	# ── Write runtime state files ─────────────────────────────────────────────

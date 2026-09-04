@@ -28,8 +28,9 @@ isolated `kernel_variant + suite` build leg.
 
 Both build the same kernel ref. `derive-localversion.sh` folds the variant name
 into LOCALVERSION, so each produces a distinct kernel release
-(`-qcom-next-<date>` and `-qcom-next-debug-<date>`) and therefore a distinct
-versioned image package that can be installed alongside the other.
+(`+qcom-next-<date>-g<sha>` and `+qcom-next-debug-<date>-g<sha>`) and therefore a
+distinct versioned image package that can be installed alongside the other. See
+[docs/version.md](docs/version.md) for how the version strings are composed.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
 
@@ -62,7 +63,7 @@ The final Production matrix is conceptually:
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "dkms": ["kgsl", "camx", "iris-vpu"],
-      "debian_version_stub": "0qli",
+      "debian_version_stub": "0qli1",
       "debian_version_suffix": "~"
     },
     {
@@ -76,7 +77,7 @@ The final Production matrix is conceptually:
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
       "dkms": ["kgsl", "camx", "iris-vpu"],
-      "debian_version_stub": "0qli",
+      "debian_version_stub": "0qli1",
       "debian_version_suffix": "",
       "target_workspace": "qli"
     }
@@ -93,9 +94,9 @@ above:
 
 | Suite | Daily | Release |
 | --- | --- | --- |
-| Trixie | `0qli~bpo13+1~` | `0qli~bpo13+1` |
-| Forky | `0qli~` | `0qli` |
-| Resolute | `0qli~26.04.1~` | (not a configured Release suite) |
+| Trixie | `0qli1~bpo13+1~` | `0qli1~bpo13+1` |
+| Forky | `0qli1~` | `0qli1` |
+| Resolute | `0qli1~26.04.1~` | (not a configured Release suite) |
 
 `~` always sorts below the same prefix without it in Debian version
 ordering, so Daily always sorts below Release for the same suite and stub.
@@ -238,7 +239,7 @@ Supporting scripts keep workflow YAML small and testable:
 | --- | --- |
 | `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
-| `ci/scripts/derive-localversion.sh` | Derives `LOCALVERSION` from the variant and resolved kernel ref. |
+| `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant, resolved kernel ref and HEAD, printing `LOCALVERSION=`, `SNAPSHOT=` and `GITSHA=` lines. `SNAPSHOT` is the dated component of the Debian version: the tag's date, or the HEAD commit date for a branch-tip build. Scheme and rationale: [docs/version.md](docs/version.md). |
 | `ci/scripts/derive-debian-revision.sh` | Derives the final suite-specific `debian_revision` from `debian_version_stub`, `suite_suffix_mapping`, and delivery type. |
 
 ## Architecture
@@ -399,6 +400,17 @@ For the current matrix, package generation produces:
 names. Only the Debian version field converts it to `~rcN`, so a release
 candidate correctly sorts before the corresponding final kernel release.
 
+Every build names both its snapshot and the commit it was cut from:
+
+| | Format | Example |
+| --- | --- | --- |
+| Kernel release (`uname -r`) | `<base>+<variant>-<date>[.<respin>]-g<sha>` | `7.2.0-rc7+qcom-next-20260826.1-g011a82096bee` |
+| Debian version | `<base>+git<date>[.<respin>]~g<sha>-<revision>` | `7.2.0~rc7+git20260826.1~g011a82096bee-0qli1~bpo13+1` |
+
+The two strings spell the same fields differently because they are compared by
+different rules — `+` and `~` are both load-bearing, not stylistic. See
+[docs/version.md](docs/version.md) before changing either.
+
 `KVER_EXTRA` is supported for explicit suffixes such as `-ci42` or `-local`.
 The packaging rules verify that the declared versioned image package matches the
 resolved kernel release and fail instead of creating inconsistent metadata.
@@ -439,7 +451,7 @@ The available inputs are:
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
 | `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:arch/arm64/configs/qcom_debug.config`. |
-| `debian-version-stub` | `0qli` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
+| `debian-version-stub` | `0qli1` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
 | `debug-build` | `false` | Advanced debug configuration toggle. |

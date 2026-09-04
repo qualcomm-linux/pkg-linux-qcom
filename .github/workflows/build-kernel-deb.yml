@@ -53,13 +53,13 @@ on:
       debian-version-stub:
         description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
         required: false
-        default: '0qli'
+        default: '0qli1'
       localversion:
         description: 'Advanced: LOCALVERSION override (auto-derived from the resolved ref if empty)'
         required: false
         default: ''
       kver-extra:
-        description: 'Advanced: extra package-version suffix (e.g. -ci42)'
+        description: 'Advanced: extra KVER suffix (e.g. -ci42), appended to the kernel release verbatim'
         required: false
         default: ''
       debug-build:
@@ -124,13 +124,13 @@ on:
       debian-revision:
         description: 'Debian revision component of the package version'
         type: string
-        default: '0qli~'
+        default: '0qli1~'
       localversion:
         description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
         type: string
         default: ''
       kver-extra:
-        description: 'Extra suffix appended to the package version'
+        description: 'Extra KVER suffix, appended to the kernel release verbatim'
         type: string
         default: ''
       debusine-parent-workspace:
@@ -273,7 +273,19 @@ jobs:
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
           echo "Kernel HEAD SHA: $KERNEL_SHA"
 
-      - name: Derive LOCALVERSION
+          # Committer date of HEAD, normalised to UTC. Committer rather than
+          # author date: an author date can be months old on a backported
+          # patch, which would date the build by when someone first wrote the
+          # code rather than by when this snapshot came to exist.
+          KERNEL_DATE=$(TZ=UTC git -C "$KERNEL_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
+          [[ "$KERNEL_DATE" =~ ^[0-9]{8}$ ]] || {
+            echo "::error::could not read a YYYYMMDD commit date from $KERNEL_REF (got '$KERNEL_DATE')"
+            exit 1
+          }
+          echo "KERNEL_DATE=$KERNEL_DATE" >> "$GITHUB_ENV"
+          echo "Kernel HEAD commit date (UTC): $KERNEL_DATE"
+
+      - name: Derive version fields
         env:
           LOCALVERSION_INPUT: ${{ inputs.localversion }}
           KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
@@ -281,15 +293,30 @@ jobs:
           set -euo pipefail
           OVERRIDE_LV="$LOCALVERSION_INPUT"
           if [[ -n "$OVERRIDE_LV" ]]; then
+            # An override supplies no snapshot, and the ref it was chosen to
+            # replace cannot be trusted to describe it. The Debian version then
+            # carries no +git<date>; prepare-source.sh warns about the same.
             echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
             echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
+            echo "SNAPSHOT=" >> "$GITHUB_ENV"
+            echo "GITSHA=" >> "$GITHUB_ENV"
           else
-            LOCALVERSION=$(ci/scripts/derive-localversion.sh \
+            # Emits LOCALVERSION=, SNAPSHOT= and GITSHA= lines, already in
+            # GITHUB_ENV form.
+            #
+            # --date is only consulted for branch-tip builds, where the ref
+            # carries no snapshot of its own. It comes from the commit rather
+            # than the clock, so rebuilding a commit reproduces its version
+            # instead of inventing a higher one, and it lands in the same space
+            # as upstream's tag dates.
+            FIELDS=$(ci/scripts/derive-localversion.sh \
               --variant "$KERNEL_VARIANT_INPUT" \
               --ref "$KERNEL_REF" \
-              --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
-            echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
-            echo "Derived LOCALVERSION: $LOCALVERSION"
+              --sha "$KERNEL_SHA" \
+              --date "$KERNEL_DATE")
+            echo "$FIELDS" >> "$GITHUB_ENV"
+            echo "Derived version fields:"
+            echo "$FIELDS"
           fi
 
       - name: Resolve Debian revision
@@ -301,7 +328,7 @@ jobs:
         # non-promoting.
         env:
           DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
-          DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli' }}
+          DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli1' }}
         run: |
           set -euo pipefail
           INPUT_REVISION="$DEBIAN_REVISION_INPUT"
@@ -401,7 +428,16 @@ jobs:
             --debian-revision "$DEBIAN_REVISION"
           )
 
+          # All three version fields come from derive-localversion.sh, which
+          # composed them from the ref and HEAD together. Nothing here appends
+          # to them: the SHA is already inside LOCALVERSION, and GITSHA carries
+          # it separately for the Debian version, which joins it differently.
           [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
+          [[ -n "$SNAPSHOT" ]]            && ARGS+=(--snapshot "$SNAPSHOT")
+          # Full SHA: prepare-source.sh takes the first 12 for the version
+          # strings and records the whole thing in the changelog, alongside the
+          # repository and ref that the version strings do not name.
+          ARGS+=(--git-sha "$KERNEL_SHA" --git-clone "$KERNEL_URL" --git-ref "$KERNEL_REF")
           [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
           [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
           # Always passed, unlike the optional inputs above: an empty list is a

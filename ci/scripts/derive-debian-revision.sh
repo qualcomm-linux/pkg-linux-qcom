@@ -15,11 +15,13 @@ set -euo pipefail
 # context), so the derivation and its validation live in exactly one place.
 #
 # Usage:
-#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite trixie --delivery-type Daily
-#   ci/scripts/derive-debian-revision.sh --stub 0qli --suite forky --delivery-type Release --matrix-file ci/build-matrix.json
+#   ci/scripts/derive-debian-revision.sh --stub 0qli1 --suite trixie --delivery-type Daily
+#   ci/scripts/derive-debian-revision.sh --stub 0qli1 --suite forky --delivery-type Release --matrix-file ci/build-matrix.json
 #
 # Options:
-#   --stub STUB            Debian version stub. Must be non-empty and must not
+#   --stub STUB            Debian version stub, e.g. 0qli1. Must end in a digit:
+#                            that digit is the packaging revision, bumped for a
+#                            rebuild of an unchanged kernel snapshot. Must not
 #                            end in ~ (the delivery suffix supplies any
 #                            trailing ~). Required.
 #   --suite SUITE          Target suite; must have an entry in
@@ -62,6 +64,15 @@ done
 [[ -n "$SUITE" ]]         || { echo "ERROR: --suite is required" >&2; exit 1; }
 [[ -n "$DELIVERY_TYPE" ]] || { echo "ERROR: --delivery-type is required" >&2; exit 1; }
 [[ "$STUB" != *"~" ]]     || { echo "ERROR: --stub must not end in ~ (got '$STUB')" >&2; exit 1; }
+# The trailing digit is the packaging revision: it is the only field left to
+# bump when the kernel snapshot is unchanged but the packaging is rebuilt.
+# suite_suffix_mapping is a per-suite constant and cannot carry it, and the
+# delivery suffix is the Daily/Release marker, so a stub without a digit leaves
+# a rebuild with nowhere to go.
+[[ "$STUB" =~ [0-9]$ ]]   || {
+    echo "ERROR: --stub must end in a digit, the packaging revision (got '$STUB'; use '${STUB}1')" >&2
+    exit 1
+}
 [[ -f "$MATRIX_FILE" ]]   || { echo "ERROR: Matrix file not found: $MATRIX_FILE" >&2; exit 1; }
 
 jq empty "$MATRIX_FILE" 2>/dev/null \
