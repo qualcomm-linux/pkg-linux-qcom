@@ -59,7 +59,7 @@ on:
         required: false
         default: ''
       kver-extra:
-        description: 'Advanced: extra package-version suffix (e.g. -ci42)'
+        description: 'Advanced: extra KVER suffix (e.g. -ci42), appended to the kernel release verbatim'
         required: false
         default: ''
       debug-build:
@@ -130,7 +130,7 @@ on:
         type: string
         default: ''
       kver-extra:
-        description: 'Extra suffix appended to the package version'
+        description: 'Extra KVER suffix, appended to the kernel release verbatim'
         type: string
         default: ''
       debusine-parent-workspace:
@@ -283,16 +283,18 @@ jobs:
           if [[ -n "$OVERRIDE_LV" ]]; then
             # An override supplies no snapshot, and the ref it was chosen to
             # replace cannot be trusted to describe it. The Debian version then
-            # carries no dated component; prepare-source.sh warns about the same.
+            # carries no +git<date>; prepare-source.sh warns about the same.
             echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
             echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
             echo "SNAPSHOT=" >> "$GITHUB_ENV"
+            echo "GITSHA=" >> "$GITHUB_ENV"
           else
-            # Emits LOCALVERSION= and SNAPSHOT= lines, already in GITHUB_ENV form.
+            # Emits LOCALVERSION=, SNAPSHOT= and GITSHA= lines, already in
+            # GITHUB_ENV form.
             FIELDS=$(ci/scripts/derive-localversion.sh \
               --variant "$KERNEL_VARIANT_INPUT" \
               --ref "$KERNEL_REF" \
-              --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
+              --sha "$KERNEL_SHA")
             echo "$FIELDS" >> "$GITHUB_ENV"
             echo "Derived version fields:"
             echo "$FIELDS"
@@ -407,8 +409,13 @@ jobs:
             --debian-revision "$DEBIAN_REVISION"
           )
 
+          # All three version fields come from derive-localversion.sh, which
+          # composed them from the ref and HEAD together. Nothing here appends
+          # to them: the SHA is already inside LOCALVERSION, and GITSHA carries
+          # it separately for the Debian version, which joins it differently.
           [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
           [[ -n "$SNAPSHOT" ]]            && ARGS+=(--snapshot "$SNAPSHOT")
+          [[ -n "$GITSHA" ]]              && ARGS+=(--git-sha "$GITSHA")
           [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
           [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
           # Always passed, unlike the optional inputs above: an empty list is a
