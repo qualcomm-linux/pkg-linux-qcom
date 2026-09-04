@@ -238,7 +238,7 @@ Supporting scripts keep workflow YAML small and testable:
 | --- | --- |
 | `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
-| `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant and resolved kernel ref, printing `LOCALVERSION=` and `SNAPSHOT=` lines. `SNAPSHOT` is the dated component of the Debian version. |
+| `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant, resolved kernel ref and HEAD, printing `LOCALVERSION=`, `SNAPSHOT=` and `GITSHA=` lines. `SNAPSHOT` is the dated component of the Debian version. |
 | `ci/scripts/derive-debian-revision.sh` | Derives the final suite-specific `debian_revision` from `debian_version_stub`, `suite_suffix_mapping`, and delivery type. |
 
 ## Architecture
@@ -398,6 +398,17 @@ For the current matrix, package generation produces:
 `-rcN` remains in `uname -r`, module paths, boot assets, and versioned package
 names. Only the Debian version field converts it to `~rcN`, so a release
 candidate correctly sorts before the corresponding final kernel release.
+
+Every build names the commit it was cut from, and a tag build names its
+snapshot too:
+
+| | Format | Example |
+| --- | --- | --- |
+| Kernel release (`uname -r`) | `<base>+<variant>-<date>[.<respin>]-g<sha>` | `7.2.0-rc7+qcom-next-20260826.1-g011a82096bee` |
+| Debian version | `<base>+git<date>[.<respin>]~g<sha>-<revision>` | `7.2.0~rc7+git20260826.1~g011a82096bee-0qli1~bpo13+1` |
+
+The two strings spell the same fields differently because they are compared by
+different rules — `+` and `~` are both load-bearing, not stylistic.
 
 `KVER_EXTRA` is supported for explicit suffixes such as `-ci42` or `-local`.
 The packaging rules verify that the declared versioned image package matches the
