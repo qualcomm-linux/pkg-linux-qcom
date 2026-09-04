@@ -47,7 +47,7 @@ KREL_FILE := debian/kernel.release
 # debian/control before invoking any debian/rules targets.
 #
 # Inputs (make variables):
-#   LOCALVERSION   Suffix appended to the base kernel version, e.g. -qcom-next-20260722.
+#   LOCALVERSION   Suffix appended to the base kernel version, e.g. +qcom-next-20260722.
 #                  Required unless KVER is given explicitly.
 #   KVER           Full kernelrelease string (uname -r). Overrides LOCALVERSION.
 #   KVER_EXTRA     Optional extra suffix appended after LOCALVERSION, e.g. -ci42.
@@ -70,7 +70,7 @@ KREL_FILE := debian/kernel.release
 #                        so an empty DKMS_MODULES is a genuine "bundle nothing"
 #                        rather than the missing-manifest misconfiguration that
 #                        the bundler rejects.
-#   debian/localversion  Plain file containing the LOCALVERSION suffix (e.g. -qcom-next-20260722).
+#   debian/localversion  Plain file containing the LOCALVERSION suffix (e.g. +qcom-next-20260722).
 #                        Read by override_dh_auto_build to pass LOCALVERSION= to make.
 #   debian/pkgversion    Plain file containing the full Debian package version
 #                        (e.g. 7.2.0-rc3+20260722-0qcom1).
@@ -93,8 +93,8 @@ prepare:
 	else \
 		[ -n "$(LOCALVERSION)" ] || { \
 			echo "ERROR: LOCALVERSION is required when KVER is not set."; \
-			echo "       Pass LOCALVERSION=<suffix> (e.g. LOCALVERSION=-qcom-next-20260722)"; \
-			echo "       or KVER=<full-kernelrelease> (e.g. KVER=7.2.0-rc3-qcom-next-20260722)"; \
+			echo "       Pass LOCALVERSION=<suffix> (e.g. LOCALVERSION=+qcom-next-20260722)"; \
+			echo "       or KVER=<full-kernelrelease> (e.g. KVER=7.2.0-rc3+qcom-next-20260722)"; \
 			exit 1; \
 		}; \
 		echo "Reading base kernel version from kernel Makefile..."; \

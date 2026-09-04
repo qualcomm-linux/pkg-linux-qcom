@@ -52,7 +52,7 @@ OPTIONS:
     -d, --distro DISTRO       Target suite: trixie|forky|sid|noble|questing|resolute
                               (default: $DEFAULT_DISTRO)
     --localversion SUFFIX     LOCALVERSION suffix appended to the base kernel
-                              version (e.g. -qcom-next-20260722).
+                              version (e.g. +qcom-next-20260722).
                               Auto-detected from git tag if not specified.
     --kver-extra SUFFIX       Extra suffix appended to the final KVER
                               (e.g. -ci42).
@@ -101,7 +101,7 @@ EXAMPLES:
     # Full CI invocation with all options
     $0 --source-dir /path/to/kernel \\
        --distro trixie \\
-       --localversion -qcom-next-20260722 \\
+       --localversion +qcom-next-20260722 \\
        --srcpkg linux-qcom-next \\
        --binpkg linux-image-qcom-next \\
        --debian-revision 0qcom1 \\
@@ -153,13 +153,13 @@ VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 [[ -d "$DEBIAN_DIR" ]] || { log_error "Debian dir not found: $DEBIAN_DIR"; exit 1; }
 
 # ── Helper: derive LOCALVERSION from a tag name ──────────────────────────────
-# qcom-next-7.2-rc3-20260722 -> -qcom-next-20260722
+# qcom-next-7.2-rc3-20260722 -> +qcom-next-20260722
 _auto_localversion() {
     local tag="$1"
     if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$ ]]; then
-        echo "-${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+        echo "+${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
     else
-        echo "-$tag"
+        echo "+$tag"
     fi
 }
 
@@ -172,7 +172,7 @@ if [[ -z "$LOCALVERSION" ]]; then
     else
         log_warn "LOCALVERSION not set and no exact git tag found."
         log_warn "Package will be named linux-image-<base-kver> (no branch/date suffix)."
-        log_warn "Use --localversion to specify, e.g.: --localversion -qcom-next-20260722"
+        log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722"
     fi
 fi
 
