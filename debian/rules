@@ -51,6 +51,8 @@ KREL_FILE := debian/kernel.release
 #                  Required unless KVER is given explicitly.
 #   KVER           Full kernelrelease string (uname -r). Overrides LOCALVERSION.
 #   KVER_EXTRA     Optional extra suffix appended after LOCALVERSION, e.g. -ci42.
+#   SNAPSHOT       Dated component of the Debian version, e.g. 20260722.
+#                  Empty for branch-tip builds, which have no snapshot date.
 #   DISTRO         Target Debian/Ubuntu suite (default: unstable).
 #   SRCPKG         Source package name (default: linux-qcom-next).
 #   BINPKG         Binary metapackage name (default: linux-image-qcom-next).
@@ -77,6 +79,7 @@ KREL_FILE := debian/kernel.release
 #                        Read by override_dh_gencontrol.
 # ---------------------------------------------------------------------------
 KVER_EXTRA       ?=
+SNAPSHOT         ?=
 DISTRO           ?= unstable
 SRCPKG           ?= linux-qcom-next
 BINPKG           ?= linux-image-qcom-next
@@ -112,11 +115,11 @@ prepare:
 		echo "Appended KVER_EXTRA=$(KVER_EXTRA) -> KVER=$$KVER_RESOLVED"; \
 	fi; \
 	\
-	# ── Derive package version from KVER ─────────────────────────────────────
-	# Package version format: <base_kver>+<date>-<debian_revision>
-	# where base_kver = kernel version without the LOCALVERSION suffix,
-	# and date = the 8-digit date component of LOCALVERSION (if present).
-	# For branch-tip builds (no date in LOCALVERSION), version = <base_kver>-<debian_revision>.
+	# ── Derive package version ───────────────────────────────────────────────
+	# Package version format: <base_kver>+<snapshot>-<debian_revision>
+	# where base_kver = kernel version without the LOCALVERSION suffix, and
+	# snapshot = the SNAPSHOT input.
+	# For branch-tip builds, which have no snapshot, version = <base_kver>-<debian_revision>.
 	#
 	# Extract base_kver: read directly from kernel Makefile (same as above but
 	# without LOCALVERSION appended), so it is always the pure kernel version.
@@ -131,10 +134,16 @@ prepare:
 	EXTRA_DEB=$$(echo "$$EXTRA" | sed 's/^-rc/~rc/'); \
 	BASE_KVER_CLEAN="$${VER}.$${PATCH}.$${SUB}$${EXTRA_DEB}$${TREE_LOCALVER}"; \
 	\
-	# Extract date from LOCALVERSION: last dash-delimited component if 8 digits.
-	DATE_PART=$$(echo "$(LOCALVERSION)" | grep -oE '[0-9]{8}$$' || true); \
-	if [ -n "$$DATE_PART" ]; then \
-		UPSTREAM_VER="$${BASE_KVER_CLEAN}+$${DATE_PART}"; \
+	# SNAPSHOT arrives as its own input rather than being recovered from the end
+	# of LOCALVERSION, because that string is not safely parseable: it carries a
+	# variant name whose shape is caller-supplied, and for branch-tip builds a
+	# 12-hex SHA that can itself end in eight digits.
+	if [ -n "$(SNAPSHOT)" ]; then \
+		echo "$(SNAPSHOT)" | grep -qE '^[0-9]{8}$$' || { \
+			echo "ERROR: SNAPSHOT must be YYYYMMDD (got '$(SNAPSHOT)')"; \
+			exit 1; \
+		}; \
+		UPSTREAM_VER="$${BASE_KVER_CLEAN}+$(SNAPSHOT)"; \
 	else \
 		UPSTREAM_VER="$${BASE_KVER_CLEAN}"; \
 	fi; \

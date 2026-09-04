@@ -238,7 +238,7 @@ Supporting scripts keep workflow YAML small and testable:
 | --- | --- |
 | `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
-| `ci/scripts/derive-localversion.sh` | Derives `LOCALVERSION` from the variant and resolved kernel ref. |
+| `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant and resolved kernel ref, printing `LOCALVERSION=` and `SNAPSHOT=` lines. `SNAPSHOT` is the dated component of the Debian version and is empty for branch-tip builds. |
 | `ci/scripts/derive-debian-revision.sh` | Derives the final suite-specific `debian_revision` from `debian_version_stub`, `suite_suffix_mapping`, and delivery type. |
 
 ## Architecture
