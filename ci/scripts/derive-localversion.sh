@@ -27,8 +27,24 @@ set -euo pipefail
 #   moved tag cannot silently produce two different kernels under one release.
 #
 # For branch-tip builds (ref does not end in a date):
-#   Uses the kernel variant and the SHA alone; there is no date to order by.
-#   Example: qcom-next @ 07f50dc44edd -> +qcom-next-g07f50dc44edd
+#   Takes the date from the HEAD commit instead of the tag, so the result has
+#   the same shape as a tag build and orders in the same sequence.
+#   Example: qcom-next @ 07f50dc44edd, committed 2026-09-04
+#              -> +qcom-next-20260904-g07f50dc44edd
+#   --date is required for these; pass YYYYMMDD.N to separate two branch-tip
+#   builds sharing a commit date.
+#
+#   The caller supplies the COMMIT date rather than the build date, so that
+#   rebuilding a commit reproduces its version instead of inventing a higher
+#   one, and so that the date describes the source rather than when CI ran. It
+#   also lands in the same space as upstream's tag dates, which track the
+#   commit each tag is cut from.
+#
+#   The trade-off: a build date always advances, a commit date need not. If the
+#   branch is ever rewound to an older commit, the next build's version goes
+#   DOWN and apt will not offer it as an upgrade. That is arguably honest
+#   -- older source, older version -- but it is the one case where dating by
+#   the clock would behave differently.
 #
 # Why the leading '+' and not '-':
 #   The suffix ends up in KERNELRELEASE (uname -r), which is the 'version' field
@@ -46,12 +62,15 @@ set -euo pipefail
 #
 # Usage:
 #   ci/scripts/derive-localversion.sh --variant qcom-next --ref qcom-next-7.2-rc3-20260722 --sha 07f50dc44edd
-#   ci/scripts/derive-localversion.sh --variant arduino --ref main --sha 07f50dc44edd
+#   ci/scripts/derive-localversion.sh --variant arduino --ref main --sha 07f50dc44edd --date 20260904
 #
 # Options:
 #   --variant VARIANT  Kernel variant identifier. Defaults to qcom-next.
 #   --ref REF          Kernel ref (tag name or branch name). Required.
 #   --sha SHA          Commit SHA, truncated to 12 hex characters. Required.
+#   --date DATE        HEAD commit date as YYYYMMDD or YYYYMMDD.N. Required for
+#                        branch-tip builds; ignored for dated tags, which carry
+#                        their own date.
 #
 # Output:
 #   Three KEY=VALUE lines on stdout, in GITHUB_ENV / 'set -a' form:
@@ -60,17 +79,17 @@ set -euo pipefail
 #     SNAPSHOT=20260722.1
 #     GITSHA=07f50dc44edd
 #
-#   LOCALVERSION always starts with a plus. SNAPSHOT is empty for branch-tip
-#   builds, which have no date; the Debian version then carries no snapshot
-#   component at all.
+#   LOCALVERSION always starts with a plus. Every build carries a snapshot,
+#   whether it came from the tag or from the HEAD commit.
 #
 # Exit codes:
 #   0  Success.
-#   1  Error (invalid args, missing or malformed --sha).
+#   1  Error (invalid args, malformed --sha, branch tip without --date).
 
 VARIANT="qcom-next"
 REF=""
 SHA=""
+DATE=""
 
 usage() {
     sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# \?//'
@@ -82,6 +101,7 @@ while [[ $# -gt 0 ]]; do
         --variant) VARIANT="$2"; shift 2 ;;
         --ref)     REF="$2";     shift 2 ;;
         --sha)     SHA="$2";     shift 2 ;;
+        --date)    DATE="$2";    shift 2 ;;
         -h|--help) usage ;;
         *) echo "ERROR: Unknown option: $1" >&2; usage ;;
     esac
@@ -109,9 +129,19 @@ if [[ "$REF" =~ -([0-9]{8}(\.[0-9]+)?)$ ]]; then
     SNAPSHOT="${BASH_REMATCH[1]}"
     LOCALVERSION="+${VARIANT}-${SNAPSHOT}-g${GITSHA}"
 else
-    # Branch-tip build: no date, so the SHA is the whole identity.
-    LOCALVERSION="+${VARIANT}-g${GITSHA}"
-    SNAPSHOT=""
+    # Branch-tip build: the ref carries no date, so the commit date supplies
+    # one. Without it these builds had no snapshot at all, which put their
+    # Debian version below every dated build rather than among them.
+    [[ -n "$DATE" ]] || {
+        echo "ERROR: --date is required for branch-tip builds (ref '$REF' is not a dated tag)" >&2
+        exit 1
+    }
+    [[ "$DATE" =~ ^[0-9]{8}(\.[0-9]+)?$ ]] || {
+        echo "ERROR: --date must be YYYYMMDD or YYYYMMDD.N (got '$DATE')" >&2
+        exit 1
+    }
+    SNAPSHOT="$DATE"
+    LOCALVERSION="+${VARIANT}-${SNAPSHOT}-g${GITSHA}"
 fi
 
 echo "LOCALVERSION=${LOCALVERSION}"
