@@ -273,7 +273,7 @@ jobs:
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
           echo "Kernel HEAD SHA: $KERNEL_SHA"
 
-      - name: Derive LOCALVERSION
+      - name: Derive version fields
         env:
           LOCALVERSION_INPUT: ${{ inputs.localversion }}
           KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
@@ -281,15 +281,21 @@ jobs:
           set -euo pipefail
           OVERRIDE_LV="$LOCALVERSION_INPUT"
           if [[ -n "$OVERRIDE_LV" ]]; then
+            # An override supplies no snapshot, and the ref it was chosen to
+            # replace cannot be trusted to describe it. The Debian version then
+            # carries no dated component; prepare-source.sh warns about the same.
             echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
             echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
+            echo "SNAPSHOT=" >> "$GITHUB_ENV"
           else
-            LOCALVERSION=$(ci/scripts/derive-localversion.sh \
+            # Emits LOCALVERSION= and SNAPSHOT= lines, already in GITHUB_ENV form.
+            FIELDS=$(ci/scripts/derive-localversion.sh \
               --variant "$KERNEL_VARIANT_INPUT" \
               --ref "$KERNEL_REF" \
               --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
-            echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
-            echo "Derived LOCALVERSION: $LOCALVERSION"
+            echo "$FIELDS" >> "$GITHUB_ENV"
+            echo "Derived version fields:"
+            echo "$FIELDS"
           fi
 
       - name: Resolve Debian revision
@@ -402,6 +408,7 @@ jobs:
           )
 
           [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
+          [[ -n "$SNAPSHOT" ]]            && ARGS+=(--snapshot "$SNAPSHOT")
           [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
           [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
           # Always passed, unlike the optional inputs above: an empty list is a
