@@ -56,9 +56,11 @@ OPTIONS:
                               Auto-detected from git tag if not specified.
     --snapshot SNAPSHOT       Dated component of the Debian version: YYYYMMDD
                               with an optional .<respin> ordinal (e.g.
-                              20260722 or 20260722.1). Auto-detected from git
-                              tag alongside --localversion; pass it explicitly
-                              whenever --localversion is passed explicitly.
+                              20260722 or 20260722.1). Auto-detected from the
+                              git tag, or from the HEAD commit date when the
+                              ref carries no date of its own; pass it
+                              explicitly whenever --localversion is passed
+                              explicitly.
     --git-sha SHA             Commit the build was cut from, truncated to 12
                               hex characters. Discriminates two builds of one
                               snapshot (a moved tag). Auto-detected from HEAD
@@ -165,6 +167,20 @@ VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 
 [[ -d "$DEBIAN_DIR" ]] || { log_error "Debian dir not found: $DEBIAN_DIR"; exit 1; }
 
+# ── Helper: the HEAD commit date, for refs that carry no date of their own ───
+# The COMMIT date, not the build date: rebuilding a commit then reproduces its
+# version instead of inventing a higher one, and the date describes the source
+# rather than when the build happened to run.
+#
+# Committer date rather than author date, because an author date can be months
+# old on a backported patch. Normalised to UTC, since an unnormalised date
+# renders in each committer's timezone and one commit would yield different
+# snapshots on different hosts.
+_head_commit_date() {
+    TZ=UTC git -C "$SOURCE_DIR" log -1 --format=%cd --date=format-local:%Y%m%d \
+        2>/dev/null || true
+}
+
 # ── Helper: derive LOCALVERSION, SNAPSHOT and GITSHA from a tag name ─────────
 # qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722-g<sha>   / 20260722
 # qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1-g<sha> / 20260722.1
@@ -182,8 +198,11 @@ _auto_version_fields() {
         SNAPSHOT="${BASH_REMATCH[2]}"
         LOCALVERSION="+${BASH_REMATCH[1]}-${SNAPSHOT}-g${GITSHA}"
     else
+        # A tag carrying no date of its own is dated by its commit, exactly as
+        # derive-localversion.sh dates a branch tip. Leaving the snapshot empty
+        # would drop the +git<date> and sort the build below every dated one.
         LOCALVERSION="+$tag"
-        SNAPSHOT=""
+        SNAPSHOT=$(_head_commit_date)
     fi
 }
 
@@ -196,9 +215,16 @@ if [[ -z "$LOCALVERSION" ]]; then
         _auto_version_fields "$GIT_TAG"
         log_info "Auto-detected LOCALVERSION='$LOCALVERSION' SNAPSHOT='$SNAPSHOT' GITSHA='$GITSHA' from tag '$GIT_TAG'"
     else
+        # Branch tip: no ref to name the kernel release after, but HEAD still
+        # dates the build, so the Debian version keeps its +git<date> and stays
+        # in sequence with the dated builds instead of below all of them.
+        SNAPSHOT=$(_head_commit_date)
         log_warn "LOCALVERSION not set and no exact git tag found."
         log_warn "Package will be named linux-image-<base-kver> (no branch/date suffix)."
         log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722"
+        if [[ -n "$SNAPSHOT" ]]; then
+            log_warn "Debian version dated by the HEAD commit: +git${SNAPSHOT}."
+        fi
     fi
 elif [[ -z "$SNAPSHOT" ]]; then
     # An explicit --localversion is not parsed for a snapshot; say so rather

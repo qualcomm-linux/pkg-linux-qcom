@@ -399,8 +399,7 @@ For the current matrix, package generation produces:
 names. Only the Debian version field converts it to `~rcN`, so a release
 candidate correctly sorts before the corresponding final kernel release.
 
-Every build names the commit it was cut from, and a tag build names its
-snapshot too:
+Every build names both its snapshot and the commit it was cut from:
 
 | | Format | Example |
 | --- | --- | --- |
