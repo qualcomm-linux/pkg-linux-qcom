@@ -1,20 +1,20 @@
 name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
-# build per Daily entry in ci/build-matrix.json after suite flattening.
-# Manual dispatch can run the full Daily matrix, every suite for one kernel
-# variant, or one kernel variant and suite. Variant and suite are matrix values,
-# so future variants need no workflow edit.
+# build per Daily entry in ci/build-matrix.yaml. Manual dispatch can run the
+# full Daily matrix, every suite for one kernel variant, or one kernel variant
+# and suite. Variant and suite are matrix values, so future variants need no
+# workflow edit.
 #
-# Matrix schema: ci/build-matrix.json
-#   Each row with "type": "Daily" is expanded by ci/scripts/resolve-matrix.sh:
-#   the "suites" array is flattened into one job per suite. All other fields
-#   (kernel_variant, srcpkg, binpkg, kernel_config, dkms, debian_revision,
-#   git_clone, branch_or_tag, ref_strategy) are passed through to
-#   build-kernel-deb.yml as inputs.
+# Matrix schema: ci/build-matrix.yaml
+#   One entry is one generated package, so ci/scripts/resolve-matrix.py selects
+#   the entries with type: Daily and passes them through as they stand. Every
+#   field (kernel_variant, suite, srcpkg, binpkg, kernel_config, dkms,
+#   debian_revision, git_clone, branch_or_tag, ref_strategy) becomes a
+#   build-kernel-deb.yml input.
 #
-# To add a daily build target: add a row to ci/build-matrix.json with
-# "type": "Daily". No workflow changes needed.
+# To add a daily build target: add an entry to ci/build-matrix.yaml with
+# type: Daily. No workflow changes needed.
 
 on:
   schedule:
@@ -48,12 +48,11 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Daily rows from ci/build-matrix.json.
+  # configure-matrix: select the Daily entries from ci/build-matrix.yaml.
   #
-  # Delegates to ci/scripts/resolve-matrix.sh which filters type=Daily rows
-  # and expands each row's "suites" array into one flat entry per suite.
-  # Manual dispatch selects the complete matrix, every suite for a variant, or
-  # one variant and suite.
+  # Delegates to ci/scripts/resolve-matrix.py, which validates the whole matrix
+  # and returns the entries with type: Daily. Manual dispatch selects the
+  # complete matrix, every suite for a variant, or one variant and suite.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -80,29 +79,29 @@ jobs:
 
           case "$BUILD_SCOPE" in
             "Full matrix")
-              echo "Source: ci/build-matrix.json (full Daily matrix)"
+              echo "Source: ci/build-matrix.yaml (full Daily matrix)"
               args=(--type Daily)
               ;;
             "Selected variant (all suites)")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
+              echo "Source: ci/build-matrix.yaml (variant: $INPUT_VARIANT, all suites)"
               args=(--type Daily --kernel-variant "$INPUT_VARIANT")
               ;;
             "Selected variant and suite")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
-              args=(--type Daily --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
+              echo "Source: ci/build-matrix.yaml (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
+              args=(--type Daily --kernel-variant "$INPUT_VARIANT" --suite "$INPUT_SUITE")
               ;;
             *)
               echo "ERROR: unsupported build scope: $BUILD_SCOPE" >&2
               exit 1
               ;;
           esac
-          MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
+          MATRIX=$(ci/scripts/resolve-matrix.py "${args[@]}")
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per flat matrix entry.
+  # build: one parallel job per matrix entry.
   #
   # Each entry calls build-kernel-deb.yml as a reusable workflow. The full
   # set of matrix fields (suite, srcpkg, binpkg, kernel_config, dkms, etc.) is
