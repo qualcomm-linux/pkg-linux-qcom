@@ -1,7 +1,7 @@
 name: Build in Debusine
 description: >
-  Generate the Debian source package from the prepared tree and submit it to
-  Debusine, returning the CI workspace it was built in.
+  Submit the source package the prepare job built to Debusine, returning the
+  CI workspace it was built in.
 
 # Called by build-kernel-debian.yml, which decides what becomes of the result:
 # every build is downloaded and uploaded to S3, and one whose caller named a
@@ -56,8 +56,8 @@ outputs:
     description: 'Browser URL of that workspace'
     value: ${{ steps.build-debusine.outputs.workspace_url }}
   srcpkg_version:
-    description: 'Version of the generated source package'
-    value: ${{ steps.generate-srcpkg.outputs.srcpkg_version }}
+    description: 'Version of the submitted source package'
+    value: ${{ steps.srcpkg.outputs.srcpkg_version }}
 
 runs:
   using: composite
@@ -73,27 +73,33 @@ runs:
         sparse-checkout: |
           lib
 
-    - name: Download prepared source tree
+    # Into the workspace root: lib/build takes the .dsc from its working
+    # directory, and reaches its own helpers by a path relative to it, so the
+    # two have to be the same directory.
+    - name: Download source package
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: kernel-srcpkg-${{ inputs.flavour }}-${{ inputs.suite }}
-        path: /tmp/srcpkg-artifact
+        name: source-package-${{ inputs.flavour }}-${{ inputs.suite }}
 
-    - name: Extract prepared source tree
+    - name: Read the source package version
+      # From the .dsc as downloaded, which is what Debusine will be given;
+      # the prepare job reported the same value from the same file.
+      id: srcpkg
       shell: bash
       run: |
-        mkdir srcpkg
-        tar xzf /tmp/srcpkg-artifact/*.tar.gz \
-          -C srcpkg --strip-components=1
-
-    - name: Generate source package
-      id: generate-srcpkg
-      shell: bash
-      env:
-        SUITE: ${{ inputs.suite }}
-        DEBUSINE_ASSEMBLE_ORIG: "true"
-      run: |
-        SUITE="$SUITE" debusine-action/lib/generate-source-package
+        set -euo pipefail
+        DSC=$(ls -- *.dsc)
+        [[ $(wc -l <<<"$DSC") -eq 1 ]] || {
+          echo "::error::Expected exactly one .dsc in the source package artifact, found: $DSC"
+          exit 1
+        }
+        SRCPKG_VERSION=$(sed -n 's/^Version: //p' "$DSC")
+        [[ "$SRCPKG_VERSION" =~ ^[A-Za-z0-9.+~:-]+$ ]] || {
+          echo "::error::Could not read a version from $DSC (got '$SRCPKG_VERSION')"
+          exit 1
+        }
+        echo "Submitting $DSC ($SRCPKG_VERSION)"
+        echo "srcpkg_version=$SRCPKG_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Build in Debusine
       id: build-debusine
