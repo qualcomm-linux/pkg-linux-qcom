@@ -1,7 +1,7 @@
 name: Prepare kernel source
 description: >
   Resolve the kernel ref, clone it, inject debian/, build the Debian source
-  package, and upload it as an artifact alongside the prepared tree.
+  package, and upload it as an artifact for the build job to consume.
 
 # Every build takes this path, whichever family it belongs to, so it lives in a
 # composite action rather than a reusable workflow: the two family workflows
@@ -428,20 +428,3 @@ runs:
         if-no-files-found: error
         retention-days: 7
 
-    - name: Pack prepared source tree
-      shell: bash
-      env:
-        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
-      run: |
-        set -euo pipefail
-        tar czf /tmp/kernel-srcpkg.tar.gz \
-          -C "$(dirname "$KERNEL_DIR")" \
-          "$(basename "$KERNEL_DIR")"
-
-    - name: Upload prepared source tree artifact
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      with:
-        name: kernel-srcpkg-${{ inputs.flavour }}-${{ inputs.suite }}
-        path: /tmp/kernel-srcpkg.tar.gz
-        if-no-files-found: error
-        retention-days: 7
