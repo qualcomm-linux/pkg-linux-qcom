@@ -182,16 +182,11 @@ them to the workflow matrix as they stand. Each entry carries:
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per list element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.py` joins it into the comma-separated `kernel-config` workflow input. |
-| `dkms` | Out-of-tree DKMS modules built and bundled into the image package, one per list element, each named without the `-dkms` suffix (e.g. `kgsl`). An empty list bundles nothing. A listed module is a presence contract: a build fails rather than shipping an image without it. `resolve-matrix.py` joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh --dkms`; see [debian/README.md](debian/README.md) for what the packaging does with it. |
+| `dkms` | Out-of-tree DKMS modules built and bundled into the image package, one per list element, each named without the `-dkms` suffix (e.g. `kgsl`). Each needs a `<name>-dkms` package in the suite being built for, so this varies between suites. An empty list bundles nothing. A listed module is a presence contract: a build fails rather than shipping an image without it. `resolve-matrix.py` joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh --dkms`; see [debian/README.md](debian/README.md) for what the packaging does with it. |
 | `debian_revision` | The Debian revision this package is built at, stated outright. Daily revisions end in `~`; Release revisions do not. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
 | `target_workspace` | Debusine destination for Release entries only. |
-
-`dkms` currently has one exception the matrix cannot express: `build-kernel-deb.yml`
-replaces the resolved list with `kgsl` on Ubuntu-family legs, so `camx` and
-`iris-vpu` are bundled on Debian suites only. That override is temporary and goes
-away once the per-suite `dkms` lists the flattened matrix now allows are used.
 
 `resolve-matrix.py` rejects the matrix — before any build job starts — where an
 entry has an unknown field or a missing required one, a malformed variant or
@@ -209,9 +204,12 @@ face value:
 
 - No two entries share a `kernel_variant`, `type` and `suite` — one entry is
   one generated package.
-- A variant's entries agree on `srcpkg`, `binpkg`, `kernel_config` and `dkms`;
-  those decide what the package *is*, and the entries differ only in where it
-  goes.
+- A variant's entries agree on `srcpkg`, `binpkg` and `kernel_config`; those
+  decide what the package *is*, and the entries differ only in where it goes.
+- A variant's entries for one suite agree on `dkms`. The module set depends on
+  which `<name>-dkms` packages the target archive carries, so it varies between
+  suites — but a suite's Daily and Release must match, or the Daily is not
+  testing the module set the Release will ship.
 - A variant's entries of one `type` agree on `git_clone`, `branch_or_tag`,
   `ref_strategy` and `tag_pattern`, so a forgotten suite cannot quietly ship a
   different kernel from its siblings after a release ref bump.
