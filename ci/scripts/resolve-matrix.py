@@ -9,12 +9,12 @@ matrix is already flat, and each entry states its own debian_revision. This
 script validates the whole document, selects the entries a caller asked for,
 and prints them.
 
-The document has two lists of entries, both of the same shape. "builds" is
-what is built nightly: every entry is built, and an entry that names a
-target_workspace is also promoted into it, so the archive carries the artifact
-the nightly build tested rather than a second build of the same ref.
-"releases" is the other list, selected with --releases. Nothing runs its
-entries on a schedule; each names the workspace it publishes into and pins the
+The document has two lists of entries, both of the same shape. "builds" is what
+is built nightly, and describes a kernel rather than a destination: where such
+a build is published is decided by the workflow running it, not stated here --
+the nightly promotes its Debian entries into the staging workspace, and a PR
+build promotes nowhere. "releases" is the exception, selected with --releases,
+and each of its entries names the workspace it publishes into and pins the
 exact ref that ships.
 
 Both lists are validated in full on every invocation, not just the selected
@@ -127,7 +127,6 @@ REQUIRED_STRING_FIELDS = (
 
 OPTIONAL_STRING_FIELDS = (
     "tag_pattern",
-    "target_workspace",
     "localversion",
     "kver_extra",
     "debusine_parent_workspace",
@@ -313,18 +312,6 @@ def check_entry(entry, report, release=False):
             report("missing or invalid tag_pattern")
     elif "tag_pattern" in entry:
         report("tag_pattern is only valid with ref_strategy=latest_tag")
-
-    # Promotion runs through Debusine, and only the Debian family is built
-    # there. An Ubuntu entry naming a target_workspace would build the package
-    # and then have no workspace to promote it from, publishing to the S3 path
-    # and reporting success without the archive ever gaining anything.
-    if entry.get("target_workspace"):
-        suite = entry.get("suite")
-        if isinstance(suite, str) and family_for(suite) != "debian":
-            report(
-                f"target_workspace needs a Debian suite, not {suite}; promotion "
-                "runs through Debusine, which builds " + ", ".join(DEBIAN_SUITES)
-            )
 
     revision = entry.get("debian_revision")
     if isinstance(revision, str) and revision and not REVISION_RE.match(revision):

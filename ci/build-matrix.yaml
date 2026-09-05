@@ -29,20 +29,20 @@
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
 # Ubuntu does not package.
 #
-# Every entry under "builds" is built nightly. An entry that names a
-# target_workspace is also promoted into it once the build succeeds, so the
-# archive carries the artifact the nightly build tested rather than a rebuild
-# of the same ref. mainline, next and the topic branches name no
-# target_workspace: they are early-warning builds, published to S3 and nowhere
-# else.
+# Every entry under "builds" is built nightly, and describes a kernel rather
+# than a destination: where such a build is published is decided by the
+# workflow running it, because that depends on why the build is running rather
+# than on what is being built. The nightly promotes its Debian entries into the
+# staging workspace; a PR build of the same entry promotes nowhere.
 #
-# "releases" is the other list, and the one place a shipped ref is written
-# down. A release is a decision rather than a schedule: nothing runs these
-# entries until someone dispatches release.yml, and what they name is an
-# immutable ref rather than whatever the branch has reached. Each states the
-# workspace it publishes into -- so the ref that ships and the archive it ships
-# into are both reviewable in a pull request, rather than typed into a dispatch
-# form at the moment of releasing.
+# "releases" is the exception, and the one place a destination is written down.
+# A release is a decision rather than a schedule: nothing runs these entries
+# until someone dispatches release.yml, and what they name is an immutable ref
+# rather than whatever the branch has reached. Each states the workspace it
+# publishes into, because putting one ref into one archive is the whole of what
+# it is -- so the ref that ships and the archive it ships into are both
+# reviewable in a pull request, rather than typed into a dispatch form at the
+# moment of releasing.
 #
 # The two lists are validated separately and never mix: a name may appear in
 # both, and means the same build in each.
@@ -77,7 +77,6 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
-    target_workspace: qli-staging
 
   - name: qcom-next-forky
     suite: forky
@@ -95,7 +94,6 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~'
-    target_workspace: qli-staging
 
   - name: qcom-next-resolute
     suite: resolute
@@ -134,7 +132,6 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
-    target_workspace: qli-staging
 
   - name: qcom-next-debug-forky
     suite: forky
@@ -154,13 +151,11 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~'
-    target_workspace: qli-staging
 
   # ---------------------------------------------------------------------------
   # qcom-arduino — the Arduino hardware-enablement topic branch.
   #
-  # No target_workspace: a topic branch is built for early warning, not for
-  # anyone to install from an archive.
+  # A topic branch, built for early warning of what it will take to carry.
   # ---------------------------------------------------------------------------
   - name: qcom-arduino-trixie
     suite: trixie
@@ -195,9 +190,8 @@ builds:
   # ---------------------------------------------------------------------------
   # mainline — Linus's tree, tracked for early warning of upstream breakage.
   #
-  # No target_workspace, and no DKMS: the out-of-tree modules target the
-  # Qualcomm tree, and a listed module is a presence contract that would fail
-  # the build here.
+  # No DKMS: the out-of-tree modules target the Qualcomm tree, and a listed
+  # module is a presence contract that would fail the build here.
   # ---------------------------------------------------------------------------
   - name: mainline-trixie
     suite: trixie
@@ -227,8 +221,7 @@ builds:
   # next — linux-next, the integration tree, one step ahead of mainline.
   #
   # next-YYYYMMDD tags are cut daily, so latest_tag resolves the newest of
-  # them the same way qcom-next-* does. No target_workspace and no DKMS, as
-  # above.
+  # them the same way qcom-next-* does. No DKMS, as above.
   # ---------------------------------------------------------------------------
   - name: next-trixie
     suite: trixie

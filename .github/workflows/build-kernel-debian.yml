@@ -95,9 +95,9 @@ on:
       target-workspace:
         description: >
           Debusine workspace to promote the built package into, empty to
-          promote nowhere. Set from the matrix entry's target_workspace by the
-          nightly build; left empty by pr-build.yml, whose builds must not
-          reach an archive.
+          promote nowhere. The caller decides: the nightly build names the
+          staging workspace, and pr-build.yml leaves it empty because a pull
+          request's kernel must not reach an archive.
         type: string
         default: ''
       promote-environment:
