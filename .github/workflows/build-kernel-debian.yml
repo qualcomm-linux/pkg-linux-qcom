@@ -15,10 +15,11 @@ name: build-kernel-debian
 # per Debian entry it selected. That also keeps every value describing a build
 # in ci/build-matrix.yaml, rather than in a dispatch form that drifts from it.
 #
-# There is no separate release build. A caller that names a target-workspace
-# has the result promoted into it, and release.yml promotes onward from that
-# workspace without building anything, so what is released is the artifact this
-# build produced and tested rather than a second build of the same ref.
+# Publishing happens here and nowhere else. A caller that names a
+# target-workspace has this run's own build promoted into it, out of the
+# ephemeral CI workspace it was built in, so the archive carries the artifact
+# this run produced and tested. There is no later step that could publish
+# something else, and nothing rebuilds a ref that has already been built.
 #
 # Jobs:
 #   prepare (self-hosted): clone, patch, inject debian/, generate the source,
@@ -364,9 +365,12 @@ jobs:
   # promote: copy the built package from the ephemeral CI workspace into the
   # workspace the caller named, making it installable from that archive.
   #
-  # This is what replaces a separate release build. The artifact promoted here
-  # is the one the build above produced, so an archive never carries a version
-  # that was not built and published by this run.
+  # Promotion is in-run by necessity, not by preference: lib/build names the
+  # CI workspace after the run that created it
+  # (<parent>-gh-<repo>-<run>-<attempt>-<leg>) and it does not outlive it, so
+  # the only moment its contents can be published is while the run still holds
+  # it. That is why there is no separate release workflow to promote later --
+  # there would be nothing left to promote from.
   #
   # The if: is the whole of the decision: a caller that named no workspace
   # promotes nowhere. pr-build.yml is that caller, so a pull request's kernel

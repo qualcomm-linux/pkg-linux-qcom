@@ -8,11 +8,11 @@ name: daily
 # or a comma-separated list of build names. Build names are matrix values, so
 # a new one needs no workflow edit.
 #
-# This is the only workflow that builds a kernel on a schedule, and every
-# package the archives carry comes from a run of it: its Debian entries are
-# promoted into the staging workspace as part of the build. release.yml
-# promotes onward from there and builds nothing, so nothing is ever released
-# that this workflow has not built and tested.
+# This is the only workflow that publishes a kernel package. Its Debian
+# entries are promoted into the target workspace as part of the build that
+# produced them, so what the archive carries is always something this workflow
+# built and tested. Nothing promotes afterwards: the CI workspace a build runs
+# in is named after that run and does not outlive it.
 #
 # Matrix schema: ci/build-matrix.yaml
 #   One entry is one generated package, so ci/scripts/resolve-matrix.py passes
@@ -146,11 +146,17 @@ jobs:
       # kernel will depend on: reading qli-staging here would let a kernel
       # reach qli depending on a -dkms package that has not.
       extra-build-dep-workspaces: qli
-      # Every Debian entry the nightly builds is promoted into the staging
-      # workspace once its build succeeds. The destination belongs to the run
-      # rather than to the entry: this is the nightly, so its results are what
-      # staging is for. A PR build of the same entry passes nothing here and
-      # promotes nowhere, and release.yml promotes onward from staging.
+      # Every Debian entry the nightly builds is promoted into this workspace
+      # once its build succeeds. The destination belongs to the run rather than
+      # to the entry: this is the nightly, so its results are what the archive
+      # is for. A PR build of the same entry passes nothing here and promotes
+      # nowhere.
+      #
+      # qli-staging rather than qli: a nightly promotion is unattended, so it
+      # publishes where an unreviewed kernel belongs. Pointing this at qli --
+      # by setting the repository variable -- would put every night's build
+      # straight into the released archive, so move the promote job to the
+      # Production environment first, and take its approval gate with it.
       target-workspace: ${{ vars.DEBUSINE_STAGING_WORKSPACE || 'qli-staging' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
