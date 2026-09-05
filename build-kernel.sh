@@ -174,20 +174,24 @@ if [[ -n "$DSC" ]]; then
     DSC="$(cd "$(dirname "$DSC")" && pwd)/$(basename "$DSC")"
 fi
 
-# Locate docker_deb_build.py (docker mode)
+# Locate docker_deb_build.py (docker mode). Building binaries from a tree goes
+# through it, so it must exist for that. Building from a .dsc runs sbuild in
+# the image directly and only needs it to build the image when the image is
+# missing, and --source-package builds no binaries at all, so for those it is
+# looked for and not required.
 if [[ "$BUILD_MODE" == "docker" && -z "$DOCKER_PKG_BUILD" ]]; then
     for p in "$HOME/docker-pkg-build/docker_deb_build.py" \
               "$SCRIPT_DIR/docker-pkg-build/docker_deb_build.py" \
               "$(which docker_deb_build.py 2>/dev/null || true)"; do
         [[ -x "$p" ]] && { DOCKER_PKG_BUILD="$p"; break; }
     done
-    [[ -z "$DOCKER_PKG_BUILD" ]] && {
+    [[ -z "$DOCKER_PKG_BUILD" && -z "$DSC" && "$SOURCE_PACKAGE" == false ]] && {
         log_error "docker_deb_build.py not found. Use --docker-build, set DOCKER_PKG_BUILD, or use --build-mode native."
         exit 1
     }
 fi
 [[ "$BUILD_MODE" == "docker" && -d "$DOCKER_PKG_BUILD" ]] && DOCKER_PKG_BUILD="$DOCKER_PKG_BUILD/docker_deb_build.py"
-[[ "$BUILD_MODE" == "docker" && ! -x "$DOCKER_PKG_BUILD" ]] && { log_error "Not executable: $DOCKER_PKG_BUILD"; exit 1; }
+[[ "$BUILD_MODE" == "docker" && -n "$DOCKER_PKG_BUILD" && ! -x "$DOCKER_PKG_BUILD" ]] && { log_error "Not executable: $DOCKER_PKG_BUILD"; exit 1; }
 
 # Handle local source
 if [[ -n "$LOCAL_SOURCE" ]]; then
@@ -207,14 +211,17 @@ fi
 log_info "  Output:       $OUTPUT_DIR"
 [[ "$SOURCE_PACKAGE" == true ]] && log_info "  Building:     source package only"
 log_info "  Distro:       $DISTRO   mode: $BUILD_MODE"
-[[ "$BUILD_MODE" == "docker" ]] && log_info "  Docker build: $DOCKER_PKG_BUILD"
-[[ -n "$LOCALVERSION" ]]  && log_info "  LOCALVERSION: $LOCALVERSION" \
-                          || log_info "  Flavour:      $FLAVOUR"
-[[ -n "$KVER_EXTRA" ]]    && log_info "  KVER_EXTRA:   $KVER_EXTRA"
+[[ "$BUILD_MODE" == "docker" && -n "$DOCKER_PKG_BUILD" ]] && log_info "  Docker build: $DOCKER_PKG_BUILD"
 [[ -n "$PROFILES" ]]        && log_info "  Profiles:     $PROFILES"
-[[ -n "$ENABLE_CONFIGS" ]]  && log_info "  Extra configs: $ENABLE_CONFIGS"
-[[ -n "$DKMS_MODULES" ]]    && log_info "  DKMS modules: $DKMS_MODULES"
-[[ "$SKIP_PREPARE" == true ]] && log_info "  Skip prepare: yes (source already prepared by prepare-source.sh)"
+# The rest describes preparing a tree, which a .dsc has already had done.
+if [[ -z "$DSC" ]]; then
+    [[ -n "$LOCALVERSION" ]]  && log_info "  LOCALVERSION: $LOCALVERSION" \
+                              || log_info "  Flavour:      $FLAVOUR"
+    [[ -n "$KVER_EXTRA" ]]    && log_info "  KVER_EXTRA:   $KVER_EXTRA"
+    [[ -n "$ENABLE_CONFIGS" ]]  && log_info "  Extra configs: $ENABLE_CONFIGS"
+    [[ -n "$DKMS_MODULES" ]]    && log_info "  DKMS modules: $DKMS_MODULES"
+    [[ "$SKIP_PREPARE" == true ]] && log_info "  Skip prepare: yes (source already prepared by prepare-source.sh)"
+fi
 echo
 
 # ── Git operations: resolve ref → sync → checkout ────────────────────────────
@@ -331,6 +338,11 @@ case "$BUILD_MODE" in
             # docker_deb_build.py --rebuild builds it from its Dockerfile.
             DOCKER_IMAGE="ghcr.io/qualcomm-linux/pkg-builder:$DISTRO"
             ${USE_SUDO:+sudo} docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1 || {
+                [[ -n "$DOCKER_PKG_BUILD" ]] || {
+                    log_error "Builder image $DOCKER_IMAGE is not present, and docker_deb_build.py was not found to build it."
+                    log_error "Pull the image, or point --docker-build at a docker-pkg-build checkout."
+                    exit 1
+                }
                 log_info "Builder image $DOCKER_IMAGE not present; building it with docker-pkg-build..."
                 ${USE_SUDO:+sudo} "$DOCKER_PKG_BUILD" --no-update-check --rebuild -d "$DISTRO"
             }
