@@ -18,6 +18,7 @@ Usage:
   ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie
   ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie,qcom-next-forky
   ci/scripts/resolve-matrix.py --type Release --flavour qcom-next
+  ci/scripts/resolve-matrix.py --type Daily --family ubuntu --allow-empty
   ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie \\
       --field debian_revision
 
@@ -31,6 +32,14 @@ Options:
                                flavour spans its suites, so this asks for one
                                kernel everywhere it is built.
   --suite SUITES             Select only these suites, comma-separated.
+  --family FAMILY            Select only the builds taking one build path,
+                               debian or ubuntu. Derived from suite, so it
+                               selects by how a build is built rather than by
+                               naming every suite that is built that way.
+  --allow-empty              Print [] rather than failing when the filters
+                               select nothing. For a caller asking each family
+                               for the same selection, where one of them
+                               having nothing to build is an ordinary answer.
   --field NAME               Print just this field of the single selected
                                entry, unquoted. Errors unless exactly one
                                entry matches.
@@ -39,12 +48,14 @@ Options:
 
   Filters combine: an entry must match every filter given. Every name in a
   filter must match at least one entry of the selected type, so a typo or a
-  stale name fails instead of quietly narrowing the build set.
+  stale name fails instead of quietly narrowing the build set. That check is
+  per filter, so --allow-empty still rejects a name that matches nothing.
 
 Output:
   Without --field, a compact JSON array of the selected entries, ready for a
-  GitHub Actions matrix `include`. kernel_config and dkms are joined into the
-  comma-separated strings that build-kernel-deb.yml's kernel-config and dkms
+  GitHub Actions matrix `include`. Each entry carries a derived family field
+  naming its build path. kernel_config and dkms are joined into the
+  comma-separated strings that the build workflows' kernel-config and dkms
   inputs, and prepare-source.sh's --kernel-config and --dkms, expect; every
   other field is passed through as written.
 
@@ -75,6 +86,20 @@ DEFAULT_MATRIX_FILE = "ci/build-matrix.yaml"
 
 DELIVERY_TYPES = ("Daily", "Release")
 REF_STRATEGIES = ("latest_tag", "branch_tip", "pinned_ref")
+
+# Which build path a suite takes. Debian-family suites are built by Debusine;
+# everything else is built in a suite-matched docker container on the
+# self-hosted runner. The two paths are different workflows with different
+# runners, containers and publish steps, so a caller selects entries by family
+# and calls the one workflow that builds them -- rather than every build leg
+# starting both and skipping one.
+DEBIAN_SUITES = ("trixie", "forky", "sid", "unstable", "bookworm")
+FAMILIES = ("debian", "ubuntu")
+
+
+def family_for(suite):
+    """Return the build family a suite belongs to."""
+    return "debian" if suite in DEBIAN_SUITES else "ubuntu"
 
 # A delivery type constrains how its kernel ref is chosen: a Daily build tracks
 # something moving, a Release build is pinned to an immutable ref.
@@ -272,6 +297,17 @@ def check_entry(entry, report):
     if delivery_type == "Release":
         if not entry.get("target_workspace"):
             report("missing or invalid target_workspace")
+        # Promotion runs through Debusine, and only the Debian family is built
+        # there. An Ubuntu Release entry would build the package and then have
+        # no workspace to promote it from, publishing to the daily S3 path and
+        # reporting success without ever releasing anything.
+        suite = entry.get("suite")
+        if isinstance(suite, str) and family_for(suite) != "debian":
+            report(
+                f"Release entries must target a Debian suite, not {suite}; "
+                "promotion runs through Debusine, which builds "
+                + ", ".join(DEBIAN_SUITES)
+            )
     elif "target_workspace" in entry:
         report("target_workspace is only valid for Release")
 
@@ -489,6 +525,12 @@ def load_matrix(path):
             + "\n".join(f"  - {error}" for error in errors)
         )
 
+    # Derived, never written: family follows from suite, so the matrix cannot
+    # state one that disagrees with the suite it is built for. Attached after
+    # validation, which rejects family as an unknown field on an entry.
+    for entry in builds:
+        entry["family"] = family_for(entry["suite"])
+
     return builds
 
 
@@ -517,10 +559,16 @@ def select(builds, delivery_type, filters):
 
 
 def unmatched_filters(builds, delivery_type, filters):
-    """Names asked for that no entry of this delivery type offers."""
+    """Names asked for that no entry of this delivery type offers.
+
+    family is exempt: it routes a selection to a build path rather than naming
+    something in the matrix, argparse already restricts it to a real family,
+    and a type having no builds on one path is an ordinary state of the matrix
+    rather than a mistake in the request.
+    """
     missing = []
     for field, wanted in filters.items():
-        if wanted is None:
+        if wanted is None or field == "family":
             continue
         available = {
             entry[field] for entry in builds if entry["type"] == delivery_type
@@ -574,6 +622,17 @@ def main():
         "--suite", default="", help="select only these suites, comma-separated"
     )
     parser.add_argument(
+        "--family",
+        default="",
+        choices=("",) + FAMILIES,
+        help="select only the builds taking this build path",
+    )
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="print [] instead of failing when the filters select nothing",
+    )
+    parser.add_argument(
         "--field",
         default="",
         help="print just this field of the single selected entry",
@@ -588,6 +647,7 @@ def main():
         "name": parse_filter(args.build),
         "flavour": parse_filter(args.flavour),
         "suite": parse_filter(args.suite),
+        "family": parse_filter(args.family),
     }
     what = describe_selection(args.type, filters)
 
@@ -603,6 +663,13 @@ def main():
 
     selected = select(builds, args.type, filters)
     if not selected:
+        # A caller splitting one dispatch across both build paths asks each
+        # family for the same selection, and one of them legitimately has
+        # nothing to build. Every name in the request still had to match
+        # something above, so this is an empty intersection, not a typo.
+        if args.allow_empty and not args.field:
+            print("[]")
+            return
         sys.exit(f"ERROR: No matrix entries found for {what}")
 
     if not args.field:
