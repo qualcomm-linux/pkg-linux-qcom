@@ -129,9 +129,24 @@ variant is a matrix change, not a workflow redesign.
 | --- | --- | --- |
 | `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
 | `release.yml` | Resolves and runs the Release matrix. | Manual dispatch only. |
-| `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily and Release. |
-| `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes Releases. | Called by `build-kernel-deb.yml`. |
-| `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
+| `build-kernel-debian.yml` | Builds one Debian-suite entry in Debusine and publishes it to S3. | Manual dispatch or called by Daily and PR build. |
+| `build-kernel-ubuntu.yml` | Builds one Ubuntu-suite entry on the Docker path and publishes it to S3. | Manual dispatch or called by Daily and PR build. |
+| `release-kernel-debian.yml` | Builds one Debian-suite entry in Debusine and promotes it to the release workspace. | Called by Release. |
+
+The three build workflows share their steps through two composite actions
+rather than through a common orchestrator workflow:
+
+| Action | Used by |
+| --- | --- |
+| `.github/actions/prepare-kernel-source` | All three, as the `prepare` job. |
+| `.github/actions/debusine-build` | The two Debian workflows, as the `build` job. |
+
+Which of them a build leg calls is decided by the caller, from the entry's
+suite: `resolve-matrix.py --family debian|ubuntu` splits the selection, and
+each family's entries call only the workflow that builds them. Nothing inside a
+build workflow is conditional on the suite or on whether the run releases, so a
+run starts exactly the jobs it needs and shows no skipped job for a path it did
+not take.
 
 ### Daily
 
@@ -171,9 +186,15 @@ Release is the controlled promotion path.
   the release credential and enforces the required approval gate before
   promotion to `qli`.
 
-Direct `build-kernel-deb.yml` dispatches are build-only. Release promotion is
+Direct `build-kernel-debian.yml` and `build-kernel-ubuntu.yml` dispatches are
+build-only: neither has a promotion path to offer. Release promotion is
 initiated exclusively by `release.yml`, which owns the target workspace and
-production release controls.
+production release controls, and is the only caller of
+`release-kernel-debian.yml`.
+
+Only the Debian family has a release path at all, because promotion runs
+through Debusine. `resolve-matrix.py` rejects a `Release` entry for any other
+suite rather than letting it build and then silently not promote.
 
 ## Matrix Model
 
@@ -236,10 +257,11 @@ face value:
 - Where a suite has both, its `Daily` revision is its `Release` revision plus a
   trailing `~`.
 
-`build-kernel-deb.yml`'s direct-dispatch path has no matrix context of its own,
-so when its `debian-revision` input is empty it looks up the `Daily` entry for
-the variant and suite it was given (`resolve-matrix.py --field
-debian_revision`) and builds at the revision the daily build would have used.
+A direct dispatch of a build workflow has no matrix context of its own, so when
+its `debian-revision` input is empty the `prepare-kernel-source` action looks up
+the `Daily` entry for the build name and suite it was given (`resolve-matrix.py
+--field debian_revision`) and builds at the revision the daily build would have
+used.
 
 Each entry has a distinct prepared-source artifact, Debusine child workspace,
 and S3 path keyed by `flavour + suite`. This prevents two flavours that both
@@ -277,16 +299,22 @@ This document covers the CI generator. For the packaging internals: `debian/rule
 targets, the config fragment merge pipeline, DKMS module bundling and the produced
 package layout see [debian/README.md](debian/README.md).
 
+Both branches below are taken in the caller, when the matrix is resolved: the
+family from the entry's suite, the tail from which workflow is running. By the
+time a build workflow starts, there is nothing left to decide.
+
 ```mermaid
 flowchart LR
-    IN["Matrix variant + suite input"] --> R{"Resolve suite family"}
+    IN["Matrix entries"] --> R{"resolve-matrix.py\n--family"}
 
-    R -->|"trixie · forky"| DEB["Debian path\nbuild-kernel-debusine.yml\nGenerate source package\nSubmit with lib/build\nDebusine builds binaries"]
-    R -->|"resolute"| UBU["Ubuntu path\nbuild-kernel-ubuntu.yml\nbuild-kernel.sh in Docker\nBuild binary packages"]
+    R -->|"debian: trixie · forky"| DT{"Which caller"}
+    R -->|"ubuntu: resolute"| UBU["build-kernel-ubuntu.yml\nbuild-kernel.sh in Docker\nBuild binary packages"]
 
-    DEB --> DOUT{"Build type"}
-    DOUT -->|Daily| S3["Download .deb files\nPublish to S3"]
-    DOUT -->|Release| QLI["Promote source and binaries\nto qli"]
+    DT -->|"daily.yml · pr-build.yml"| DEB["build-kernel-debian.yml\nGenerate source package\nSubmit with lib/build\nDebusine builds binaries"]
+    DT -->|"release.yml"| REL["release-kernel-debian.yml\nSame build, release tail"]
+
+    DEB --> S3["Download .deb files\nPublish to S3"]
+    REL --> QLI["Promote source and binaries\nto qli"]
     UBU --> US3["Publish .deb files to S3"]
 ```
 
@@ -298,23 +326,26 @@ flowchart LR
 flowchart TD
     subgraph triggers[Triggers]
         A1["daily.yml\nScheduled full matrix"]
-        A2["daily.yml\nManual full or filtered variant + suite"]
-        A3["release.yml\nManual full or filtered variant + suite"]
-        A4["build-kernel-deb.yml\nManual one-off build"]
+        A2["daily.yml\nManual full or filtered builds"]
+        A5["pr-build.yml\nFull Daily matrix on every PR"]
+        A3["release.yml\nManual full or filtered builds"]
+        A4["build-kernel-debian.yml\nbuild-kernel-ubuntu.yml\nManual one-off build"]
     end
 
     subgraph matrix[Matrix entry points]
-        B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute\nqcom-next-debug / trixie · forky"]
-        B3["Release configure-matrix\nFlatten Release rows"]
-        B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
+        B1["configure-matrix\nDaily entries, split by family"]
+        B2["build-debian legs\nqcom-next · qcom-next-debug · qcom-arduino\nmainline · next / trixie · forky"]
+        B5["build-ubuntu legs\nqcom-next / resolute"]
+        B3["configure-matrix\nRelease entries, Debian by construction"]
+        B4["build legs\nqcom-next · qcom-next-debug / trixie · forky"]
     end
 
-    subgraph orchestrator[build-kernel-deb.yml]
-        C1["resolve\nClassify suite family"]
-        C2["prepare\nClone selected kernel ref\nRun prepare-source.sh\nUpload kernel-srcpkg-variant-suite"]
-        C3["debusine-build\nDebian suites only"]
-        C4["ubuntu-build\nUbuntu suites only"]
+    subgraph build[One build workflow per leg]
+        C2["prepare\nprepare-kernel-source action\nClone ref, run prepare-source.sh\nUpload kernel-srcpkg-flavour-suite"]
+        C3["build\ndebusine-build action"]
+        C4["build\nbuild-kernel.sh in Docker"]
+        C5["publish\nDownload .deb files, upload to S3"]
+        C6["release\nPromote to target workspace"]
     end
 
     subgraph outputs[Outputs]
@@ -324,15 +355,24 @@ flowchart TD
 
     A1 --> B1
     A2 --> B1
+    A5 --> B1
     A3 --> B3
-    B1 --> B2 --> C1
-    B3 --> B4 --> C1
-    A4 --> C1
-    C1 --> C2
+    B1 --> B2 & B5
+    B3 --> B4
+    B2 --> C2
+    B5 --> C2
+    B4 --> C2
+    A4 --> C2
     C2 --> C3 & C4
-    C3 --> D1 & D2
+    C3 --> C5 & C6
     C4 --> D1
+    C5 --> D1
+    C6 --> D2
 ```
+
+Every leg runs every job drawn under it. `build-debian` and `build-ubuntu` legs
+reach different build workflows, and `publish` and `release` belong to
+different ones, so no leg starts a job it will skip.
 
 ### Prepare stage
 
@@ -452,15 +492,18 @@ out-of-tree module builds are required.
 
 ## Manual Builds
 
-Use **Actions** → **build-kernel-deb** for a one-off build. It is an explicit
-override workflow, not a matrix-derived delivery flow: use `daily.yml` and
-`release.yml` for normal Daily and Release operations.
+Use **Actions** → **build-kernel-debian** or **build-kernel-ubuntu** for a
+one-off build, picking the one that builds the suite you want. These are
+explicit override workflows, not matrix-derived delivery flows: use `daily.yml`
+and `release.yml` for normal Daily and Release operations. Neither promotes.
 
 `build`, `suite`, and `ref-strategy` are the required build selection.
 All remaining package, configuration, and PR inputs are advanced overrides for
-validation or debugging. Variant and suite are free-text matrix values rather
-than static dropdowns, so adding a matrix entry never requires editing the
-workflow UI.
+validation or debugging. Build name and suite are free-text matrix values
+rather than static dropdowns, so adding a matrix entry never requires editing
+the workflow UI. A suite belonging to the other family is rejected by the
+`prepare` job before anything is cloned or built, so the only cost of picking
+the wrong workflow is a fast failure.
 
 The available inputs are:
 
