@@ -160,11 +160,11 @@ version this run would produce, and skips the build, the S3 publication and the
 promotion when it does. A run that skips this way is green: nothing was wrong,
 there was simply nothing new upstream.
 
-Three kinds of run deliberately promote nowhere: a PR build, which never
-forwards a `target_workspace`; a dispatch setting either of the advanced
-validation overrides (`qcom-next-pr`, `kernel-topics-pr`), whose kernel is by
-definition not the one the matrix describes; and any entry that names no
-workspace.
+Two kinds of run promote nowhere: a PR build, which never forwards a
+`target_workspace`, and any entry that names none. Everything a `daily`
+dispatch can say about a build comes from the matrix entry, so there is no way
+to dispatch a build that differs from the nightly one and have it reach an
+archive.
 
 ### Release
 
@@ -510,21 +510,9 @@ promoting:
 | `upstream-version` | None, required | The version to release without its Debian revision, e.g. `7.2.0~rc7+20260821`. Each selected entry promotes this plus its own `debian_revision`. |
 | `release-workspace` | `qli` | The Debusine workspace to promote into. |
 
-`daily` carries two further inputs, which the matrix deliberately says nothing
-about because they belong to a one-off validation run rather than to a delivery
-target. They apply to every selected build, and a scheduled run leaves them at
-their defaults:
-
-| Input | Default | Purpose |
-| --- | --- | --- |
-| `qcom-next-pr` | Empty | Advanced Qualcomm-only override: `qcom-next` PR numbers to merge before building. |
-| `kernel-topics-pr` | Empty | Advanced Qualcomm-only override: `kernel-topics` PR numbers to apply as patches. |
-
 A `daily` dispatch publishes to S3 and, for an entry that names one, promotes
-into that entry's `target_workspace` — unless it sets one of the advanced
-overrides above, which suppress promotion because the kernel they build is not
-the one the matrix describes. Promotion into the release workspace happens only
-through `release.yml`. The build workflows themselves
+into that entry's `target_workspace`. Promotion into the release workspace
+happens only through `release.yml`. The build workflows themselves
 (`build-kernel-debian.yml`, `build-kernel-ubuntu.yml`) are `workflow_call` only
 and cannot be dispatched: one run of each is one matrix entry, and a reusable
 workflow cannot fan itself out over a list.

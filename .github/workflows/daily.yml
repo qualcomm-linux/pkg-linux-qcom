@@ -36,20 +36,6 @@ on:
         required: true
         default: 'all'
         type: string
-      # The matrix says nothing about these: they are one-off validation
-      # overrides, so they are inputs rather than entry fields. They apply to
-      # every selected build, and a scheduled run leaves them at their
-      # defaults.
-      qcom-next-pr:
-        description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
-        required: false
-        default: ''
-        type: string
-      kernel-topics-pr:
-        description: 'Advanced Qualcomm-only override: kernel-topics PR numbers to apply as patches'
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
@@ -155,15 +141,8 @@ jobs:
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
       # An entry naming a workspace is promoted into it once its build
-      # succeeds; one that names none is built and published to S3 only. The
-      # entry is forwarded as written: build-kernel-debian.yml is what declines
-      # to promote a run carrying the validation overrides below, so a build
-      # that is not the plain nightly cannot reach an archive by any caller.
+      # succeeds; one that names none is built and published to S3 only.
       target-workspace: ${{ matrix.target_workspace || '' }}
-      # Dispatch-only validation overrides. A scheduled run carries no inputs,
-      # so each falls back to the off value and builds the matrix as written.
-      qcom-next-pr: ${{ inputs.qcom-next-pr || '' }}
-      kernel-topics-pr: ${{ inputs.kernel-topics-pr || '' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
@@ -195,5 +174,3 @@ jobs:
       debian-revision: ${{ matrix.debian_revision }}
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
-      qcom-next-pr: ${{ inputs.qcom-next-pr || '' }}
-      kernel-topics-pr: ${{ inputs.kernel-topics-pr || '' }}

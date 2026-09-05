@@ -81,14 +81,6 @@ on:
         description: 'Extra suffix appended to the package version'
         type: string
         default: ''
-      qcom-next-pr:
-        description: 'qcom-next PR numbers to merge (e.g. "42 43")'
-        type: string
-        default: ''
-      kernel-topics-pr:
-        description: 'kernel-topics PR numbers to apply as patches'
-        type: string
-        default: ''
 
 permissions:
   contents: read
@@ -128,8 +120,6 @@ jobs:
           debian-revision: ${{ inputs.debian-revision }}
           localversion: ${{ inputs.localversion }}
           kver-extra: ${{ inputs.kver-extra }}
-          qcom-next-pr: ${{ inputs.qcom-next-pr }}
-          kernel-topics-pr: ${{ inputs.kernel-topics-pr }}
 
   # ---------------------------------------------------------------------------
   # build: build the prepared source in a suite-matched container, then publish.
