@@ -116,8 +116,7 @@ jobs:
       # the default -- or a copy of this block into a workflow that should
       # promote -- would flip that silently; spelled out here, changing it
       # means saying so.
-#      target-workspace: ''
-      target-workspace: qli-staging
+      target-workspace: ''
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
