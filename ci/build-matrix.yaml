@@ -29,11 +29,24 @@
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
 # Ubuntu does not package.
 #
-# Every entry is built nightly. Where a build is published is not stated here:
-# the workflow that runs the build decides it, because it depends on why the
-# build is running rather than on what is being built. The nightly promotes its
-# Debian entries into the archive; a PR build of the same entry promotes
-# nowhere. So an entry describes a kernel, and never a destination.
+# Every entry under "builds" is built nightly. Where such a build is published
+# is not stated on it: the workflow that runs the build decides it, because it
+# depends on why the build is running rather than on what is being built. The
+# nightly promotes its Debian entries into the archive; a PR build of the same
+# entry promotes nowhere. So a build entry describes a kernel, and never a
+# destination.
+#
+# "releases" is the exception, and the one place a destination is written down.
+# A release is a decision rather than a schedule: nothing runs these entries
+# until someone dispatches release.yml, and what they name is an immutable ref
+# rather than whatever the branch has reached. Each states the workspace it
+# publishes into, because that is the whole of what distinguishes it from the
+# nightly build of the same flavour -- so the ref that ships and the archive it
+# ships into are both reviewable in a pull request, rather than typed into a
+# dispatch form at the moment of releasing.
+#
+# The two lists are validated separately and never mix: a name may appear in
+# both, and means the same build in each.
 #
 # debian_revision is stated outright, not derived. It carries no marker for
 # where a build is in its life: the version is decided once, when the package is
@@ -236,3 +249,96 @@ builds:
   #   kernel_config: []
   #   dkms: []
   #   debian_revision: '0qli1'
+
+# Releases. Dispatched from release.yml and never scheduled, so nothing here
+# runs until someone asks for it by name.
+#
+# Every entry pins its ref: ref_strategy must be pinned_ref, because a release
+# names the exact source that ships. latest_tag would make two dispatches of
+# one entry release different kernels, and branch_tip would make them release
+# whatever the branch had reached.
+#
+# Debian suites only. Promotion runs through Debusine, and the Ubuntu path
+# publishes to S3 without a workspace to promote into, so an Ubuntu entry here
+# would name a destination nothing could deliver it to.
+#
+# Updating a release means editing branch_or_tag in a pull request, which is
+# what puts the ref that ships under review.
+releases:
+  # ---------------------------------------------------------------------------
+  # qcom-next 7.2 — the standard kernel.
+  # ---------------------------------------------------------------------------
+  - name: qcom-next-trixie
+    suite: trixie
+    flavour: qcom-next
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-20260826
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1'
+    target_workspace: qli
+
+  - name: qcom-next-forky
+    suite: forky
+    flavour: qcom-next
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-20260826
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1'
+    target_workspace: qli
+
+  # ---------------------------------------------------------------------------
+  # qcom-next-debug 7.2 — the same ref with the in-tree debug fragments.
+  # ---------------------------------------------------------------------------
+  - name: qcom-next-debug-trixie
+    suite: trixie
+    flavour: qcom-next-debug
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-20260826
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next-debug
+    binpkg: linux-image-qcom-next-debug
+    kernel_config:
+      - intree:arch/arm64/configs/qcom_debug.config
+      - intree:kernel/configs/debug.config
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1'
+    target_workspace: qli
+
+  - name: qcom-next-debug-forky
+    suite: forky
+    flavour: qcom-next-debug
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-20260826
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next-debug
+    binpkg: linux-image-qcom-next-debug
+    kernel_config:
+      - intree:arch/arm64/configs/qcom_debug.config
+      - intree:kernel/configs/debug.config
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1'
+    target_workspace: qli
