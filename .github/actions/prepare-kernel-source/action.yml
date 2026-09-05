@@ -1,7 +1,7 @@
 name: Prepare kernel source
 description: >
-  Resolve the kernel ref, clone it, apply any PR patches, inject debian/ and
-  generate the source package, then upload the prepared tree as an artifact.
+  Resolve the kernel ref, clone it, inject debian/ and generate the source
+  package, then upload the prepared tree as an artifact.
 
 # Every build takes this path, whichever family it belongs to, so it lives in a
 # composite action rather than a reusable workflow: the two family workflows
@@ -84,12 +84,6 @@ inputs:
     default: ''
   kver-extra:
     description: 'Extra package-version suffix (e.g. -ci42)'
-    default: ''
-  qcom-next-pr:
-    description: 'qcom-next PR numbers to merge, space-separated'
-    default: ''
-  kernel-topics-pr:
-    description: 'kernel-topics PR numbers to apply as patches, space-separated'
     default: ''
 
 runs:
@@ -326,55 +320,6 @@ runs:
           echo "Matrix Debian revision for $BUILD_INPUT/$DISTRO: $DEBIAN_REVISION"
         fi
         echo "debian_revision=$DEBIAN_REVISION" >> "$GITHUB_OUTPUT"
-
-    - name: Merge qcom-next PR patches
-      if: ${{ inputs.qcom-next-pr != '' }}
-      shell: bash
-      env:
-        QCOM_NEXT_PR: ${{ inputs.qcom-next-pr }}
-        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
-      run: |
-        cd "$KERNEL_DIR"
-        echo "Merging qcom-next PR(s): $QCOM_NEXT_PR"
-        for pr in $QCOM_NEXT_PR; do
-          [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid qcom-next PR number: $pr"; exit 1; }
-          echo "::group::Merging qcom-next PR #$pr"
-          git fetch --no-tags origin "pull/$pr/head:pr-$pr"
-          if ! git merge --no-ff --no-commit "pr-$pr"; then
-            echo "ERROR: Merge conflict while merging PR #$pr. Aborting."
-            git merge --abort || true
-            exit 1
-          fi
-          if ! git diff --cached --quiet; then
-            git commit -m "Merged qcom-next PR #$pr"
-            echo "PR #$pr merged successfully."
-          else
-            echo "PR #$pr already present; nothing to merge."
-          fi
-          echo "::endgroup::"
-        done
-
-    - name: Apply kernel-topics PR patches
-      if: ${{ inputs.kernel-topics-pr != '' }}
-      shell: bash
-      env:
-        KERNEL_TOPICS_PR: ${{ inputs.kernel-topics-pr }}
-        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
-      run: |
-        cd "$KERNEL_DIR"
-        echo "Applying kernel-topics PR patch(es): $KERNEL_TOPICS_PR"
-        for pr in $KERNEL_TOPICS_PR; do
-          [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid kernel-topics PR number: $pr"; exit 1; }
-          echo "::group::Applying kernel-topics PR #$pr"
-          wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
-          if ! git am "$pr.patch"; then
-            echo "ERROR: Patch application failed for PR #$pr. Aborting."
-            git am --abort || true
-            exit 1
-          fi
-          echo "PR #$pr applied successfully."
-          echo "::endgroup::"
-        done
 
     - name: Prepare source
       shell: bash
