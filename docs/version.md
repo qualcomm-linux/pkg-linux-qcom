@@ -99,11 +99,17 @@ The cost of `~` is one misleading reading: the version sorts below the same
 snapshot without a SHA, as though it preceded it. Nothing occupies that slot,
 because every snapshot build carries a SHA.
 
-The revision (`0qli1~bpo13+1`) is derived separately, from the version stub, the
-suite, and whether the build is a Daily or a Release. See the matrix
-documentation in the top-level [README](../README.md#matrix-model); the trailing
-digit on the stub is the packaging revision, bumped when the packaging changes
-but the kernel snapshot does not.
+The revision (`0qli1~bpo13+1`) is not derived. Each matrix entry states its own
+outright, and it says two things: where the suite belongs relative to the other
+suites, and which packaging built it. The `~bpo13+1` is the backports
+convention, sorting a trixie build below a forky build of the same kernel; the
+trailing digit on the `0qli` stub is the packaging revision, bumped when the
+packaging changes but the kernel snapshot does not. See the matrix
+documentation in the top-level [README](../README.md#matrix-model).
+
+Nothing in the revision marks how far a build has got. A kernel is built once
+and the artifact that build produced is what any archive holds, so there is no
+second version for a marker to sort against.
 
 ## Ordering
 
@@ -112,14 +118,10 @@ The full chain for one suite, in the order dpkg sorts it:
 ```text
 7.2.0~rc7+git20260820.1~g011a82096bee-0qli1~bpo13+1     first tag of the 20th
 7.2.0~rc7+git20260820.2~g3f2f3ca1a81e-0qli1~bpo13+1     respin, same day
-7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1~      Daily, next snapshot
-7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1       Release of the same
+7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1       next snapshot
 7.2.0~rc7+git20260821~gabcdef123456-0qli2~bpo13+1       packaging rebuild
 7.2.0+git20260902~g123456789abc-0qli1~bpo13+1           7.2 final
 ```
-
-A Daily sorts below the Release of the same snapshot because its revision ends
-in a trailing `~`.
 
 ## Moved tags
 

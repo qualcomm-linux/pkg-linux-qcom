@@ -72,7 +72,7 @@ on:
       debian-revision:
         description: 'Debian revision component of the package version'
         type: string
-        default: '0qli~'
+        default: '0qli1'
       localversion:
         description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
         type: string
