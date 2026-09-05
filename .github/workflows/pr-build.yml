@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: select the Daily entries from the PR's build-matrix.yaml.
+  # configure-matrix: select the entries from the PR's build-matrix.yaml.
   #
   # The PR head, not the merge commit: a push mid-run must not change what this
   # run tested. A SHA also resolves for fork PRs, whose head branch does not
@@ -48,7 +48,7 @@ jobs:
           # so a PR gets one job per leg it actually builds and no skipped job
           # for the path that leg does not take.
           for family in debian ubuntu; do
-            MATRIX=$(ci/scripts/resolve-matrix.py --type Daily \
+            MATRIX=$(ci/scripts/resolve-matrix.py \
               --family "$family" --allow-empty)
             echo "$family=$MATRIX" >> "$GITHUB_OUTPUT"
             echo "$family entries: $(echo "$MATRIX" | jq length)"
@@ -59,14 +59,16 @@ jobs:
   # daily.yml.
   #
   # A PR gets one check per build leg and nothing else: neither workflow has a
-  # branch to skip, and a PR builds the whole Daily matrix, so both families
-  # have entries and neither guard fires.
+  # branch to skip, and a PR builds the whole matrix, so both families have
+  # entries and neither guard fires.
   #
   # fail-fast is disabled so a broken trixie leg still leaves forky and
   # resolute results on the PR.
   #
-  # Neither takes DEBUSINE_RELEASE_TOKEN: a PR build never promotes, so it
-  # calls the S3-publishing workflow and not release-kernel-debian.yml.
+  # target-workspace is deliberately not passed on. An entry carrying one is
+  # promoted into it by the nightly build; a PR build of the same entry only
+  # has to prove it builds, and must not put a pull request's kernel into an
+  # archive anyone installs from.
   # ---------------------------------------------------------------------------
   build-debian:
     name: ${{ matrix.name }}

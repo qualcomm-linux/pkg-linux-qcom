@@ -3,19 +3,18 @@
 #
 # Kernel delivery matrix.
 #
-# One entry in "builds" is one generated package: a single name, a single
-# delivery type, and a single suite. The only list-valued fields are
-# kernel_config and dkms, which name the fragments and the out-of-tree modules
-# that go into that one package, so an entry needs no expansion — ci/scripts/
-# resolve-matrix.py validates the document, filters it, and hands the matching
-# entries straight to the workflow matrix.
+# One entry in "builds" is one generated package: a single name for a single
+# suite. The only list-valued fields are kernel_config and dkms, which name the
+# fragments and the out-of-tree modules that go into that one package, so an
+# entry needs no expansion — ci/scripts/resolve-matrix.py validates the
+# document, filters it, and hands the matching entries straight to the workflow
+# matrix.
 #
 # Entries are written out in full rather than sharing YAML anchors, so each one
 # can be read, grepped, and changed on its own. resolve-matrix.py enforces the
 # consistency that duplication would otherwise put at risk: a flavour's entries
-# must agree on srcpkg, binpkg and kernel_config, its entries of one delivery
-# type must agree on the kernel ref they build, and its entries for one suite
-# must agree on dkms.
+# must agree on srcpkg, binpkg, kernel_config and the kernel ref they build,
+# and its entries for one suite must agree on dkms.
 #
 # The two identifiers are not the same thing. flavour is the kernel's own
 # identity: it becomes the LOCALVERSION suffix, so qcom-next and
@@ -23,31 +22,36 @@
 # other, and every suite building one flavour produces the same kernel release.
 # A build's name is what CI calls it: the Actions job name, and what a manual
 # dispatch asks for by name. It never reaches a package name or version, and
-# never a published path. It must be unique within a delivery type, so a Daily
-# and the Release that supersedes it share one. It may not be "all", which the
-# daily and release dispatch forms read as every entry of their type.
+# never a published path. It must be unique, and may not be "all", which the
+# daily and release dispatch forms read as every entry.
 #
 # dkms varies by suite because it depends on which <name>-dkms packages the
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
 # Ubuntu does not package.
 #
-# A flavour tracking a moving upstream is Daily only. A Release entry must name
-# an immutable ref, and a branch tip or a tag cut every night is not one, so
-# mainline, next and the topic branches are built and published daily and never
-# promoted. A Release entry still requires the Daily that tests it.
+# Every entry is built nightly. An entry that names a target_workspace is also
+# promoted into it once the build succeeds, so the archive carries the artifact
+# the nightly build tested rather than a rebuild of the same ref. Promoting
+# onward from there into a release workspace builds nothing and is driven by
+# release.yml, which names the version to promote; nothing here pins a release
+# ref. mainline, next and the topic branches name no target_workspace: they are
+# early-warning builds, published to S3 and nowhere else.
 #
-# debian_revision is stated outright, not derived. Daily revisions end in "~"
-# so they sort below the Release revision for the same suite; the rest of the
-# revision places the suite where it belongs relative to the other suites (see
-# the ordering discussion in README.md). No two entries may produce the same
-# srcpkg at the same debian_revision.
+# Only a Debian suite may name a target_workspace. Promotion runs through
+# Debusine, which does not build the Ubuntu family.
+#
+# debian_revision is stated outright, not derived. The trailing "~" marks a
+# version as unreleased, and it is carried into the archive as built: what
+# release.yml promotes is the tested artifact, not a rebuild at a tidier
+# version. The rest of the revision places the suite where it belongs relative
+# to the other suites (see the ordering discussion in README.md). No two
+# entries may produce the same srcpkg at the same debian_revision.
 
 builds:
   # ---------------------------------------------------------------------------
   # qcom-next — the standard kernel.
   # ---------------------------------------------------------------------------
   - name: qcom-next-trixie
-    type: Daily
     suite: trixie
     flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
@@ -63,9 +67,9 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
+    target_workspace: qli-staging
 
   - name: qcom-next-forky
-    type: Daily
     suite: forky
     flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
@@ -81,9 +85,9 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~'
+    target_workspace: qli-staging
 
   - name: qcom-next-resolute
-    type: Daily
     suite: resolute
     flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
@@ -98,48 +102,11 @@ builds:
       - kgsl
     debian_revision: '0qli1~26.04.1~'
 
-  - name: qcom-next-trixie
-    type: Release
-    suite: trixie
-    flavour: qcom-next
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-rc7-20260821
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next
-    binpkg: linux-image-qcom-next
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1~bpo13+1'
-    target_workspace: qli
-
-  - name: qcom-next-forky
-    type: Release
-    suite: forky
-    flavour: qcom-next
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-rc7-20260821
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next
-    binpkg: linux-image-qcom-next
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1'
-    target_workspace: qli
-
   # ---------------------------------------------------------------------------
   # qcom-next-debug — the same kernel ref built with the in-tree debug
   # fragments, packaged separately so it installs alongside qcom-next.
   # ---------------------------------------------------------------------------
   - name: qcom-next-debug-trixie
-    type: Daily
     suite: trixie
     flavour: qcom-next-debug
     git_clone: https://github.com/qualcomm-linux/kernel
@@ -157,9 +124,9 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
+    target_workspace: qli-staging
 
   - name: qcom-next-debug-forky
-    type: Daily
     suite: forky
     flavour: qcom-next-debug
     git_clone: https://github.com/qualcomm-linux/kernel
@@ -177,54 +144,15 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~'
-
-  - name: qcom-next-debug-trixie
-    type: Release
-    suite: trixie
-    flavour: qcom-next-debug
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-rc7-20260821
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next-debug
-    binpkg: linux-image-qcom-next-debug
-    kernel_config:
-      - intree:arch/arm64/configs/qcom_debug.config
-      - intree:kernel/configs/debug.config
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1~bpo13+1'
-    target_workspace: qli
-
-  - name: qcom-next-debug-forky
-    type: Release
-    suite: forky
-    flavour: qcom-next-debug
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-rc7-20260821
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next-debug
-    binpkg: linux-image-qcom-next-debug
-    kernel_config:
-      - intree:arch/arm64/configs/qcom_debug.config
-      - intree:kernel/configs/debug.config
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1'
-    target_workspace: qli
+    target_workspace: qli-staging
 
   # ---------------------------------------------------------------------------
   # qcom-arduino — the Arduino hardware-enablement topic branch.
   #
-  # Daily only: a topic branch has no immutable ref to promote from.
+  # No target_workspace: a topic branch is built for early warning, not for
+  # anyone to install from an archive.
   # ---------------------------------------------------------------------------
   - name: qcom-arduino-trixie
-    type: Daily
     suite: trixie
     flavour: qcom-arduino
     git_clone: https://github.com/qualcomm-linux/kernel-topics
@@ -240,7 +168,6 @@ builds:
     debian_revision: '0qli~bpo13+1~'
 
   - name: qcom-arduino-forky
-    type: Daily
     suite: forky
     flavour: qcom-arduino
     git_clone: https://github.com/qualcomm-linux/kernel-topics
@@ -258,11 +185,11 @@ builds:
   # ---------------------------------------------------------------------------
   # mainline — Linus's tree, tracked for early warning of upstream breakage.
   #
-  # Daily only, and no DKMS: the out-of-tree modules target the Qualcomm tree,
-  # and a listed module is a presence contract that would fail the build here.
+  # No target_workspace, and no DKMS: the out-of-tree modules target the
+  # Qualcomm tree, and a listed module is a presence contract that would fail
+  # the build here.
   # ---------------------------------------------------------------------------
   - name: mainline-trixie
-    type: Daily
     suite: trixie
     flavour: mainline
     git_clone: https://github.com/torvalds/linux
@@ -275,7 +202,6 @@ builds:
     debian_revision: '0qli~bpo13+1~'
 
   - name: mainline-forky
-    type: Daily
     suite: forky
     flavour: mainline
     git_clone: https://github.com/torvalds/linux
@@ -291,10 +217,10 @@ builds:
   # next — linux-next, the integration tree, one step ahead of mainline.
   #
   # next-YYYYMMDD tags are cut daily, so latest_tag resolves the newest of
-  # them the same way qcom-next-* does. Daily only, and no DKMS, as above.
+  # them the same way qcom-next-* does. No target_workspace and no DKMS, as
+  # above.
   # ---------------------------------------------------------------------------
   - name: next-trixie
-    type: Daily
     suite: trixie
     flavour: next
     git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
@@ -308,7 +234,6 @@ builds:
     debian_revision: '0qli~bpo13+1~'
 
   - name: next-forky
-    type: Daily
     suite: forky
     flavour: next
     git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git

@@ -1,23 +1,29 @@
 name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
-# build per Daily entry in ci/build-matrix.yaml.
+# build per entry in ci/build-matrix.yaml.
 #
 # This is also the manual build entry point. Everything about a build comes
 # from its matrix entry, so a dispatch only says which entries to run: "all",
 # or a comma-separated list of build names. Build names are matrix values, so
 # a new one needs no workflow edit.
 #
-# Matrix schema: ci/build-matrix.yaml
-#   One entry is one generated package, so ci/scripts/resolve-matrix.py selects
-#   the entries with type: Daily and passes them through as they stand. Every
-#   field (name, suite, flavour, srcpkg, binpkg, kernel_config, dkms,
-#   debian_revision, git_clone, branch_or_tag, ref_strategy) becomes an input
-#   of the build workflow for the entry's family. name labels the job; flavour
-#   is what reaches the built kernel's version and its published paths.
+# This is the only workflow that builds a kernel on a schedule, and every
+# package the archives carry comes from a run of it: an entry naming a
+# target_workspace is promoted into that workspace as part of its build.
+# release.yml promotes onward from there and builds nothing, so nothing is
+# ever released that this workflow has not built and tested.
 #
-# To add a daily build target: add an entry to ci/build-matrix.yaml with
-# type: Daily. No workflow changes needed.
+# Matrix schema: ci/build-matrix.yaml
+#   One entry is one generated package, so ci/scripts/resolve-matrix.py passes
+#   the selected entries through as they stand. Every field (name, suite,
+#   flavour, srcpkg, binpkg, kernel_config, dkms, debian_revision, git_clone,
+#   branch_or_tag, ref_strategy, target_workspace) becomes an input of the
+#   build workflow for the entry's family. name labels the job; flavour is what
+#   reaches the built kernel's version and its published paths.
+#
+# To add a daily build target: add an entry to ci/build-matrix.yaml. No
+# workflow changes needed.
 
 on:
   schedule:
@@ -26,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       builds:
-        description: 'Builds to run: all, or comma-separated Daily build names from ci/build-matrix.yaml (e.g. qcom-next-trixie,qcom-next-debug-forky)'
+        description: 'Builds to run: all, or comma-separated build names from ci/build-matrix.yaml (e.g. qcom-next-trixie,qcom-next-debug-forky)'
         required: true
         default: 'all'
         type: string
@@ -56,12 +62,11 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: select the Daily entries from ci/build-matrix.yaml.
+  # configure-matrix: select the entries to build from ci/build-matrix.yaml.
   #
   # Delegates to ci/scripts/resolve-matrix.py, which validates the whole matrix
-  # and returns the entries with type: Daily. A dispatch narrows that to a
-  # comma-separated list of build names; "all", and a scheduled run, take the
-  # whole Daily matrix.
+  # and returns its entries. A dispatch narrows that to a comma-separated list
+  # of build names; "all", and a scheduled run, take the whole matrix.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -84,16 +89,16 @@ jobs:
           set -euo pipefail
 
           # A scheduled run carries no inputs, so it lands on the dispatch
-          # default: the whole Daily matrix.
+          # default: the whole matrix.
           BUILDS="${INPUT_BUILDS:-all}"
 
-          args=(--type Daily)
+          args=()
           if [[ "$BUILDS" == "all" ]]; then
-            echo "Source: ci/build-matrix.yaml (every Daily entry)"
+            echo "Source: ci/build-matrix.yaml (every entry)"
           else
             echo "Source: ci/build-matrix.yaml (builds: $BUILDS)"
-            # A name matching no Daily entry fails here, so a typo stops the
-            # run rather than quietly narrowing it to nothing.
+            # A name matching no entry fails here, so a typo stops the run
+            # rather than quietly narrowing it to nothing.
             args+=(--build "$BUILDS")
           fi
 
@@ -154,6 +159,12 @@ jobs:
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+      # An entry naming a workspace is promoted into it once its build
+      # succeeds; one that names none is built and published to S3 only. The
+      # entry is forwarded as written: build-kernel-debian.yml is what declines
+      # to promote a run carrying the validation overrides below, so a build
+      # that is not the plain nightly cannot reach an archive by any caller.
+      target-workspace: ${{ matrix.target_workspace || '' }}
       # Dispatch-only validation overrides. A scheduled run carries no inputs,
       # so each falls back to the off value and builds the matrix as written.
       debug-build: ${{ inputs.debug-build || false }}
