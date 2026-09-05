@@ -276,7 +276,7 @@ jobs:
           '
 
       - name: Upload kernel .deb package to S3
-        uses: qualcomm-linux/upload-private-artifact-action@aws
+        uses: qualcomm-linux/upload-private-artifact-action@4940e9327cd7386acdb908b61c714c079b7d754b # aws-v4
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: qcom-build-utils/kernel/deb_artifact

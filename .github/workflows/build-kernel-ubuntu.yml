@@ -305,7 +305,7 @@ jobs:
         # Keep flavour and suite in the destination so concurrent matrix legs
         # cannot overwrite or mix package outputs. Consumers must select the
         # flavour and suite they intend to install.
-        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
+        uses: qualcomm-linux/upload-private-artifact-action@4940e9327cd7386acdb908b61c714c079b7d754b # aws-v4
         with:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: kernel-build/${{ inputs.suite }}
