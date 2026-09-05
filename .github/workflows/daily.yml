@@ -2,16 +2,16 @@ name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
 # build per Daily entry in ci/build-matrix.yaml. Manual dispatch can run the
-# full Daily matrix, a named set of variants, or every suite of one flavour.
-# Variants and flavours are matrix values, so new ones need no workflow edit.
+# full Daily matrix, a named set of builds, or every suite of one flavour.
+# Build names and flavours are matrix values, so new ones need no workflow edit.
 #
 # Matrix schema: ci/build-matrix.yaml
 #   One entry is one generated package, so ci/scripts/resolve-matrix.py selects
 #   the entries with type: Daily and passes them through as they stand. Every
-#   field (kernel_variant, suite, flavour, srcpkg, binpkg, kernel_config, dkms,
+#   field (name, suite, flavour, srcpkg, binpkg, kernel_config, dkms,
 #   debian_revision, git_clone, branch_or_tag, ref_strategy) becomes a
-#   build-kernel-deb.yml input. kernel_variant names the job and scopes its
-#   artifacts; flavour is what reaches the built kernel's version.
+#   build-kernel-deb.yml input. name labels the job; flavour is what reaches
+#   the built kernel's version and its published paths.
 #
 # To add a daily build target: add an entry to ci/build-matrix.yaml with
 # type: Daily. No workflow changes needed.
@@ -26,13 +26,13 @@ on:
         description: 'Choose the whole matrix, named build(s), or every suite of one flavour'
         type: choice
         required: true
-        default: 'Selected variants'
+        default: 'Selected builds'
         options:
           - 'Full matrix'
-          - 'Selected variants'
+          - 'Selected builds'
           - 'Selected flavour (all suites)'
-      kernel-variants:
-        description: 'Comma-separated variants to build, e.g. qcom-next-trixie,qcom-next-debug-forky (Selected variants)'
+      builds:
+        description: 'Comma-separated build names, e.g. qcom-next-trixie,qcom-next-debug-forky (Selected builds)'
         required: true
         default: 'qcom-next-trixie'
         type: string
@@ -52,8 +52,8 @@ jobs:
   #
   # Delegates to ci/scripts/resolve-matrix.py, which validates the whole matrix
   # and returns the entries with type: Daily. Manual dispatch selects the
-  # complete matrix, a comma-separated list of variants, or one flavour across
-  # every suite it targets.
+  # complete matrix, a comma-separated list of build names, or one flavour
+  # across every suite it targets.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -67,7 +67,7 @@ jobs:
         id: set-matrix
         env:
           BUILD_SCOPE_INPUT: ${{ github.event.inputs.build-scope }}
-          INPUT_VARIANTS: ${{ github.event.inputs.kernel-variants }}
+          INPUT_BUILDS: ${{ github.event.inputs.builds }}
           INPUT_FLAVOUR: ${{ github.event.inputs.flavour }}
         run: |
           set -euo pipefail
@@ -84,8 +84,8 @@ jobs:
               args=(--type Daily)
               ;;
             "Selected variants")
-              echo "Source: ci/build-matrix.yaml (variants: $INPUT_VARIANTS)"
-              args=(--type Daily --kernel-variant "$INPUT_VARIANTS")
+              echo "Source: ci/build-matrix.yaml (builds: $INPUT_BUILDS)"
+              args=(--type Daily --build "$INPUT_BUILDS")
               ;;
             "Selected flavour (all suites)")
               echo "Source: ci/build-matrix.yaml (flavour: $INPUT_FLAVOUR, all suites)"
@@ -110,7 +110,7 @@ jobs:
   # build does not cancel the forky build.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.kernel_variant }}
+    name: ${{ matrix.name }}
     needs: configure-matrix
     strategy:
       fail-fast: false
@@ -119,7 +119,7 @@ jobs:
     uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
-      kernel-variant: ${{ matrix.kernel_variant }}
+      build: ${{ matrix.name }}
       flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}

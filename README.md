@@ -30,8 +30,7 @@ into LOCALVERSION, so each produces a distinct kernel release
 (`+qcom-next-<date>-g<sha>` and `+qcom-next-debug-<date>-g<sha>`) and therefore a
 distinct versioned image package that can be installed alongside the other. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
-The flavour is what the kernel is; `kernel_variant` is only what CI calls the
-build.
+The flavour is what the kernel is; a build's `name` is only what CI calls it.
 
 `ci/build-matrix.yaml` is the source of truth; this table is a summary.
 
@@ -42,15 +41,15 @@ Two entry points use the same reusable build pipeline:
 - **Release** uses a pinned matrix ref and promotes successful Debian packages
   to the selected production Debusine workspace.
 
-One entry in `deliveries` is one generated package: a single `kernel_variant`,
-a single `type`, and a single `suite`. The `kernel_variant` names that one
-build and nothing else — it is the Actions job name and what a manual dispatch
-asks for. Nothing is expanded or derived at resolve time, so what an entry says
-is what gets built:
+One entry in `builds` is one generated package: a single `name`, a single
+`type`, and a single `suite`. The `name` labels that one build and nothing
+else — it is the Actions job name and what a manual dispatch asks for. Nothing
+is expanded or derived at resolve time, so what an entry says is what gets
+built:
 
 ```yaml
-deliveries:
-  - kernel_variant: qcom-next-trixie
+builds:
+  - name: qcom-next-trixie
     type: Daily
     suite: trixie
     flavour: qcom-next
@@ -68,7 +67,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
 
-  - kernel_variant: qcom-next-trixie
+  - name: qcom-next-trixie
     type: Release
     suite: trixie
     flavour: qcom-next
@@ -134,8 +133,8 @@ Daily is the recurring build and artifact-publication path.
 - The scheduled run resolves the full `Daily` matrix.
 - A manual run selects one **Build scope**:
   - **Full matrix** builds every configured variant and suite.
-  - **Selected variants** builds a comma-separated list of `kernel_variant`
-    names, e.g. `qcom-next-trixie,qcom-next-debug-forky`.
+  - **Selected builds** builds a comma-separated list of build names, e.g.
+    `qcom-next-trixie,qcom-next-debug-forky`.
   - **Selected flavour (all suites)** builds one flavour in every suite it
     targets.
 - `latest_tag` resolves the newest matching dated tag; `branch_tip` resolves
@@ -152,8 +151,8 @@ Release is the controlled promotion path.
 - It is manual only and uses one **Release scope** for a kernel variant:
   - **Selected flavour (all suites)** is the normal release action and promotes
     every configured Release suite for that flavour.
-  - **Selected variants** promotes a comma-separated list of `kernel_variant`
-    names when a targeted action is required.
+  - **Selected builds** promotes a comma-separated list of build names when a
+    targeted action is required.
 - It uses the pinned `branch_or_tag` from the selected `Release` matrix row; it
   never resolves a newest tag.
 - Debian source and binary artifacts are built in per-flavour, per-suite
@@ -171,15 +170,15 @@ production release controls.
 
 ## Matrix Model
 
-`ci/build-matrix.yaml` is a mapping with exactly one top-level key,
-`deliveries`. One entry in it is one generated package, so there is no
+`ci/build-matrix.yaml` is a mapping with exactly one top-level key, `builds`.
+One entry in it is one generated package, so there is no
 expansion step: `ci/scripts/resolve-matrix.py` validates the whole document,
 selects the entries matching the requested type, variant, and suite, and hands
 them to the workflow matrix as they stand. Each entry carries:
 
 | Field | Purpose |
 | --- | --- |
-| `kernel_variant` | The name of this one build, and nothing else: its Actions job name, and what a manual dispatch asks for. Unique within a delivery type, so a Daily and its Release may share a name. Never reaches a package name, a version, or a published path. Lowercase letters, digits, and internal hyphens only. |
+| `name` | The name of this one build, and nothing else: its Actions job name, and what a manual dispatch asks for. Unique within a delivery type, so a Daily and its Release may share a name. Never reaches a package name, a version, or a published path. Lowercase letters, digits, and internal hyphens only. |
 | `type` | `Daily` or `Release`. |
 | `suite` | The one suite this entry builds for. |
 | `flavour` | The kernel's own identity, and the only matrix field that reaches the built kernel. `derive-localversion.sh` makes it the LOCALVERSION suffix, so two flavours built from one ref get distinct kernel releases and their `linux-image` packages coexist. All entries sharing a flavour build the same package for different suites. |
@@ -210,9 +209,9 @@ Because entries are written out in full, the resolver also checks the
 invariants that span them, which is what makes the duplication safe to read at
 face value:
 
-- No two entries of one `type` share a `kernel_variant` — a variant names
-  exactly one build, so a run cannot produce two jobs with one name and a
-  dispatch cannot be ambiguous.
+- No two entries of one `type` share a `name` — a name identifies exactly one
+  build, so a run cannot produce two jobs with one name and a dispatch cannot
+  be ambiguous.
 - A flavour's entries agree on `srcpkg`, `binpkg` and `kernel_config`; those
   decide what the package *is*, and the entries differ only in where it goes.
 - A flavour's entries for one suite agree on `dkms`. The module set depends on
@@ -236,8 +235,8 @@ debian_revision`) and builds at the revision the daily build would have used.
 Each entry has a distinct prepared-source artifact, Debusine child workspace,
 and S3 path keyed by `flavour + suite`. This prevents two flavours that both
 build, for example, `trixie` from consuming or publishing each other's inputs
-or outputs. They key on `flavour`, not `kernel_variant`, so renaming a build
-leg never moves a published artifact.
+or outputs. They key on `flavour`, not on the build's `name`, so renaming a
+build never moves a published artifact.
 
 Daily S3 outputs use these layouts, where `<run>` is
 `<github.run_id>-<github.run_attempt>`:
@@ -448,7 +447,7 @@ Use **Actions** → **build-kernel-deb** for a one-off build. It is an explicit
 override workflow, not a matrix-derived delivery flow: use `daily.yml` and
 `release.yml` for normal Daily and Release operations.
 
-`kernel-variant`, `suite`, and `ref-strategy` are the required build selection.
+`build`, `suite`, and `ref-strategy` are the required build selection.
 All remaining package, configuration, and PR inputs are advanced overrides for
 validation or debugging. Variant and suite are free-text matrix values rather
 than static dropdowns, so adding a matrix entry never requires editing the
@@ -458,7 +457,7 @@ The available inputs are:
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `kernel-variant` | `qcom-next-trixie` | Names this build; also selects the matrix entry a blank `debian-revision` is taken from. |
+| `build` | `qcom-next-trixie` | Names this build; also selects the matrix entry a blank `debian-revision` is taken from. |
 | `flavour` | `qcom-next` | Kernel flavour: the LOCALVERSION suffix, and so the kernel release identity. |
 | `suite` | `trixie` | Target suite. |
 | `ref-strategy` | `latest_tag` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
@@ -505,10 +504,10 @@ and keeps production approval controls in the workflow path.
 
 To add a kernel variant:
 
-1. Add one entry to `deliveries` per package the variant should produce: one
-   per Daily suite and one per Release suite, each spelling out all of its own
-   fields, and each with a `kernel_variant` unique within its delivery type.
-   Do not rely on another variant's values.
+1. Add one entry to `builds` per package the variant should produce: one per
+   Daily suite and one per Release suite, each spelling out all of its own
+   fields, and each with a `name` unique within its delivery type. Do not rely
+   on another variant's values.
 2. Give them all the same `flavour`, distinct from every other flavour's — it
    becomes the LOCALVERSION suffix, so this is what lets the new kernel install
    alongside the existing ones. Keep `srcpkg`, `binpkg` and `kernel_config`

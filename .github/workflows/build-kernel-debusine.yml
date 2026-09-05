@@ -5,7 +5,7 @@ name: build-debusine
 # Called by build-kernel-deb.yml for Debian-family suites (trixie, forky, sid).
 # The kernel source is already prepared by the caller's prepare job and shared
 # as the kernel-srcpkg artifact. Artifact and workspace identity include both
-# kernel_variant and suite so parallel variants cannot share inputs or outputs.
+# flavour and suite so parallel flavours cannot share inputs or outputs.
 #
 # Publish path is determined by target-workspace:
 #   target-workspace == ''  -> daily path: download .deb files, upload to S3.

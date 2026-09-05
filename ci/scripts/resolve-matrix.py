@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 """Validate and select entries from the kernel delivery matrix.
 
-ci/build-matrix.yaml holds one entry per generated package: a single
-kernel_variant, a single delivery type, and a single suite. Nothing here
+ci/build-matrix.yaml holds one entry per generated package: a single named
+build, one delivery type, and one suite. Nothing here
 expands or derives anything -- the matrix is already flat, and each entry
 states its own debian_revision. This script validates the whole document,
 selects the entries a caller asked for, and prints them.
@@ -15,18 +15,18 @@ lying in wait until someone runs a release.
 
 Usage:
   ci/scripts/resolve-matrix.py --type Daily
-  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next-trixie
-  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next-trixie,qcom-next-forky
+  ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie
+  ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie,qcom-next-forky
   ci/scripts/resolve-matrix.py --type Release --flavour qcom-next
-  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next-trixie \\
+  ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie \\
       --field debian_revision
 
 Options:
   --type TYPE                Delivery type to select (Daily or Release).
                                Required.
-  --kernel-variant VARIANTS  Select only these kernel variants, comma-separated.
-                               A variant names one leg, so this is the way to
-                               ask for a specific set of builds.
+  --build NAMES              Select only these builds by name, comma-separated.
+                               A name identifies one build, so this is the way
+                               to ask for a specific set of them.
   --flavour FLAVOURS         Select only these flavours, comma-separated. A
                                flavour spans its suites, so this asks for one
                                kernel everywhere it is built.
@@ -39,7 +39,7 @@ Options:
 
   Filters combine: an entry must match every filter given. Every name in a
   filter must match at least one entry of the selected type, so a typo or a
-  stale variant fails instead of quietly narrowing the build set.
+  stale name fails instead of quietly narrowing the build set.
 
 Output:
   Without --field, a compact JSON array of the selected entries, ready for a
@@ -84,7 +84,7 @@ REF_STRATEGIES_FOR_TYPE = {
 }
 
 REQUIRED_STRING_FIELDS = (
-    "kernel_variant",
+    "name",
     "type",
     "suite",
     "flavour",
@@ -108,12 +108,12 @@ KNOWN_FIELDS = frozenset(
     REQUIRED_STRING_FIELDS + OPTIONAL_STRING_FIELDS + ("kernel_config", "dkms")
 )
 
-# Everything about what is built is anchored on flavour, not kernel_variant.
-# The flavour is the kernel's own identity: it becomes the LOCALVERSION
+# Everything about what is built is anchored on flavour, not on the build's
+# name. The flavour is the kernel's own identity: it becomes the LOCALVERSION
 # suffix, so two flavours built from one ref produce distinct kernel releases
-# whose linux-image packages install alongside each other. kernel_variant
-# names the build in CI -- job names, artifacts, Debusine workspaces, S3
-# paths -- and carries no packaging meaning.
+# whose linux-image packages install alongside each other. A build's name only
+# labels it in CI -- the Actions job, and what a dispatch asks for -- and
+# carries no packaging meaning.
 
 # Fields that identify the flavour itself rather than one of its build legs.
 # Every entry for a flavour must agree on them, because they decide what the
@@ -240,7 +240,7 @@ def check_entry(entry, report):
     for field in sorted(set(entry) - KNOWN_FIELDS):
         report(f"unknown field {field}")
 
-    for field in ("kernel_variant", "suite", "flavour"):
+    for field in ("name", "suite", "flavour"):
         value = entry.get(field)
         if isinstance(value, str) and not NAME_RE.match(value):
             report(f"{field} must use lowercase letters, digits, and internal hyphens")
@@ -296,21 +296,21 @@ def describe(entry, index):
         return f"entry {index}"
     parts = [
         str(entry[field])
-        for field in ("kernel_variant", "type", "suite")
+        for field in ("name", "type", "suite")
         if isinstance(entry.get(field), str)
     ]
     return f"entry {index} ({'/'.join(parts)})" if parts else f"entry {index}"
 
 
-def check_consistency(deliveries, errors):
+def check_consistency(builds, errors):
     """Validate the invariants that span entries.
 
     Entries are written out in full, so the matrix can state a flavour twice
     and disagree with itself. These checks are what makes that duplication
     safe to read at face value.
 
-    Everything about the package is grouped by flavour. kernel_variant is
-    only checked for the one thing it is used for: naming a build leg
+    Everything about the package is grouped by flavour. A build's name is
+    only checked for the one thing it is used for: identifying that build
     uniquely.
     """
     by_leg = defaultdict(list)
@@ -320,7 +320,7 @@ def check_consistency(deliveries, errors):
     by_package_version = defaultdict(list)
     flavours_by_package = defaultdict(set)
 
-    for entry in deliveries:
+    for entry in builds:
         if not isinstance(entry, dict):
             continue
         flavour = entry.get("flavour")
@@ -332,7 +332,7 @@ def check_consistency(deliveries, errors):
         by_flavour[flavour].append(entry)
         by_flavour_type[(flavour, delivery_type)].append(entry)
         by_flavour_suite[(flavour, suite)].append(entry)
-        by_leg[(delivery_type, entry.get("kernel_variant"))].append(entry)
+        by_leg[(delivery_type, entry.get("name"))].append(entry)
 
         for field in ("srcpkg", "binpkg"):
             if isinstance(entry.get(field), str) and entry[field]:
@@ -343,19 +343,19 @@ def check_consistency(deliveries, errors):
         ):
             by_package_version[(entry["srcpkg"], entry["debian_revision"])].append(entry)
 
-    # kernel_variant names one build leg: it is the Actions job name and what a
-    # workflow dispatch asks for by name. It only has to be unique within a
-    # delivery type, because a run only ever resolves one type, and that lets a
-    # Daily and its Release share a name. Two entries sharing both would give a
-    # run two identically named jobs and make the dispatch filter ambiguous.
-    for (delivery_type, variant), entries in sorted(
+    # A name identifies one build: it is the Actions job name and what a
+    # workflow dispatch asks for. It only has to be unique within a delivery
+    # type, because a run only ever resolves one type, and that lets a Daily and
+    # its Release share a name. Two entries sharing both would give a run two
+    # identically named jobs and make the dispatch filter ambiguous.
+    for (delivery_type, name), entries in sorted(
         by_leg.items(), key=lambda item: str(item[0])
     ):
         if len(entries) > 1:
             suites = ", ".join(sorted(str(e.get("suite")) for e in entries))
             errors.append(
-                f"kernel_variant {variant} is used by {len(entries)} {delivery_type} "
-                f"entries (suites {suites}); a variant names exactly one build"
+                f"name {name} is used by {len(entries)} {delivery_type} entries "
+                f"(suites {suites}); a name identifies exactly one build"
             )
 
     for flavour, entries in sorted(by_flavour.items()):
@@ -436,21 +436,21 @@ def check_consistency(deliveries, errors):
                 )
 
 
-def validate(deliveries):
+def validate(builds):
     """Return every problem found in the matrix, as a list of messages."""
     errors = []
-    for index, entry in enumerate(deliveries):
+    for index, entry in enumerate(builds):
         if not isinstance(entry, dict):
             errors.append(f"{describe(entry, index)}: delivery entries must be mappings")
             continue
         label = describe(entry, index)
         check_entry(entry, lambda message, label=label: errors.append(f"{label}: {message}"))
-    check_consistency(deliveries, errors)
+    check_consistency(builds, errors)
     return errors
 
 
 def load_matrix(path):
-    """Read, parse, and validate the matrix, returning its deliveries."""
+    """Read, parse, and validate the matrix, returning its builds."""
     try:
         with open(path, encoding="utf-8") as handle:
             document = yaml.safe_load(handle)
@@ -462,32 +462,32 @@ def load_matrix(path):
         sys.exit(f"ERROR: Invalid YAML in {path}: {error}")
 
     if not isinstance(document, dict):
-        sys.exit(f"ERROR: {path}: matrix root must be a mapping with a deliveries key")
+        sys.exit(f"ERROR: {path}: matrix root must be a mapping with a builds key")
 
-    # deliveries is the whole schema. Anything else at the root is a leftover
-    # from an older matrix (suite_suffix_mapping, say) that would otherwise sit
+    # builds is the whole schema. Anything else at the root is a leftover from
+    # an older matrix (suite_suffix_mapping, say) that would otherwise sit
     # there looking authoritative while nothing read it.
-    unknown_root = sorted(set(document) - {"deliveries"})
+    unknown_root = sorted(set(document) - {"builds"})
     if unknown_root:
         sys.exit(
             f"ERROR: {path}: unknown top-level key(s) {', '.join(unknown_root)}; "
-            "deliveries is the only one"
+            "builds is the only one"
         )
 
-    deliveries = document.get("deliveries")
-    if not isinstance(deliveries, list):
-        sys.exit(f"ERROR: {path}: deliveries must be a list")
-    if not deliveries:
-        sys.exit(f"ERROR: {path}: deliveries must contain at least one entry")
+    builds = document.get("builds")
+    if not isinstance(builds, list):
+        sys.exit(f"ERROR: {path}: builds must be a list")
+    if not builds:
+        sys.exit(f"ERROR: {path}: builds must contain at least one entry")
 
-    errors = validate(deliveries)
+    errors = validate(builds)
     if errors:
         sys.exit(
             f"ERROR: Invalid kernel delivery matrix in {path}:\n"
             + "\n".join(f"  - {error}" for error in errors)
         )
 
-    return deliveries
+    return builds
 
 
 def parse_filter(value):
@@ -497,7 +497,7 @@ def parse_filter(value):
     return [name.strip() for name in value.split(",") if name.strip()]
 
 
-def select(deliveries, delivery_type, filters):
+def select(builds, delivery_type, filters):
     """Return the entries matching the requested filters, in matrix order.
 
     filters maps a field name to the list of values allowed for it, or to
@@ -505,7 +505,7 @@ def select(deliveries, delivery_type, filters):
     """
     return [
         entry
-        for entry in deliveries
+        for entry in builds
         if entry["type"] == delivery_type
         and all(
             wanted is None or entry[field] in wanted
@@ -514,14 +514,14 @@ def select(deliveries, delivery_type, filters):
     ]
 
 
-def unmatched_filters(deliveries, delivery_type, filters):
+def unmatched_filters(builds, delivery_type, filters):
     """Names asked for that no entry of this delivery type offers."""
     missing = []
     for field, wanted in filters.items():
         if wanted is None:
             continue
         available = {
-            entry[field] for entry in deliveries if entry["type"] == delivery_type
+            entry[field] for entry in builds if entry["type"] == delivery_type
         }
         for name in wanted:
             if name not in available:
@@ -561,9 +561,9 @@ def main():
         "--type", required=True, choices=DELIVERY_TYPES, help="delivery type to select"
     )
     parser.add_argument(
-        "--kernel-variant",
+        "--build",
         default="",
-        help="select only these kernel variants, comma-separated",
+        help="select only these builds by name, comma-separated",
     )
     parser.add_argument(
         "--flavour", default="", help="select only these flavours, comma-separated"
@@ -581,25 +581,25 @@ def main():
     )
     args = parser.parse_args()
 
-    deliveries = load_matrix(args.matrix_file)
+    builds = load_matrix(args.matrix_file)
     filters = {
-        "kernel_variant": parse_filter(args.kernel_variant),
+        "name": parse_filter(args.build),
         "flavour": parse_filter(args.flavour),
         "suite": parse_filter(args.suite),
     }
     what = describe_selection(args.type, filters)
 
     # Report a name that matches nothing before reporting an empty selection:
-    # "no Daily entry has kernel_variant qcom-next" says what to fix, where
+    # "no Daily entry has name qcom-next" says what to fix, where
     # "no entries found" leaves the reader to work out which filter was wrong.
-    unmatched = unmatched_filters(deliveries, args.type, filters)
+    unmatched = unmatched_filters(builds, args.type, filters)
     if unmatched:
         sys.exit(
             f"ERROR: Nothing to build for {what}:\n"
             + "\n".join(f"  - {problem}" for problem in unmatched)
         )
 
-    selected = select(deliveries, args.type, filters)
+    selected = select(builds, args.type, filters)
     if not selected:
         sys.exit(f"ERROR: No matrix entries found for {what}")
 
@@ -610,7 +610,7 @@ def main():
     if len(selected) > 1:
         sys.exit(
             f"ERROR: --field {args.field} needs exactly one entry, but {what} "
-            f"selects {len(selected)}; narrow it with --kernel-variant and --suite"
+            f"selects {len(selected)}; narrow it with --build"
         )
 
     entry = for_workflow(selected[0])
