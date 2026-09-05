@@ -22,7 +22,7 @@ name: build-kernel-debian
 # something else, and nothing rebuilds a ref that has already been built.
 #
 # Jobs:
-#   prepare (self-hosted): clone, patch, inject debian/, generate the source,
+#   prepare (self-hosted): clone, inject debian/, build the source package,
 #           and decide whether the version it produces is already published.
 #   build   (debusine-pkg-builder container): submit to Debusine.
 #   publish (self-hosted): download the .deb files and upload them to S3.
@@ -284,7 +284,7 @@ jobs:
       srcpkg_version: ${{ steps.debusine.outputs.srcpkg_version }}
     steps:
       # Only for the debusine-build action itself: the package being built
-      # comes from the prepared-source artifact, not from this checkout.
+      # comes from the source-package artifact, not from this checkout.
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
