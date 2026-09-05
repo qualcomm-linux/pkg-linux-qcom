@@ -39,7 +39,7 @@ deliveries:
   # ---------------------------------------------------------------------------
   # qcom-next — the standard kernel.
   # ---------------------------------------------------------------------------
-  - kernel_variant: qcom-next
+  - kernel_variant: qcom-next-trixie
     type: Daily
     suite: trixie
     flavour: qcom-next
@@ -57,7 +57,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
 
-  - kernel_variant: qcom-next
+  - kernel_variant: qcom-next-forky
     type: Daily
     suite: forky
     flavour: qcom-next
@@ -75,7 +75,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~'
 
-  - kernel_variant: qcom-next
+  - kernel_variant: qcom-next-resolute
     type: Daily
     suite: resolute
     flavour: qcom-next
@@ -91,7 +91,7 @@ deliveries:
       - kgsl
     debian_revision: '0qli1~26.04.1~'
 
-  - kernel_variant: qcom-next
+  - kernel_variant: qcom-next-trixie
     type: Release
     suite: trixie
     flavour: qcom-next
@@ -109,7 +109,7 @@ deliveries:
     debian_revision: '0qli1~bpo13+1'
     target_workspace: qli
 
-  - kernel_variant: qcom-next
+  - kernel_variant: qcom-next-forky
     type: Release
     suite: forky
     flavour: qcom-next
@@ -131,7 +131,7 @@ deliveries:
   # qcom-next-debug — the same kernel ref built with the in-tree debug
   # fragments, packaged separately so it installs alongside qcom-next.
   # ---------------------------------------------------------------------------
-  - kernel_variant: qcom-next-debug
+  - kernel_variant: qcom-next-debug-trixie
     type: Daily
     suite: trixie
     flavour: qcom-next-debug
@@ -151,7 +151,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
 
-  - kernel_variant: qcom-next-debug
+  - kernel_variant: qcom-next-debug-forky
     type: Daily
     suite: forky
     flavour: qcom-next-debug
@@ -171,7 +171,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~'
 
-  - kernel_variant: qcom-next-debug
+  - kernel_variant: qcom-next-debug-trixie
     type: Release
     suite: trixie
     flavour: qcom-next-debug
@@ -191,7 +191,7 @@ deliveries:
     debian_revision: '0qli1~bpo13+1'
     target_workspace: qli
 
-  - kernel_variant: qcom-next-debug
+  - kernel_variant: qcom-next-debug-forky
     type: Release
     suite: forky
     flavour: qcom-next-debug
