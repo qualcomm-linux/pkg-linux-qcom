@@ -268,77 +268,77 @@ releases:
   # ---------------------------------------------------------------------------
   # qcom-next 7.2 — the standard kernel.
   # ---------------------------------------------------------------------------
-  - name: qcom-next-trixie
-    suite: trixie
-    flavour: qcom-next
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-20260826
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next
-    binpkg: linux-image-qcom-next
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1~bpo13+1'
-    target_workspace: qli
+  # - name: qcom-next-trixie
+  #   suite: trixie
+  #   flavour: qcom-next
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next-7.2-20260826
+  #   ref_strategy: pinned_ref
+  #   srcpkg: linux-qcom-next
+  #   binpkg: linux-image-qcom-next
+  #   kernel_config: []
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #     - audioreach
+  #   debian_revision: '0qli1~bpo13+1'
+  #   target_workspace: qli
 
-  - name: qcom-next-forky
-    suite: forky
-    flavour: qcom-next
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-20260826
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next
-    binpkg: linux-image-qcom-next
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1'
-    target_workspace: qli
+  # - name: qcom-next-forky
+  #   suite: forky
+  #   flavour: qcom-next
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next-7.2-20260826
+  #   ref_strategy: pinned_ref
+  #   srcpkg: linux-qcom-next
+  #   binpkg: linux-image-qcom-next
+  #   kernel_config: []
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #     - audioreach
+  #   debian_revision: '0qli1'
+  #   target_workspace: qli
 
-  # ---------------------------------------------------------------------------
-  # qcom-next-debug 7.2 — the same ref with the in-tree debug fragments.
-  # ---------------------------------------------------------------------------
-  - name: qcom-next-debug-trixie
-    suite: trixie
-    flavour: qcom-next-debug
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-20260826
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next-debug
-    binpkg: linux-image-qcom-next-debug
-    kernel_config:
-      - intree:arch/arm64/configs/qcom_debug.config
-      - intree:kernel/configs/debug.config
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1~bpo13+1'
-    target_workspace: qli
+  # # ---------------------------------------------------------------------------
+  # # qcom-next-debug 7.2 — the same ref with the in-tree debug fragments.
+  # # ---------------------------------------------------------------------------
+  # - name: qcom-next-debug-trixie
+  #   suite: trixie
+  #   flavour: qcom-next-debug
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next-7.2-20260826
+  #   ref_strategy: pinned_ref
+  #   srcpkg: linux-qcom-next-debug
+  #   binpkg: linux-image-qcom-next-debug
+  #   kernel_config:
+  #     - intree:arch/arm64/configs/qcom_debug.config
+  #     - intree:kernel/configs/debug.config
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #     - audioreach
+  #   debian_revision: '0qli1~bpo13+1'
+  #   target_workspace: qli
 
-  - name: qcom-next-debug-forky
-    suite: forky
-    flavour: qcom-next-debug
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next-7.2-20260826
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next-debug
-    binpkg: linux-image-qcom-next-debug
-    kernel_config:
-      - intree:arch/arm64/configs/qcom_debug.config
-      - intree:kernel/configs/debug.config
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1'
-    target_workspace: qli
+  # - name: qcom-next-debug-forky
+  #   suite: forky
+  #   flavour: qcom-next-debug
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next-7.2-20260826
+  #   ref_strategy: pinned_ref
+  #   srcpkg: linux-qcom-next-debug
+  #   binpkg: linux-image-qcom-next-debug
+  #   kernel_config:
+  #     - intree:arch/arm64/configs/qcom_debug.config
+  #     - intree:kernel/configs/debug.config
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #     - audioreach
+  #   debian_revision: '0qli1'
+  #   target_workspace: qli
