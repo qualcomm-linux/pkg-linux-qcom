@@ -64,11 +64,6 @@ jobs:
   #
   # fail-fast is disabled so a broken trixie leg still leaves forky and
   # resolute results on the PR.
-  #
-  # target-workspace is deliberately not passed on. The nightly build names
-  # the staging workspace and its results are promoted there; a PR build of the
-  # same entry only has to prove it builds, and must not put a pull request's
-  # kernel into an archive anyone installs from.
   # ---------------------------------------------------------------------------
   build-debian:
     name: ${{ matrix.name }}
@@ -104,6 +99,19 @@ jobs:
       # and not yet qli -- which is how a kernel and the module it needs get
       # reviewed together.
       extra-build-dep-workspaces: qli qli-staging
+      # Empty, and stated rather than left to the input's default: this is the
+      # one value keeping a pull request's kernel out of the archives. An empty
+      # target-workspace is what build-kernel-debian.yml's promote job tests
+      # for, so a PR is built, tested and published to S3 and goes no further.
+      #
+      # A PR is unreviewed by definition, and its packages are versioned
+      # -pr<number> rather than as the nightly's, so promoting one would put a
+      # kernel nobody has approved into an archive people install from, under a
+      # version no release will ever supersede. Left implicit, a future edit to
+      # the default -- or a copy of this block into a workflow that should
+      # promote -- would flip that silently; spelled out here, changing it
+      # means saying so.
+      target-workspace: ''
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
