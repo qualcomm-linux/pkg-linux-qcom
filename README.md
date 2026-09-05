@@ -24,13 +24,20 @@ kernel flavour owns as many entries as it has suites and delivery types.
 |---------|----------------|-------------------|--------------|----------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
+| `qcom-arduino` | `linux-qcom-arduino` | `linux-image-qcom-arduino` | trixie, forky | none | Arduino hardware-enablement topic branch (`early/hwe/arduino` of `kernel-topics`) |
+| `mainline` | `linux-mainline` | `linux-image-mainline` | trixie, forky | none | Tip of Linus's tree, tracked for early warning of upstream breakage. No DKMS modules |
+| `next` | `linux-next` | `linux-image-next` | trixie, forky | none | Newest `next-YYYYMMDD` tag of linux-next. No DKMS modules |
 
-Both build the same kernel ref. `derive-localversion.sh` folds the *flavour*
-into LOCALVERSION, so each produces a distinct kernel release
-(`+qcom-next-<date>-g<sha>` and `+qcom-next-debug-<date>-g<sha>`) and therefore a
-distinct versioned image package that can be installed alongside the other. See
+`derive-localversion.sh` folds the *flavour* into LOCALVERSION, so each
+produces a distinct kernel release (`+qcom-next-<date>-g<sha>`,
+`+qcom-next-debug-<date>-g<sha>`, and so on) and therefore a distinct versioned
+image package that can be installed alongside the others. The flavour is what
+the kernel is; a build's `name` is only what CI calls it. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
-The flavour is what the kernel is; a build's `name` is only what CI calls it.
+
+The last three track a moving upstream — a branch tip, or a tag cut every
+night — and so have no `Release` entries: a release must name an immutable ref
+to promote. They are built and published daily and never promoted to `qli`.
 
 `ci/build-matrix.yaml` is the source of truth; this table is a summary.
 
@@ -221,7 +228,9 @@ face value:
 - A flavour's entries of one `type` agree on `git_clone`, `branch_or_tag`,
   `ref_strategy` and `tag_pattern`, so a forgotten suite cannot quietly ship a
   different kernel from its siblings after a release ref bump.
-- Every flavour defines at least one `Daily` and one `Release` entry.
+- A flavour with a `Release` entry also has a `Daily` one, so nothing is
+  promoted that the daily build has not tested. The converse is allowed: a
+  flavour tracking a moving upstream is built daily and never released.
 - No `srcpkg` or `binpkg` is shared between flavours, and no two entries build
   the same `srcpkg` at the same `debian_revision`.
 - Where a suite has both, its `Daily` revision is its `Release` revision plus a

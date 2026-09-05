@@ -30,6 +30,11 @@
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
 # Ubuntu does not package.
 #
+# A flavour tracking a moving upstream is Daily only. A Release entry must name
+# an immutable ref, and a branch tip or a tag cut every night is not one, so
+# mainline, next and the topic branches are built and published daily and never
+# promoted. A Release entry still requires the Daily that tests it.
+#
 # debian_revision is stated outright, not derived. Daily revisions end in "~"
 # so they sort below the Release revision for the same suite; the rest of the
 # revision places the suite where it belongs relative to the other suites (see
@@ -211,3 +216,106 @@ builds:
       - audioreach
     debian_revision: '0qli1'
     target_workspace: qli
+
+  # ---------------------------------------------------------------------------
+  # qcom-arduino — the Arduino hardware-enablement topic branch.
+  #
+  # Daily only: a topic branch has no immutable ref to promote from.
+  # ---------------------------------------------------------------------------
+  - name: qcom-arduino-trixie
+    type: Daily
+    suite: trixie
+    flavour: qcom-arduino
+    git_clone: https://github.com/qualcomm-linux/kernel-topics
+    branch_or_tag: early/hwe/arduino
+    ref_strategy: branch_tip
+    srcpkg: linux-qcom-arduino
+    binpkg: linux-image-qcom-arduino
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+    debian_revision: '0qli~bpo13+1~'
+
+  - name: qcom-arduino-forky
+    type: Daily
+    suite: forky
+    flavour: qcom-arduino
+    git_clone: https://github.com/qualcomm-linux/kernel-topics
+    branch_or_tag: early/hwe/arduino
+    ref_strategy: branch_tip
+    srcpkg: linux-qcom-arduino
+    binpkg: linux-image-qcom-arduino
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+    debian_revision: '0qli~'
+
+  # ---------------------------------------------------------------------------
+  # mainline — Linus's tree, tracked for early warning of upstream breakage.
+  #
+  # Daily only, and no DKMS: the out-of-tree modules target the Qualcomm tree,
+  # and a listed module is a presence contract that would fail the build here.
+  # ---------------------------------------------------------------------------
+  - name: mainline-trixie
+    type: Daily
+    suite: trixie
+    flavour: mainline
+    git_clone: https://github.com/torvalds/linux
+    branch_or_tag: master
+    ref_strategy: branch_tip
+    srcpkg: linux-mainline
+    binpkg: linux-image-mainline
+    kernel_config: []
+    dkms: []
+    debian_revision: '0qli~bpo13+1~'
+
+  - name: mainline-forky
+    type: Daily
+    suite: forky
+    flavour: mainline
+    git_clone: https://github.com/torvalds/linux
+    branch_or_tag: master
+    ref_strategy: branch_tip
+    srcpkg: linux-mainline
+    binpkg: linux-image-mainline
+    kernel_config: []
+    dkms: []
+    debian_revision: '0qli~'
+
+  # ---------------------------------------------------------------------------
+  # next — linux-next, the integration tree, one step ahead of mainline.
+  #
+  # next-YYYYMMDD tags are cut daily, so latest_tag resolves the newest of
+  # them the same way qcom-next-* does. Daily only, and no DKMS, as above.
+  # ---------------------------------------------------------------------------
+  - name: next-trixie
+    type: Daily
+    suite: trixie
+    flavour: next
+    git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+    branch_or_tag: master
+    ref_strategy: latest_tag
+    tag_pattern: 'next-*'
+    srcpkg: linux-next
+    binpkg: linux-image-next
+    kernel_config: []
+    dkms: []
+    debian_revision: '0qli~bpo13+1~'
+
+  - name: next-forky
+    type: Daily
+    suite: forky
+    flavour: next
+    git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+    branch_or_tag: master
+    ref_strategy: latest_tag
+    tag_pattern: 'next-*'
+    srcpkg: linux-next
+    binpkg: linux-image-next
+    kernel_config: []
+    dkms: []
+    debian_revision: '0qli~'
