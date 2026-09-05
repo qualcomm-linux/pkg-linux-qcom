@@ -1,0 +1,131 @@
+name: Build in Debusine
+description: >
+  Submit the source package the prepare job built to Debusine, returning the
+  CI workspace it was built in.
+
+# Called by build-kernel-debian.yml, which decides what becomes of the result:
+# every build is downloaded and uploaded to S3, and one whose caller named a
+# target workspace is also promoted into it. Holding these steps in a composite
+# action keeps the submission itself in one place, separate from the job that
+# declares the runner, container and environment it happens in.
+#
+# The caller must have checked out pkg-linux-qcom into the workspace first,
+# which is also where this action comes from. Runs inside the
+# debusine-pkg-builder container.
+#
+# vars and secrets contexts do not reach a composite action, so the Debusine
+# host, scope and credentials come in as inputs from the calling workflow.
+
+inputs:
+  suite:
+    description: 'Target Debian suite (trixie, forky, sid)'
+    required: true
+  flavour:
+    description: 'Kernel flavour, isolating artifacts and Debusine workspaces'
+    required: true
+  debusine-host:
+    description: 'Debusine instance hostname'
+    required: true
+  debusine-scope:
+    description: 'Debusine scope'
+    required: true
+  debusine-user:
+    description: 'Debusine account used to submit the build'
+    required: true
+  debusine-token:
+    description: 'Debusine token for the CI child workspace'
+    required: true
+  debusine-parent-workspace:
+    description: 'Parent Debusine workspace for CI child workspace creation'
+    default: 'qli-ci'
+  extra-build-dep-workspaces:
+    description: >
+      Workspaces the build resolves its build-dependencies from, space
+      separated. Set by the calling workflow, which knows whether this build is
+      one a release may promote.
+    default: 'qli'
+  debusine-action-ref:
+    description: 'Ref of qualcomm-linux/debusine-action to use'
+    default: 'main'
+
+outputs:
+  workspace:
+    description: 'Debusine CI workspace the package was built in'
+    value: ${{ steps.build-debusine.outputs.workspace }}
+  workspace_url:
+    description: 'Browser URL of that workspace'
+    value: ${{ steps.build-debusine.outputs.workspace_url }}
+  srcpkg_version:
+    description: 'Version of the submitted source package'
+    value: ${{ steps.srcpkg.outputs.srcpkg_version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout debusine-action helpers
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        repository: qualcomm-linux/debusine-action
+        ref: ${{ inputs.debusine-action-ref }}
+        path: debusine-action
+        fetch-depth: 1
+        sparse-checkout: |
+          lib
+
+    # Into the workspace root: lib/build takes the .dsc from its working
+    # directory, and reaches its own helpers by a path relative to it, so the
+    # two have to be the same directory.
+    - name: Download source package
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: source-package-${{ inputs.flavour }}-${{ inputs.suite }}
+
+    - name: Read the source package version
+      # From the .dsc as downloaded, which is what Debusine will be given;
+      # the prepare job reported the same value from the same file.
+      id: srcpkg
+      shell: bash
+      run: |
+        set -euo pipefail
+        DSC=$(ls -- *.dsc)
+        [[ $(wc -l <<<"$DSC") -eq 1 ]] || {
+          echo "::error::Expected exactly one .dsc in the source package artifact, found: $DSC"
+          exit 1
+        }
+        SRCPKG_VERSION=$(sed -n 's/^Version: //p' "$DSC")
+        [[ "$SRCPKG_VERSION" =~ ^[A-Za-z0-9.+~:-]+$ ]] || {
+          echo "::error::Could not read a version from $DSC (got '$SRCPKG_VERSION')"
+          exit 1
+        }
+        echo "Submitting $DSC ($SRCPKG_VERSION)"
+        echo "srcpkg_version=$SRCPKG_VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Build in Debusine
+      id: build-debusine
+      shell: bash
+      env:
+        GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        JOB_INDEX: ${{ inputs.flavour }}-${{ inputs.suite }}
+        DEBUSINE_HOST: ${{ inputs.debusine-host }}
+        DEBUSINE_SCOPE: ${{ inputs.debusine-scope }}
+        DEBUSINE_USER: ${{ inputs.debusine-user }}
+        DEBUSINE_TOKEN: ${{ inputs.debusine-token }}
+        DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
+        SUITE: ${{ inputs.suite }}
+        EXTRA_BUILD_DEP_WORKSPACES: ${{ inputs.extra-build-dep-workspaces }}
+      run: |
+        # No -x here: DEBUSINE_TOKEN is in env, keep xtrace off.
+        set -euo pipefail
+        debusine-action/lib/build
+        workspace=$(sed -n 's/^workspace=//p' "$GITHUB_OUTPUT")
+        echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
+
+    - name: Note Debusine workspace URL
+      shell: bash
+      env:
+        WORKSPACE_URL: ${{ steps.build-debusine.outputs.workspace_url }}
+      run: |
+        echo "Debusine Workspace URL: $WORKSPACE_URL" >> "$GITHUB_STEP_SUMMARY"

@@ -1,99 +1,179 @@
 name: build-kernel-ubuntu
 
-# Reusable workflow: Ubuntu kernel build via build-kernel.sh.
+# Build a kernel package for an Ubuntu-family suite and publish it to S3.
 #
-# Called by build-kernel-deb.yml when the target suite is Ubuntu-family
-# (noble, questing, resolute). The kernel source has already been cloned,
-# patched, and prepared (debian/ injected, debian/control + debian/changelog
-# generated) by the prepare job in the caller workflow. This workflow
-# downloads the kernel-srcpkg artifact and runs build-kernel.sh --skip-prepare
-# to go directly to the build step.
+# Called per matrix entry by daily.yml and pr-build.yml, which select the
+# Ubuntu entries with resolve-matrix.py --family ubuntu and call only this
+# workflow for them. The package is built in a suite-matched pkg-builder
+# container on the self-hosted runner rather than in Debusine, which builds
+# only the Debian family.
 #
-# The artifact is shared from the caller via github.run_id. Build and S3 upload
-# run on the self-hosted runner, which has direct IAM access.
+# Ubuntu has no release path: promotion runs through Debusine, so a Release
+# entry for an Ubuntu suite is rejected by resolve-matrix.py rather than built
+# here and quietly not promoted.
+#
+# workflow_call only. One run of this workflow is one matrix entry, and a
+# reusable workflow cannot fan itself out over several, so manual builds are
+# dispatched from daily.yml -- which resolves the entries and calls this once
+# per Ubuntu entry it selected. That also keeps every value describing a build
+# in ci/build-matrix.yaml, rather than in a dispatch form that drifts from it.
+#
+# One job, on the self-hosted runner: clone, inject debian/, build the source
+# package, build the .deb files from it, and upload them to S3.
 
 on:
   workflow_call:
     inputs:
-      distro:
-        description: Target Ubuntu suite (noble, questing, resolute)
+      build:
+        description: 'Name of this build, as listed in ci/build-matrix.yaml'
         type: string
         required: true
-      kernel-variant:
-        description: 'Kernel variant identifier used to isolate prepared-source artifacts and published packages'
+      flavour:
+        description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
         type: string
         required: true
+      suite:
+        description: 'Target Ubuntu suite (noble, resolute)'
+        type: string
+        required: true
+      kernel-branch:
+        description: 'Source branch or pinned tag used by branch_tip or pinned_ref'
+        type: string
+        required: true
+      git-clone:
+        description: 'Kernel repository URL'
+        type: string
+        required: true
+      ref-strategy:
+        description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
+        type: string
+        required: true
+      tag-pattern:
+        description: 'Tag glob used when ref-strategy=latest_tag'
+        type: string
+        default: 'qcom-next-*'
+      srcpkg:
+        description: 'Source package name'
+        type: string
+        required: true
+      binpkg:
+        description: 'Binary metapackage name'
+        type: string
+        required: true
+      kernel-config:
+        description: 'Extra config fragments applied on top of all of debian/config-available/'
+        type: string
+        default: ''
+      dkms:
+        description: 'Out-of-tree DKMS modules to bundle, comma-separated and without the -dkms suffix'
+        type: string
+        default: ''
+      debian-revision:
+        description: 'Debian revision component of the package version'
+        type: string
+        required: true
+      localversion:
+        description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
+        type: string
+        default: ''
+      kver-extra:
+        description: 'Extra suffix appended to the package version'
+        type: string
+        default: ''
 
 permissions:
   contents: read
   packages: read
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # build: clone, prepare, build the source package, build binaries from it,
+  # and publish them.
+  #
+  # One job rather than a prepare job and a build job, because every step
+  # runs on the same runner label: the source package the prepare action
+  # writes is consumed here from the workspace it was written into, with no
+  # artifact uploaded only to be downloaded again by the next job. The action
+  # still uploads it, as the record of what was built.
+  #
+  # Named for where the build happens, as the Debian workflow's Build package
+  # (Debusine) is: this one runs in a suite-matched pkg-builder container on
+  # the runner rather than being submitted to a build service.
+  # ---------------------------------------------------------------------------
   build:
-    name: Build kernel package
+    name: Build package (Docker)
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
     env:
-      DISTRO: ${{ inputs.distro }}
+      DISTRO: ${{ inputs.suite }}
     defaults:
       run:
         shell: bash
-
     steps:
       - name: Checkout pkg-linux-qcom
-        uses: actions/checkout@v4
-
-      # Pinned to @main while native kernel-build support is still landing
-      # upstream in qualcomm-linux/docker-pkg-build.
-      - name: Checkout docker-pkg-build
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: qualcomm-linux/docker-pkg-build
-          ref: main
-          path: docker-pkg-build
+          persist-credentials: false
 
-      - name: Build docker image
-        run: |
-          # --rebuild forces a fresh suite-matched pkg-builder image.
-          ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
-          docker image ls
-
-      - name: Download prepared source tree
-        uses: actions/download-artifact@v4
+      # Also pulls, or builds from a docker-pkg-build checkout, the suite's
+      # pkg-builder image -- the image the binary build below runs sbuild in.
+      - name: Prepare kernel source
+        uses: ./.github/actions/prepare-kernel-source
         with:
-          name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.distro }}
-          path: /tmp/srcpkg-artifact
-
-      - name: Extract prepared source tree
-        run: |
-          # tar.gz preserves the execute bits that upload-artifact's zip would
-          # strip (see README); --strip-components=1 drops the archive's top dir.
-          mkdir -p kernel-source
-          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
-            -C kernel-source --strip-components=1
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel-source" >> "$GITHUB_ENV"
+          build: ${{ inputs.build }}
+          suite: ${{ inputs.suite }}
+          expect-family: ubuntu
+          flavour: ${{ inputs.flavour }}
+          kernel-url: ${{ inputs.git-clone }}
+          ref-strategy: ${{ inputs.ref-strategy }}
+          kernel-branch: ${{ inputs.kernel-branch }}
+          tag-pattern: ${{ inputs.tag-pattern }}
+          srcpkg: ${{ inputs.srcpkg }}
+          binpkg: ${{ inputs.binpkg }}
+          kernel-config: ${{ inputs.kernel-config }}
+          dkms: ${{ inputs.dkms }}
+          debian-revision: ${{ inputs.debian-revision }}
+          localversion: ${{ inputs.localversion }}
+          kver-extra: ${{ inputs.kver-extra }}
 
       - name: Build kernel package
         run: |
-          # Kernel source was cloned, patched, and prepared by the caller's
-          # prepare job. Pass --local-source and --skip-prepare so
-          # build-kernel.sh goes directly to the build step.
-          # debian/control, debian/changelog, and all config fragments are
-          # already baked into the extracted source tree; no re-derivation
-          # of LOCALVERSION, kver-extra, or debug config is needed here.
+          # The source package sits where the action wrote it. --dsc hands
+          # it to sbuild in the suite's pkg-builder image, so what is built
+          # here is the .dsc the run reported, exactly as Debusine builds it
+          # for the Debian family. Nothing is cloned or prepared again, and
+          # build-kernel.sh finds the docker-pkg-build checkout the action
+          # leaves behind when it had to build the image itself.
+          set -euo pipefail
+          DSC=$(ls source-package/*.dsc)
+          [[ $(wc -l <<<"$DSC") -eq 1 ]] || {
+            echo "::error::Expected exactly one .dsc in source-package/, found: $DSC"
+            exit 1
+          }
           ./build-kernel.sh \
             --build-mode docker \
             --distro "$DISTRO" \
-            --local-source "$KERNEL_DIR" \
-            --skip-prepare \
-            --docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py"
+            --dsc "$DSC"
 
       - name: Upload .deb packages to S3
         # build-kernel.sh outputs to kernel-build/<distro>/ by default.
-        # Keep kernel variant and suite in the destination so concurrent matrix
-        # legs cannot overwrite or mix package outputs. Consumers must select
-        # the variant and suite they intend to install.
-        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
+        # Keep flavour and suite in the destination so concurrent matrix legs
+        # cannot overwrite or mix package outputs. Consumers must select the
+        # flavour and suite they intend to install.
+        uses: qualcomm-linux/upload-private-artifact-action@4940e9327cd7386acdb908b61c714c079b7d754b # aws-v4
         with:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
-          path: kernel-build/${{ inputs.distro }}
-          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.kernel-variant }}/${{ inputs.distro }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          path: kernel-build/${{ inputs.suite }}
+          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
+
+      # The source package the binaries were built from, kept beside them,
+      # as the Debian workflow keeps its own. Still in the workspace where
+      # the action wrote it.
+      - name: Upload source package to S3
+        uses: qualcomm-linux/upload-private-artifact-action@4940e9327cd7386acdb908b61c714c079b7d754b # aws-v4
+        with:
+          s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
+          path: source-package
+          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/source/

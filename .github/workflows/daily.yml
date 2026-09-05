@@ -1,20 +1,30 @@
 name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
-# build per Daily entry in ci/build-matrix.json after suite flattening.
-# Manual dispatch can run the full Daily matrix, every suite for one kernel
-# variant, or one kernel variant and suite. Variant and suite are matrix values,
-# so future variants need no workflow edit.
+# build per entry in ci/build-matrix.yaml.
 #
-# Matrix schema: ci/build-matrix.json
-#   Each row with "type": "Daily" is expanded by ci/scripts/resolve-matrix.sh:
-#   the "suites" array is flattened into one job per suite. All other fields
-#   (kernel_variant, srcpkg, binpkg, kernel_config, dkms, debian_revision,
-#   git_clone, branch_or_tag, ref_strategy) are passed through to
-#   build-kernel-deb.yml as inputs.
+# This is also the manual build entry point. Everything about a build comes
+# from its matrix entry, so a dispatch only says which entries to run: "all",
+# or a comma-separated list of build names. Build names are matrix values, so
+# a new one needs no workflow edit.
 #
-# To add a daily build target: add a row to ci/build-matrix.json with
-# "type": "Daily". No workflow changes needed.
+# This is the only workflow that publishes a kernel package. Its Debian
+# entries are promoted into the target workspace as part of the build that
+# produced them, so what the archive carries is always something this workflow
+# built and tested. Nothing promotes afterwards: the CI workspace a build runs
+# in is named after that run and does not outlive it.
+#
+# Matrix schema: ci/build-matrix.yaml
+#   One entry is one generated package, so ci/scripts/resolve-matrix.py passes
+#   the selected entries through as they stand. Every field (name, suite,
+#   flavour, srcpkg, binpkg, kernel_config, dkms, debian_revision, git_clone,
+#   branch_or_tag, ref_strategy) becomes an input of the build workflow for the
+#   entry's family. name labels the job; flavour is what reaches the built
+#   kernel's version and its published paths. Where the result is published is
+#   this workflow's to decide, not the entry's.
+#
+# To add a daily build target: add an entry to ci/build-matrix.yaml. No
+# workflow changes needed.
 
 on:
   schedule:
@@ -22,24 +32,10 @@ on:
     - cron: '0 23 * * *'
   workflow_dispatch:
     inputs:
-      build-scope:
-        description: 'Choose all variants, all suites for one variant, or one variant and suite'
-        type: choice
+      builds:
+        description: 'Builds to run: all, or comma-separated build names from ci/build-matrix.yaml (e.g. qcom-next-trixie,qcom-next-debug-forky)'
         required: true
-        default: 'Selected variant and suite'
-        options:
-          - 'Full matrix'
-          - 'Selected variant (all suites)'
-          - 'Selected variant and suite'
-      kernel-variant:
-        description: 'Kernel variant to build (ignored for Full matrix)'
-        required: true
-        default: 'qcom-next'
-        type: string
-      suite:
-        description: 'Target suite to build (used only for Selected variant and suite)'
-        required: true
-        default: 'trixie'
+        default: 'all'
         type: string
 
 permissions:
@@ -48,78 +44,97 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Daily rows from ci/build-matrix.json.
+  # configure-matrix: select the entries to build from ci/build-matrix.yaml.
   #
-  # Delegates to ci/scripts/resolve-matrix.sh which filters type=Daily rows
-  # and expands each row's "suites" array into one flat entry per suite.
-  # Manual dispatch selects the complete matrix, every suite for a variant, or
-  # one variant and suite.
+  # Delegates to ci/scripts/resolve-matrix.py, which validates the whole matrix
+  # and returns its entries. A dispatch narrows that to a comma-separated list
+  # of build names; "all", and a scheduled run, take the whole matrix.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      debian: ${{ steps.set-matrix.outputs.debian }}
+      ubuntu: ${{ steps.set-matrix.outputs.ubuntu }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Generate build matrix
         id: set-matrix
         env:
-          BUILD_SCOPE_INPUT: ${{ github.event.inputs.build-scope }}
-          INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
-          INPUT_SUITE: ${{ github.event.inputs.suite }}
+          INPUT_BUILDS: ${{ inputs.builds }}
         run: |
           set -euo pipefail
 
-          BUILD_SCOPE="$BUILD_SCOPE_INPUT"
+          # A scheduled run carries no inputs, so it lands on the dispatch
+          # default: the whole matrix.
+          BUILDS="${INPUT_BUILDS:-all}"
 
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            BUILD_SCOPE="Full matrix"
+          args=()
+          if [[ "$BUILDS" == "all" ]]; then
+            echo "Source: ci/build-matrix.yaml (every entry)"
+          else
+            echo "Source: ci/build-matrix.yaml (builds: $BUILDS)"
+            # A name matching no entry fails here, so a typo stops the run
+            # rather than quietly narrowing it to nothing.
+            args+=(--build "$BUILDS")
           fi
 
-          case "$BUILD_SCOPE" in
-            "Full matrix")
-              echo "Source: ci/build-matrix.json (full Daily matrix)"
-              args=(--type Daily)
-              ;;
-            "Selected variant (all suites)")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
-              args=(--type Daily --kernel-variant "$INPUT_VARIANT")
-              ;;
-            "Selected variant and suite")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
-              args=(--type Daily --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
-              ;;
-            *)
-              echo "ERROR: unsupported build scope: $BUILD_SCOPE" >&2
-              exit 1
-              ;;
-          esac
-          MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
-
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+          # One selection, split by build path. The two families are built by
+          # different workflows, so each gets the entries it builds and neither
+          # run starts a job for the other. A narrowed dispatch can leave one
+          # side empty, which --allow-empty reports as [] rather than as a
+          # failure; a name that matches nothing still fails, in both calls.
+          for family in debian ubuntu; do
+            MATRIX=$(ci/scripts/resolve-matrix.py "${args[@]}" \
+              --family "$family" --allow-empty)
+            echo "$family=$MATRIX" >> "$GITHUB_OUTPUT"
+            echo "$family entries: $(echo "$MATRIX" | jq length)"
+          done
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per flat matrix entry.
+  # build-debian / build-ubuntu: one parallel job per matrix entry.
   #
-  # Each entry calls build-kernel-deb.yml as a reusable workflow. The full
-  # set of matrix fields (suite, srcpkg, binpkg, kernel_config, dkms, etc.) is
-  # threaded through as inputs. fail-fast is disabled so a failed trixie
-  # build does not cancel the forky build.
+  # Two jobs rather than one because the families are built by different
+  # workflows, on different runners, and published from different places.
+  # Splitting the matrix by family means each entry starts exactly the jobs
+  # that build it: a run shows no skipped job for the path it did not take.
+  #
+  # Both are named ${{ matrix.name }}, so the checks list reads the same as
+  # one job would -- the split is in what each entry calls, not in what it is
+  # called. fail-fast is disabled so a failed trixie build does not cancel the
+  # forky build.
+  #
+  # The if: guards catch a family the run selects nothing on -- a narrowed
+  # dispatch, or a matrix with no entries for it. They are not optional: an
+  # empty matrix is a workflow error rather than an empty job list.
+  #
+  # A skipped family shows up as a check literally named "matrix.name": GitHub
+  # never expands a job it skips, so it prints the expression's source text,
+  # and a || fallback prints just the same. Only a name that never mentions
+  # matrix would read well, which would mean renaming every check in every
+  # workflow to tidy up one that appears when a family is empty. So it stands.
   # ---------------------------------------------------------------------------
-  build:
-    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
+  build-debian:
+    name: ${{ matrix.name }}
     needs: configure-matrix
+    if: ${{ needs.configure-matrix.outputs.debian != '[]' }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/build-kernel-deb.yml
+        include: ${{ fromJson(needs.configure-matrix.outputs.debian) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
+    uses: ./.github/workflows/build-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
-      kernel-variant: ${{ matrix.kernel_variant }}
+      build: ${{ matrix.name }}
+      flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
       ref-strategy: ${{ matrix.ref_strategy }}
@@ -132,7 +147,51 @@ jobs:
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+      # Released archives only. This build is the one a release promotes, so
+      # anything it resolves a Build-Depends against is something the released
+      # kernel will depend on: reading qli-staging here would let a kernel
+      # reach qli depending on a -dkms package that has not.
+      extra-build-dep-workspaces: qli
+      # Every Debian entry the nightly builds is promoted into this workspace
+      # once its build succeeds. The destination belongs to the run rather than
+      # to the entry: this is the nightly, so its results are what the archive
+      # is for. A PR build of the same entry passes nothing here and promotes
+      # nowhere.
+      #
+      # qli-staging rather than qli: a nightly promotion is unattended, so it
+      # publishes where an unreviewed kernel belongs. Pointing this at qli --
+      # by setting the repository variable -- would put every night's build
+      # straight into the released archive, so move the promote job to the
+      # Production environment first, and take its approval gate with it.
+      target-workspace: ${{ vars.DEBUSINE_STAGING_WORKSPACE || 'qli-staging' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
-      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
+
+  build-ubuntu:
+    name: ${{ matrix.name }}
+    needs: configure-matrix
+    if: ${{ needs.configure-matrix.outputs.ubuntu != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.ubuntu) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
+    uses: ./.github/workflows/build-kernel-ubuntu.yml
+    with:
+      suite: ${{ matrix.suite }}
+      build: ${{ matrix.name }}
+      flavour: ${{ matrix.flavour }}
+      git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      dkms: ${{ matrix.dkms }}
+      debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: ${{ matrix.kver_extra || '' }}

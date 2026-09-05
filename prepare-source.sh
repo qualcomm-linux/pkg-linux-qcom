@@ -20,6 +20,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DEFAULT_DISTRO="trixie"
+DEFAULT_FLAVOUR="qcom-next"
 DEFAULT_SRCPKG="linux-qcom-next"
 DEFAULT_BINPKG="linux-image-qcom-next"
 DEFAULT_DEBIAN_REVISION="0qcom1"
@@ -51,11 +52,34 @@ OPTIONS:
   Version control:
     -d, --distro DISTRO       Target suite: trixie|forky|sid|noble|questing|resolute
                               (default: $DEFAULT_DISTRO)
+    --flavour NAME            Kernel flavour, the identity LOCALVERSION carries
+                              (default: $DEFAULT_FLAVOUR). Only consulted when
+                              --localversion is not given.
     --localversion SUFFIX     LOCALVERSION suffix appended to the base kernel
-                              version (e.g. -qcom-next-20260722).
-                              Auto-detected from git tag if not specified.
+                              version (e.g. +qcom-next-20260722-g07f50dc44edd).
+                              Derived from the checked-out tag or branch by
+                              ci/scripts/derive-localversion.sh if not given.
+    --snapshot SNAPSHOT       Dated component of the Debian version: YYYYMMDD
+                              with an optional .<respin> ordinal (e.g.
+                              20260722 or 20260722.1). Derived alongside
+                              --localversion; pass it explicitly whenever
+                              --localversion is passed explicitly.
+    --git-sha SHA             Full commit SHA the build was cut from. Its
+                              first 12 characters discriminate two builds of
+                              one snapshot (a moved tag) in the version
+                              strings; the full value is recorded in the
+                              changelog. Auto-detected from HEAD.
     --kver-extra SUFFIX       Extra suffix appended to the final KVER
                               (e.g. -ci42).
+    --git-clone URL           Kernel repository URL, recorded in the changelog.
+                              Defaults to the checkout's origin remote.
+    --git-ref REF             Resolved kernel ref (tag or branch), recorded in
+                              the changelog. Defaults to the exact tag HEAD
+                              sits on, or the branch it is the tip of.
+    --changelog-date DATE     Date of the changelog entry, RFC 2822 (date -R
+                              form). Defaults to HEAD's committer date, so
+                              the entry is dated by the source and the
+                              source package is reproducible.
 
   Package naming:
     --srcpkg NAME             Source package name (default: $DEFAULT_SRCPKG)
@@ -95,13 +119,14 @@ OPTIONS:
     -h, --help                Show this help
 
 EXAMPLES:
-    # Minimal: auto-detect LOCALVERSION from git tag, default package names
+    # Minimal: derive LOCALVERSION from the checkout, default package names
     $0 --source-dir /path/to/kernel
 
     # Full CI invocation with all options
     $0 --source-dir /path/to/kernel \\
        --distro trixie \\
-       --localversion -qcom-next-20260722 \\
+       --localversion +qcom-next-20260722-g07f50dc44edd \\
+       --snapshot 20260722 \\
        --srcpkg linux-qcom-next \\
        --binpkg linux-image-qcom-next \\
        --debian-revision 0qcom1 \\
@@ -114,20 +139,32 @@ EOF
 # Defaults
 SOURCE_DIR=""
 DISTRO="$DEFAULT_DISTRO"
+FLAVOUR="$DEFAULT_FLAVOUR"
 LOCALVERSION=""
+SNAPSHOT=""
 KVER_EXTRA=""
 SRCPKG="$DEFAULT_SRCPKG"
 BINPKG="$DEFAULT_BINPKG"
 DEBIAN_REVISION="$DEFAULT_DEBIAN_REVISION"
 KERNEL_CONFIG=""
 DKMS_MODULES=""
+GIT_CLONE=""
+GIT_REF=""
+GIT_SHA=""
+CHANGELOG_DATE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -s|--source-dir)      SOURCE_DIR="$2";       shift 2 ;;
         -d|--distro)          DISTRO="$2";            shift 2 ;;
+        --flavour)            FLAVOUR="$2";           shift 2 ;;
         --localversion)       LOCALVERSION="$2";      shift 2 ;;
+        --snapshot)           SNAPSHOT="$2";          shift 2 ;;
+        --git-sha)            GIT_SHA="$2";           shift 2 ;;
         --kver-extra)         KVER_EXTRA="$2";        shift 2 ;;
+        --git-clone)          GIT_CLONE="$2";         shift 2 ;;
+        --git-ref)            GIT_REF="$2";           shift 2 ;;
+        --changelog-date)     CHANGELOG_DATE="$2";    shift 2 ;;
         --srcpkg)             SRCPKG="$2";            shift 2 ;;
         --binpkg)             BINPKG="$2";            shift 2 ;;
         --debian-revision)    DEBIAN_REVISION="$2";   shift 2 ;;
@@ -152,37 +189,83 @@ VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 
 [[ -d "$DEBIAN_DIR" ]] || { log_error "Debian dir not found: $DEBIAN_DIR"; exit 1; }
 
-# ── Helper: derive LOCALVERSION from a tag name ──────────────────────────────
-# qcom-next-7.2-rc3-20260722 -> -qcom-next-20260722
-_auto_localversion() {
-    local tag="$1"
-    if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$ ]]; then
-        echo "-${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-    else
-        echo "-$tag"
-    fi
-}
+# ── Resolve the commit, once ─────────────────────────────────────────────────
+# One SHA, used at two widths: the first 12 characters go in the version strings
+# (short enough to keep a boot menu readable), the full value goes in the
+# changelog. Deriving one from the other is what keeps them the same commit.
+[[ -n "$GIT_SHA" ]] || GIT_SHA=$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || true)
+GITSHA="${GIT_SHA:0:12}"
 
-# ── Auto-detect LOCALVERSION from git tag (if not provided) ──────────────────
+# ── Name the checkout ────────────────────────────────────────────────────────
+# The ref HEAD answers to: the exact tag it sits on, else the branch it is the
+# tip of. A detached HEAD reports HEAD, which is treated like any undated ref.
+# This names the checkout for the version derivation below and, when the
+# caller gave none, for the provenance recorded in the changelog -- so a local
+# build says where it came from just as a CI build does.
+#
+# Every git call here tolerates failure. CI passes all of these values in and
+# runs this script in a container as a different user from the one owning
+# the checkout, where git refuses to read the repository at all; nothing it
+# was given is then asked of git.
+_git() { git -C "$SOURCE_DIR" "$@" 2>/dev/null || true; }
+CHECKOUT_REF=""
+if [[ -z "$GIT_REF" || -z "$LOCALVERSION" ]]; then
+    CHECKOUT_REF=$(_git describe --tags --exact-match)
+    [[ -n "$CHECKOUT_REF" ]] || CHECKOUT_REF=$(_git rev-parse --abbrev-ref HEAD)
+fi
+[[ -n "$GIT_CLONE" ]] || GIT_CLONE=$(_git remote get-url origin)
+[[ -n "$GIT_REF" ]]   || GIT_REF="$CHECKOUT_REF"
+# Committer date, like the snapshot: it describes the source rather than the
+# build, so rebuilding a commit rewrites the same changelog entry.
+[[ -n "$CHANGELOG_DATE" ]] || CHANGELOG_DATE=$(_git log -1 --format=%cD)
+
+# ── Derive LOCALVERSION, SNAPSHOT and GITSHA from the checkout (if not given) ──
+# The same derivation CI performs, by the same script: the ref is the exact
+# tag HEAD sits on, or the branch it is the tip of, and the date is HEAD's
+# committer date for the branch-tip case. A local build of a commit therefore
+# produces the version CI would give it, which is what lets a source package
+# built here stand in for one built there.
 if [[ -z "$LOCALVERSION" ]]; then
-    GIT_TAG=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)
-    if [[ -n "$GIT_TAG" ]]; then
-        LOCALVERSION="$(_auto_localversion "$GIT_TAG")"
-        log_info "Auto-detected LOCALVERSION='$LOCALVERSION' from tag '$GIT_TAG'"
+    if [[ -z "$GIT_SHA" || -z "$CHECKOUT_REF" ]]; then
+        log_warn "LOCALVERSION not set and $SOURCE_DIR is not a readable git checkout."
+        log_warn "Package will be named linux-image-<base-kver> (no flavour/date suffix)."
+        log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722-g07f50dc44edd"
     else
-        log_warn "LOCALVERSION not set and no exact git tag found."
-        log_warn "Package will be named linux-image-<base-kver> (no branch/date suffix)."
-        log_warn "Use --localversion to specify, e.g.: --localversion -qcom-next-20260722"
+        # Committer date, normalised to UTC, as CI does.
+        DERIVE_DATE=$(TZ=UTC git -C "$SOURCE_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
+        FIELDS=$("$SCRIPT_DIR/ci/scripts/derive-localversion.sh" \
+            --flavour "$FLAVOUR" \
+            --ref "$CHECKOUT_REF" \
+            --sha "$GIT_SHA" \
+            --date "$DERIVE_DATE")
+        while IFS='=' read -r key value; do
+            case "$key" in
+                LOCALVERSION) LOCALVERSION="$value" ;;
+                SNAPSHOT)     SNAPSHOT="$value" ;;
+                GITSHA)       GITSHA="$value" ;;
+                *) log_error "Unexpected field '$key' from derive-localversion.sh"; exit 1 ;;
+            esac
+        done <<< "$FIELDS"
+        log_info "Derived LOCALVERSION='$LOCALVERSION' SNAPSHOT='$SNAPSHOT' GITSHA='$GITSHA' from $CHECKOUT_REF"
     fi
+elif [[ -z "$SNAPSHOT" ]]; then
+    # An explicit --localversion is not parsed for a snapshot; say so rather
+    # than silently dropping the dated component from the Debian version.
+    log_warn "--localversion given without --snapshot: the Debian version will"
+    log_warn "carry no +git<date> component. Pass --snapshot to supply one."
 fi
 
 log_step "Configuration:"
 log_info "  Source dir:       $SOURCE_DIR"
 log_info "  Distro:           $DISTRO"
+log_info "  Flavour:          $FLAVOUR"
 log_info "  Source package:   $SRCPKG"
 log_info "  Binary metapkg:   $BINPKG"
 log_info "  Debian revision:  $DEBIAN_REVISION"
 [[ -n "$LOCALVERSION" ]]   && log_info "  LOCALVERSION:     $LOCALVERSION"
+[[ -n "$SNAPSHOT" ]]       && log_info "  SNAPSHOT:         $SNAPSHOT"
+[[ -n "$GITSHA" ]]         && log_info "  GITSHA:           $GITSHA"
+[[ -n "$GIT_CLONE" ]]      && log_info "  Source:           $GIT_CLONE $GIT_REF"
 [[ -n "$KVER_EXTRA" ]]     && log_info "  KVER_EXTRA:       $KVER_EXTRA"
 [[ -n "$KERNEL_CONFIG" ]]  && log_info "  Kernel config:    $KERNEL_CONFIG"
 [[ -n "$DKMS_MODULES" ]]   && log_info "  DKMS modules:     $DKMS_MODULES"
@@ -296,12 +379,25 @@ fi
 log_step "Running debian/rules prepare..."
 PREPARE_ARGS="DISTRO=$DISTRO SRCPKG=$SRCPKG BINPKG=$BINPKG DEBIAN_REVISION=$DEBIAN_REVISION"
 [[ -n "$LOCALVERSION" ]] && PREPARE_ARGS="$PREPARE_ARGS LOCALVERSION=$LOCALVERSION"
+[[ -n "$SNAPSHOT" ]]     && PREPARE_ARGS="$PREPARE_ARGS SNAPSHOT=$SNAPSHOT"
+[[ -n "$GITSHA" ]]       && PREPARE_ARGS="$PREPARE_ARGS GITSHA=$GITSHA"
 [[ -n "$KVER_EXTRA" ]]   && PREPARE_ARGS="$PREPARE_ARGS KVER_EXTRA=$KVER_EXTRA"
+# Source provenance for debian/changelog. LOCALVERSION identifies a build by
+# date, not by commit, so the SHA recorded here is what makes a build traceable
+# back to exact source -- particularly for branch-tip builds.
+[[ -n "$GIT_CLONE" ]]    && PREPARE_ARGS="$PREPARE_ARGS GIT_CLONE=$GIT_CLONE"
+[[ -n "$GIT_REF" ]]      && PREPARE_ARGS="$PREPARE_ARGS GIT_REF=$GIT_REF"
+[[ -n "$GIT_SHA" ]]      && PREPARE_ARGS="$PREPARE_ARGS GIT_SHA=$GIT_SHA"
+# Quoted separately: an RFC 2822 date has spaces, which the string-built
+# argument list above would split. Empty means "now", which debian/rules
+# decides for itself.
+CHANGELOG_DATE_ARG=()
+[[ -n "$CHANGELOG_DATE" ]] && CHANGELOG_DATE_ARG=("CHANGELOG_DATE=$CHANGELOG_DATE")
 # Spaces are stripped so a list written as "kgsl, camx" stays a single make
 # argument; debian/rules validates the names it is given.
 [[ -n "$DKMS_MODULES" ]] && PREPARE_ARGS="$PREPARE_ARGS DKMS_MODULES=$(tr -d ' ' <<< "$DKMS_MODULES")"
 # shellcheck disable=SC2086
-make -f "$SOURCE_DIR/debian/rules" -C "$SOURCE_DIR" prepare $PREPARE_ARGS
+make -f "$SOURCE_DIR/debian/rules" -C "$SOURCE_DIR" prepare $PREPARE_ARGS "${CHANGELOG_DATE_ARG[@]}"
 
 echo
 log_step "Source preparation complete."

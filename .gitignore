@@ -18,3 +18,6 @@ debian/linux-image-*.prerm
 # Default kernel source and build output directories
 kernel-source/
 kernel-build/
+
+# Python bytecode cache from ci/scripts/
+__pycache__/
