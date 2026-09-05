@@ -224,6 +224,8 @@ jobs:
           SUITE: ${{ inputs.suite }}
           SRCPKG: ${{ inputs.srcpkg }}
           SRCPKG_VERSION: ${{ steps.prepare.outputs.srcpkg_version }}
+          ORIG_FILE: ${{ steps.prepare.outputs.orig_file }}
+          ORIG_SHA256: ${{ steps.prepare.outputs.orig_sha256 }}
         run: |
           # No -x: DEBUSINE_TOKEN is in env, keep xtrace off.
           set -euo pipefail
@@ -247,8 +249,32 @@ jobs:
             exit 0
           fi
 
-          if chdist apt-cache target-workspace showsrc "$SRCPKG" 2>/dev/null \
-               | grep -qxF "Version: $SRCPKG_VERSION"; then
+          SOURCES=$(chdist apt-cache target-workspace showsrc "$SRCPKG" 2>/dev/null || true)
+
+          # The orig this run wrote is a function of the kernel commit, and
+          # the archive may hold it already: under this version on a rerun,
+          # or under another Debian revision of the same upstream version --
+          # a packaging rebuild, which is exactly the case where the archive
+          # requires the two revisions to share one file. Every stanza that
+          # names this orig must therefore carry this checksum. One that does
+          # not is a build that would be rejected at promotion for a file
+          # conflict, or worse, accepted somewhere that does not check; so it
+          # fails here, with both checksums, before anything is built.
+          #
+          # This suite only: apt indexes are per suite, so an orig published
+          # under another suite of the workspace is not seen here. The
+          # reproducibility of the tarball is what covers that case.
+          ARCHIVE_SHA256=$(awk -v orig="$ORIG_FILE" \
+            '$1 ~ /^[0-9a-f]{64}$/ && $3 == orig { print $1 }' <<<"$SOURCES" | sort -u)
+          if [[ -n "$ARCHIVE_SHA256" && "$ARCHIVE_SHA256" != "$ORIG_SHA256" ]]; then
+            echo "::error::$DEBUSINE_WORKSPACE $SUITE already holds $ORIG_FILE with sha256 $ARCHIVE_SHA256, but this run built it as $ORIG_SHA256."
+            echo "::error::An orig tarball is a function of the commit it names; find what differs between the two builds before publishing either."
+            exit 1
+          fi
+          [[ -z "$ARCHIVE_SHA256" ]] \
+            || echo "$ORIG_FILE in $DEBUSINE_WORKSPACE $SUITE matches this build ($ORIG_SHA256)."
+
+          if grep -qxF "Version: $SRCPKG_VERSION" <<<"$SOURCES"; then
             echo "$SRCPKG $SRCPKG_VERSION is already in $DEBUSINE_WORKSPACE."
             echo "Nothing new to build; the rest of this run is skipped." \
               >> "$GITHUB_STEP_SUMMARY"
