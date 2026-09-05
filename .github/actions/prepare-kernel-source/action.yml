@@ -27,6 +27,13 @@ inputs:
   suite:
     description: 'Target suite'
     required: true
+  registry-token:
+    description: >
+      Token used to pull the pkg-builder image from ghcr.io, which is not a
+      public package. Defaults to the job's own GITHUB_TOKEN, which needs the
+      packages: read permission the calling workflows declare. The secrets
+      context does not reach a composite action, hence an input.
+    default: ${{ github.token }}
   expect-family:
     description: >
       Build family the calling workflow builds, debian or ubuntu. The suite is
@@ -91,13 +98,17 @@ runs:
       run: |
         set -euo pipefail
         # Family and docker image in one place, because they answer the same
-        # question about a suite. Debian-family suites build in the trixie
-        # image: docker-pkg-build and pkg-builder only support trixie for
-        # Debian, and Debusine handles the actual suite-specific build
-        # internally. Ubuntu-family suites build in an image of their own
-        # suite. The family list here is the one in
+        # question about a suite. The family list here is the one in
         # ci/scripts/resolve-matrix.py, which routes an entry to the workflow
         # that calls this action.
+        #
+        # Ubuntu-family suites use an image of their own suite. Debian-family
+        # suites all use the trixie image: the registry publishes no forky
+        # image, and docker-pkg-build has no Dockerfile to build one from
+        # either, so forky borrows trixie's until one exists. That costs
+        # nothing today because Debusine performs the actual suite-specific
+        # build; this container only has to run prepare-source.sh, which
+        # generates packaging rather than compiling anything.
         case "$SUITE_INPUT" in
           trixie|bookworm)    FAMILY=debian; DOCKER_DISTRO="$SUITE_INPUT" ;;
           forky|sid|unstable) FAMILY=debian; DOCKER_DISTRO=trixie ;;
@@ -110,11 +121,41 @@ runs:
           exit 1
         fi
 
+        # Pull the images qualcomm-linux/docker-pkg-build publishes, and build
+        # the rest here. Its container-build-and-upload.yml pushes trixie and
+        # resolute (and noble) on every push to main and weekly, having
+        # validated each with a test package build, so rebuilding them from the
+        # same Dockerfile on every job repeats work already done. Anything it
+        # does not publish still has to be built on the runner.
+        case "$DOCKER_DISTRO" in
+          trixie|resolute) IMAGE_SOURCE=pull ;;
+          *)               IMAGE_SOURCE=build ;;
+        esac
+
         echo "distro=$SUITE_INPUT" >> "$GITHUB_OUTPUT"
         echo "docker_distro=$DOCKER_DISTRO" >> "$GITHUB_OUTPUT"
-        echo "Suite $SUITE_INPUT is $FAMILY-family and builds in the $DOCKER_DISTRO image"
+        echo "image_source=$IMAGE_SOURCE" >> "$GITHUB_OUTPUT"
+        echo "Suite $SUITE_INPUT is $FAMILY-family and uses the $DOCKER_DISTRO image ($IMAGE_SOURCE)"
 
+    - name: Pull builder image
+      if: ${{ steps.env.outputs.image_source == 'pull' }}
+      shell: bash
+      env:
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+      run: |
+        # No -x: REGISTRY_TOKEN is in env.
+        set -euo pipefail
+        # ghcr.io/qualcomm-linux/pkg-builder is not a public package, so the
+        # pull needs a login even though the image is only ever read.
+        echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        docker pull "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO"
+        docker image ls
+
+    # Only for a suite with no published image: the pull path needs neither
+    # this checkout nor the build below.
     - name: Checkout docker-pkg-build
+      if: ${{ steps.env.outputs.image_source == 'build' }}
       uses: actions/checkout@v4
       with:
         persist-credentials: false
@@ -122,11 +163,13 @@ runs:
         ref: main
         path: docker-pkg-build
 
-    - name: Build docker image
+    - name: Build builder image
+      if: ${{ steps.env.outputs.image_source == 'build' }}
       shell: bash
       env:
         DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
       run: |
+        set -euo pipefail
         ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DOCKER_DISTRO"
         docker image ls
 
