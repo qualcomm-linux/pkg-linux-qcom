@@ -141,6 +141,11 @@ jobs:
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+      # Released archives only. This build is the one a release promotes, so
+      # anything it resolves a Build-Depends against is something the released
+      # kernel will depend on: reading qli-staging here would let a kernel
+      # reach qli depending on a -dkms package that has not.
+      extra-build-dep-workspaces: qli
       # Every Debian entry the nightly builds is promoted into the staging
       # workspace once its build succeeds. The destination belongs to the run
       # rather than to the entry: this is the nightly, so its results are what
