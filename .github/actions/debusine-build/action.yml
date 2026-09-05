@@ -66,6 +66,7 @@ runs:
     - name: Checkout debusine-action helpers
       uses: actions/checkout@v5
       with:
+        persist-credentials: false
         repository: qualcomm-linux/debusine-action
         ref: ${{ inputs.debusine-action-ref }}
         path: debusine-action

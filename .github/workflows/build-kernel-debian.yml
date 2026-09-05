@@ -203,6 +203,8 @@ jobs:
       # was dispatched from or the one the calling workflow runs at.
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Prepare kernel source
         uses: ./.github/actions/prepare-kernel-source
@@ -247,6 +249,8 @@ jobs:
       # comes from the prepared-source artifact, not from this checkout.
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Build in Debusine
         id: debusine
@@ -278,6 +282,7 @@ jobs:
       - name: Checkout debusine-action helpers
         uses: actions/checkout@v5
         with:
+          persist-credentials: false
           repository: qualcomm-linux/debusine-action
           ref: main
           path: debusine-action
