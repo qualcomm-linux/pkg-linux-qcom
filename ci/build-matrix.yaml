@@ -96,20 +96,20 @@ builds:
     # TODO: added manual revision
     debian_revision: '0qli1+staging1'
 
-  # - name: qcom-next-resolute
-  #   suite: resolute
-  #   flavour: qcom-next
-  #   git_clone: https://github.com/qualcomm-linux/kernel
-  #   branch_or_tag: qcom-next
-  #   ref_strategy: latest_tag
-  #   tag_pattern: 'qcom-next-*'
-  #   srcpkg: linux-qcom-next
-  #   binpkg: linux-image-qcom-next
-  #   kernel_config: []
-  #   # kgsl alone: camx-dkms and iris-vpu-dkms are not packaged for Ubuntu.
-  #   dkms:
-  #     - kgsl
-  #   debian_revision: '0qli1~26.04.1'
+  - name: qcom-next-resolute
+    suite: resolute
+    flavour: qcom-next
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next
+    ref_strategy: latest_tag
+    tag_pattern: 'qcom-next-*'
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    # kgsl alone: camx-dkms and iris-vpu-dkms are not packaged for Ubuntu.
+    dkms:
+      - kgsl
+    debian_revision: '0qli1~26.04.1'
 
   # # ---------------------------------------------------------------------------
   # # qcom-next-debug — the same kernel ref built with the in-tree debug
