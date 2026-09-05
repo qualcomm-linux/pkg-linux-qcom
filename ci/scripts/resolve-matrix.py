@@ -366,13 +366,15 @@ def check_consistency(builds, errors):
                     f"flavour {flavour} must use one {field} across all its "
                     "entries (got " + ", ".join(sorted(values)) + ")"
                 )
+        # A Release must be preceded by the Daily that tests it, but the
+        # converse does not hold: a flavour tracking a moving upstream has
+        # nothing immutable to pin, so it is built daily and never promoted.
         types = {entry.get("type") for entry in entries}
-        for delivery_type in DELIVERY_TYPES:
-            if delivery_type not in types:
-                errors.append(
-                    f"flavour {flavour} has no {delivery_type} entry; "
-                    "every flavour must define at least one of each"
-                )
+        if "Release" in types and "Daily" not in types:
+            errors.append(
+                f"flavour {flavour} has a Release entry but no Daily entry; "
+                "a release must be preceded by the daily build that tests it"
+            )
 
     for (flavour, suite), entries in sorted(
         by_flavour_suite.items(), key=lambda item: str(item[0])
