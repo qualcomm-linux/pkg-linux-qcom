@@ -167,3 +167,13 @@ jobs:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: kernel-build/${{ inputs.suite }}
           destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
+
+      # The source package the binaries were built from, kept beside them,
+      # as the Debian workflow keeps its own. Still in the workspace where
+      # the action wrote it.
+      - name: Upload source package to S3
+        uses: qualcomm-linux/upload-private-artifact-action@4940e9327cd7386acdb908b61c714c079b7d754b # aws-v4
+        with:
+          s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
+          path: source-package
+          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/source/
