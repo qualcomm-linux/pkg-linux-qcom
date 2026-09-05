@@ -117,13 +117,11 @@ variant is a matrix change, not a workflow redesign.
 | `build-kernel-debian.yml` | Builds one Debian-suite entry in Debusine, publishes it to S3, and promotes it into the workspace its caller named, if any. | Called by Daily, Release and PR build. |
 | `build-kernel-ubuntu.yml` | Builds one Ubuntu-suite entry on the Docker path and publishes it to S3. | Called by Daily and PR build. |
 
-The two build workflows share their steps through two composite actions rather
-than through a common orchestrator workflow:
-
-| Action | Used by |
-| --- | --- |
-| `.github/actions/prepare-kernel-source` | Both, as the `prepare` job. |
-| `.github/actions/debusine-build` | The Debian workflow, as the `build` job. |
+The two build workflows share their common steps through one composite action,
+`.github/actions/prepare-kernel-source`, rather than through a common
+orchestrator workflow. Both call it to clone the ref and build the source
+package. Everything after that differs by family and is written out in the
+workflow that does it.
 
 Which of them a build leg calls is decided by the caller, from the entry's
 suite: `resolve-matrix.py --family debian|ubuntu` splits the selection, and
@@ -380,7 +378,7 @@ flowchart TD
 
     subgraph build[One build workflow per leg]
         C2["prepare\nprepare-kernel-source action\nClone ref, build the source package\nSkip the run if the version is published"]
-        C3["build\ndebusine-build action"]
+        C3["build\nSubmit the .dsc with lib/build"]
         C4["build\nprepare-kernel-source action, then\nbuild-kernel.sh --dsc in Docker"]
         C5["publish\nDownload .deb files, upload to S3"]
         C6["promote\nlib/release into the caller's workspace"]
