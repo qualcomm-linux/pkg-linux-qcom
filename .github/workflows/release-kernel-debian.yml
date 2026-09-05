@@ -107,6 +107,9 @@ jobs:
   prepare:
     name: Generate source package
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
     steps:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -139,6 +142,9 @@ jobs:
     name: Build package (Debusine)
     needs: prepare
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
     environment: Production
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
@@ -177,6 +183,9 @@ jobs:
     name: Release to Debusine
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
     environment: Production
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie

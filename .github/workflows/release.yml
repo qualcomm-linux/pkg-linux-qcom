@@ -48,6 +48,8 @@ jobs:
   configure-matrix:
     name: Configure release matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -105,6 +107,9 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
     uses: ./.github/workflows/release-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}

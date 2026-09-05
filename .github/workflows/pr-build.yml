@@ -29,6 +29,8 @@ jobs:
   configure-matrix:
     name: Configure build matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
     outputs:
       debian: ${{ steps.set-matrix.outputs.debian }}
       ubuntu: ${{ steps.set-matrix.outputs.ubuntu }}
@@ -74,6 +76,9 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.debian) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
     uses: ./.github/workflows/build-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
@@ -104,6 +109,9 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.ubuntu) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
       suite: ${{ matrix.suite }}
