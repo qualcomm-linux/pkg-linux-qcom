@@ -19,7 +19,7 @@ name: build-kernel-ubuntu
 # in ci/build-matrix.yaml, rather than in a dispatch form that drifts from it.
 #
 # Jobs:
-#   prepare (self-hosted): clone, patch, inject debian/, generate the source.
+#   prepare (self-hosted): clone, inject debian/, build the source package.
 #   build   (self-hosted): build the .deb files and upload them to S3.
 
 on:
@@ -122,7 +122,7 @@ jobs:
           kver-extra: ${{ inputs.kver-extra }}
 
   # ---------------------------------------------------------------------------
-  # build: build the prepared source in a suite-matched container, then publish.
+  # build: build the source package in a suite-matched container, then publish.
   #
   # Named for where the build happens, as the Debian workflows' Build package
   # (Debusine) is: this one runs in a suite-matched pkg-builder container on
@@ -178,34 +178,28 @@ jobs:
           esac
           docker image ls
 
-      - name: Download prepared source tree
+      - name: Download source package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: kernel-srcpkg-${{ inputs.flavour }}-${{ inputs.suite }}
-          path: /tmp/srcpkg-artifact
-
-      - name: Extract prepared source tree
-        run: |
-          # tar.gz preserves the execute bits that upload-artifact's zip would
-          # strip (see README); --strip-components=1 drops the archive's top dir.
-          mkdir -p kernel-source
-          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
-            -C kernel-source --strip-components=1
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel-source" >> "$GITHUB_ENV"
+          name: source-package-${{ inputs.flavour }}-${{ inputs.suite }}
+          path: source-package
 
       - name: Build kernel package
         run: |
-          # Kernel source was cloned, patched, and prepared by the prepare job.
-          # Pass --local-source and --skip-prepare so build-kernel.sh goes
-          # directly to the build step. debian/control, debian/changelog, and
-          # all config fragments are already baked into the extracted source
-          # tree; no re-derivation of LOCALVERSION, kver-extra, or debug config
-          # is needed here.
+          # The prepare job built the source package; --dsc hands it to
+          # sbuild in the suite's pkg-builder image, so what is built here
+          # is the .dsc the run reported, exactly as Debusine builds it for
+          # the Debian family. Nothing is cloned or prepared again.
+          set -euo pipefail
+          DSC=$(ls source-package/*.dsc)
+          [[ $(wc -l <<<"$DSC") -eq 1 ]] || {
+            echo "::error::Expected exactly one .dsc in the source package artifact, found: $DSC"
+            exit 1
+          }
           ./build-kernel.sh \
             --build-mode docker \
             --distro "$DISTRO" \
-            --local-source "$KERNEL_DIR" \
-            --skip-prepare \
+            --dsc "$DSC" \
             --docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py"
 
       - name: Upload .deb packages to S3
