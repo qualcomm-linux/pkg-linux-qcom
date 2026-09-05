@@ -32,7 +32,7 @@ into LOCALVERSION, so each produces a distinct kernel release
 distinct versioned image package that can be installed alongside the other. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
 
-`ci/build-matrix.json` is the source of truth; this table is a summary.
+`ci/build-matrix.yaml` is the source of truth; this table is a summary.
 
 Two entry points use the same reusable build pipeline:
 
@@ -41,56 +41,53 @@ Two entry points use the same reusable build pipeline:
 - **Release** uses a pinned matrix ref and promotes successful Debian packages
   to the selected production Debusine workspace.
 
-The final Production matrix is conceptually:
+One entry in `deliveries` is one generated package: a single `kernel_variant`,
+a single `type`, and a single `suite`. Nothing is expanded or derived at
+resolve time, so what an entry says is what gets built:
 
-```json
-{
-  "suite_suffix_mapping": {
-    "trixie": "~bpo13+1",
-    "forky": "",
-    "resolute": "~26.04.1"
-  },
-  "deliveries": [
-    {
-      "kernel_variant": "qcom-next",
-      "type": "Daily",
-      "suites": ["trixie", "forky", "resolute"],
-      "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next",
-      "ref_strategy": "latest_tag",
-      "tag_pattern": "qcom-next-*",
-      "srcpkg": "linux-qcom-next",
-      "binpkg": "linux-image-qcom-next",
-      "kernel_config": [],
-      "dkms": ["kgsl", "camx", "iris-vpu"],
-      "debian_version_stub": "0qli1",
-      "debian_version_suffix": "~"
-    },
-    {
-      "kernel_variant": "qcom-next",
-      "type": "Release",
-      "suites": ["trixie", "forky"],
-      "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "<pinned-qcom-next-tag>",
-      "ref_strategy": "pinned_ref",
-      "srcpkg": "linux-qcom-next",
-      "binpkg": "linux-image-qcom-next",
-      "kernel_config": [],
-      "dkms": ["kgsl", "camx", "iris-vpu"],
-      "debian_version_stub": "0qli1",
-      "debian_version_suffix": "",
-      "target_workspace": "qli"
-    }
-  ]
-}
+```yaml
+deliveries:
+  - kernel_variant: qcom-next
+    type: Daily
+    suite: trixie
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next
+    ref_strategy: latest_tag
+    tag_pattern: 'qcom-next-*'
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1~'
+
+  - kernel_variant: qcom-next
+    type: Release
+    suite: trixie
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: <pinned-qcom-next-tag>
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1'
+    target_workspace: qli
 ```
 
-`suite_suffix_mapping` is matrix-wide policy, not duplicated per row: every
-suite referenced by any row's `suites` must have an entry here, and every
-delivery for a variant derives its final `debian_revision` as
-`debian_version_stub + suite_suffix_mapping[suite] + delivery_suffix`, where
-`delivery_suffix` is `~` for Daily and empty for Release. For the values
-above:
+Entries are written out in full rather than sharing YAML anchors, so each one
+can be read, grepped, and changed on its own. `resolve-matrix.py` enforces the
+consistency that duplication would otherwise put at risk — see
+[Matrix Model](#matrix-model).
+
+Each entry states its `debian_revision` outright. The configured values are:
 
 | Suite | Daily | Release |
 | --- | --- | --- |
@@ -99,19 +96,21 @@ above:
 | Resolute | `0qli1~26.04.1~` | (not a configured Release suite) |
 
 `~` always sorts below the same prefix without it in Debian version
-ordering, so Daily always sorts below Release for the same suite and stub.
-Ordering across *different* suites depends entirely on the configured
-suffixes: with the mapping above, Resolute < Trixie < Forky for the same
+ordering, so a suite's Daily always sorts below its Release; `resolve-matrix.py`
+requires a Daily revision to be exactly its Release revision plus a trailing
+`~`. Ordering across *different* suites depends entirely on the configured
+revisions: with the values above, Resolute < Trixie < Forky for the same
 delivery type, matching a Debian-backports-then-unstable promotion chain.
 This is a deliberate ordering policy, not an automatic guarantee — adding a
-suite means choosing a suffix that sorts where that suite belongs relative to
-the others. One nuance to be aware of: because Forky's suffix is empty, its
-Daily revision ends immediately after the trailing `~`, so Trixie Daily does
-not sort below Forky Daily even though Trixie Release sorts below Forky
-Release. This does not affect the supported Release-to-Release upgrade path.
+suite means choosing a revision that sorts where that suite belongs relative to
+the others. One nuance to be aware of: because Forky's revision carries no
+suite component, its Daily revision ends immediately after the trailing `~`, so
+Trixie Daily does not sort below Forky Daily even though Trixie Release sorts
+below Forky Release. This does not affect the supported Release-to-Release
+upgrade path.
 
-`ci/build-matrix.json` is the authoritative configuration. Adding a kernel
-variant is a two-row matrix change, not a workflow redesign.
+`ci/build-matrix.yaml` is the authoritative configuration. Adding a kernel
+variant is a matrix change, not a workflow redesign.
 
 ## Workflows
 
@@ -165,29 +164,26 @@ production release controls.
 
 ## Matrix Model
 
-`ci/build-matrix.json` is an object with two top-level keys: `deliveries`
-(the matrix rows) and `suite_suffix_mapping` (matrix-wide Debian suffix
-policy, shared by every variant and delivery type). `ci/scripts/resolve-matrix.sh`
-validates the document, requires each `kernel_variant` to have exactly one
-`Daily` and one `Release` row in `deliveries`, filters by delivery type, and
-flattens each `suites` array into independent suite legs. Each leg carries
-its own values for:
+`ci/build-matrix.yaml` is a mapping with exactly one top-level key,
+`deliveries`. One entry in it is one generated package, so there is no
+expansion step: `ci/scripts/resolve-matrix.py` validates the whole document,
+selects the entries matching the requested type, variant, and suite, and hands
+them to the workflow matrix as they stand. Each entry carries:
 
 | Field | Purpose |
 | --- | --- |
 | `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
 | `type` | `Daily` or `Release`. |
-| `suites` | Suites to flatten into individual build legs. Each must have a `suite_suffix_mapping` entry. |
+| `suite` | The one suite this entry builds for. |
 | `git_clone` | Kernel source repository. |
 | `branch_or_tag` | Source branch or pinned tag, according to `ref_strategy`. |
 | `ref_strategy` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
 | `tag_pattern` | Required only for `latest_tag`; matching tags must end in `-YYYYMMDD`, which determines newest-first ordering. |
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
-| `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
-| `dkms` | Out-of-tree DKMS modules built against this kernel and bundled into its `linux-image` package, one per array element, each named as the stem of its `<name>-dkms` package (e.g. `kgsl`). Empty bundles nothing. A listed module is a presence contract: a build fails rather than shipping an image without it. `resolve-matrix.sh` joins it into the comma-separated `dkms` workflow input. |
-| `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
-| `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
+| `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per list element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.py` joins it into the comma-separated `kernel-config` workflow input. |
+| `dkms` | Out-of-tree DKMS modules built and bundled into the image package, one per list element, each named without the `-dkms` suffix (e.g. `kgsl`). An empty list bundles nothing. A listed module is a presence contract: a build fails rather than shipping an image without it. `resolve-matrix.py` joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh --dkms`; see [debian/README.md](debian/README.md) for what the packaging does with it. |
+| `debian_revision` | The Debian revision this package is built at, stated outright. Daily revisions end in `~`; Release revisions do not. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
 | `target_workspace` | Debusine destination for Release entries only. |
@@ -195,32 +191,45 @@ its own values for:
 `dkms` currently has one exception the matrix cannot express: `build-kernel-deb.yml`
 replaces the resolved list with `kgsl` on Ubuntu-family legs, so `camx` and
 `iris-vpu` are bundled on Debian suites only. That override is temporary and goes
-away once the matrix gains per-suite `dkms` lists.
+away once the per-suite `dkms` lists the flattened matrix now allows are used.
 
-`target_workspace` is required for `Release` and rejected for `Daily`.
-`tag_pattern` is required for `latest_tag` and rejected for other strategies.
-The resolver selects the most recent trailing `YYYYMMDD` date, and rejects
-duplicate suites and malformed variant identifiers before any build jobs
-start. It also rejects a matrix where any configured suite has no
-`suite_suffix_mapping` entry, where two suites share the same suffix, where a
-suffix is non-empty and doesn't start with `~`, where a variant's Daily
-and Release rows disagree on `debian_version_stub`, or where a row's
-`debian_version_suffix` doesn't match what its `type` implies — all before
-any build job starts.
+`resolve-matrix.py` rejects the matrix — before any build job starts — where an
+entry has an unknown field or a missing required one, a malformed variant or
+suite identifier, a `ref_strategy` its `type` does not allow (`Daily` must
+track something moving, `Release` must be pinned), a `tag_pattern` without
+`latest_tag`, a `target_workspace` on a `Daily` entry or none on a `Release`
+one, a `kernel_config` fragment that escapes the kernel source root or collides
+with another fragment's filename, a `dkms` entry that is not a package name
+stem or repeats, or a `debian_revision` that is not a valid Debian revision or
+carries the wrong trailing `~` for its `type`.
 
-Each flattened leg's final `debian_revision` is derived by
-`ci/scripts/derive-debian-revision.sh` from `debian_version_stub`,
-`suite_suffix_mapping[suite]`, and the delivery type
-(`stub + suffix + "~"` for Daily, `stub + suffix` for Release). This script is
-the single implementation of the formula: `resolve-matrix.sh` calls it once
-per flattened leg, and `build-kernel-deb.yml`'s direct-dispatch path (which
-has no full-matrix context) calls the same script for the one suite it was
-given.
+Because entries are written out in full, the resolver also checks the
+invariants that span them, which is what makes the duplication safe to read at
+face value:
 
-Each leg has a distinct prepared-source artifact, Debusine child workspace, and
-S3 path keyed by `kernel_variant + suite`. This prevents two variants that both
-build, for example, `trixie` from consuming or publishing each other's inputs
-or outputs.
+- No two entries share a `kernel_variant`, `type` and `suite` — one entry is
+  one generated package.
+- A variant's entries agree on `srcpkg`, `binpkg`, `kernel_config` and `dkms`;
+  those decide what the package *is*, and the entries differ only in where it
+  goes.
+- A variant's entries of one `type` agree on `git_clone`, `branch_or_tag`,
+  `ref_strategy` and `tag_pattern`, so a forgotten suite cannot quietly ship a
+  different kernel from its siblings after a release ref bump.
+- Every variant defines at least one `Daily` and one `Release` entry.
+- No `srcpkg` or `binpkg` is shared between variants, and no two entries build
+  the same `srcpkg` at the same `debian_revision`.
+- Where a suite has both, its `Daily` revision is its `Release` revision plus a
+  trailing `~`.
+
+`build-kernel-deb.yml`'s direct-dispatch path has no matrix context of its own,
+so when its `debian-revision` input is empty it looks up the `Daily` entry for
+the variant and suite it was given (`resolve-matrix.py --field
+debian_revision`) and builds at the revision the daily build would have used.
+
+Each entry has a distinct prepared-source artifact, Debusine child workspace,
+and S3 path keyed by `kernel_variant + suite`. This prevents two variants that
+both build, for example, `trixie` from consuming or publishing each other's
+inputs or outputs.
 
 Daily S3 outputs use these layouts, where `<run>` is
 `<github.run_id>-<github.run_attempt>`:
@@ -237,10 +246,9 @@ Supporting scripts keep workflow YAML small and testable:
 
 | Script | Responsibility |
 | --- | --- |
-| `ci/scripts/resolve-matrix.sh` | Validates and flattens matrix rows. |
+| `ci/scripts/resolve-matrix.py` | Validates the delivery matrix and selects the entries to build. Needs PyYAML (`python3-yaml`). |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
 | `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant, resolved kernel ref and HEAD, printing `LOCALVERSION=`, `SNAPSHOT=` and `GITSHA=` lines. `SNAPSHOT` is the dated component of the Debian version: the tag's date, or the HEAD commit date for a branch-tip build. Scheme and rationale: [docs/version.md](docs/version.md). |
-| `ci/scripts/derive-debian-revision.sh` | Derives the final suite-specific `debian_revision` from `debian_version_stub`, `suite_suffix_mapping`, and delivery type. |
 
 ## Architecture
 
@@ -451,7 +459,8 @@ The available inputs are:
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
 | `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:arch/arm64/configs/qcom_debug.config`. |
-| `debian-version-stub` | `0qli1` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
+| `dkms` | Empty | Advanced comma-separated DKMS modules bundled into the image package, each without the `-dkms` suffix. Empty bundles none. |
+| `debian-revision` | The matrix Daily revision | Advanced Debian revision override. Left empty, the build takes the `debian_revision` of the matrix's `Daily` entry for the selected variant and suite; direct builds always use the Daily entry since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
 | `debug-build` | `false` | Advanced debug configuration toggle. |
@@ -487,36 +496,38 @@ and keeps production approval controls in the workflow path.
 
 To add a kernel variant:
 
-1. Add exactly two rows to `deliveries` with the same `kernel_variant`: one
-   `Daily` and one `Release`.
-2. Define all package identity, source/ref strategy, configuration,
-   `debian_version_stub`, and suite values in both rows. Do not rely on
-   another variant's values. `srcpkg`, `binpkg`, and `debian_version_stub`
-   must remain identical across the pair. Set `debian_version_suffix` to `~`
-   on the Daily row and `""` on the Release row; `resolve-matrix.sh` rejects
-   the pair if either disagrees with its row's `type`.
+1. Add one entry to `deliveries` per package the variant should produce: one
+   per Daily suite and one per Release suite, each spelling out all of its own
+   fields. Do not rely on another variant's values.
+2. Keep `srcpkg`, `binpkg` and `kernel_config` identical across every entry for
+   the variant, and the ref fields identical across its entries of one `type`.
+   `resolve-matrix.py` rejects the matrix if they drift apart.
 3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
    `pinned_ref` for Release, and update that ref through a reviewed PR.
-4. Give the variant distinct `srcpkg` and `binpkg` values. Set the Release
-   `target_workspace` explicitly.
-5. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
+4. Give the variant distinct `srcpkg` and `binpkg` values. Set
+   `target_workspace` on each Release entry.
+5. Give each entry a `debian_revision`: the Daily one is the Release one for
+   the same suite plus a trailing `~`.
+6. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
    the Docker path.
-6. Run a filtered Daily validation for the new variant, then its full Daily and
+7. Run a filtered Daily validation for the new variant, then its full Daily and
    Release flows.
 
 To add a new suite (for an existing or new variant):
 
-1. Add an entry for it to the shared top-level `suite_suffix_mapping`, empty
-   or starting with `~`, and distinct from every other suite's suffix.
-2. Add the suite to the `suites` array of the relevant Daily and/or Release
-   rows. `resolve-matrix.sh` rejects any configured suite with no mapping
-   entry before any build job starts.
-3. Choose the suffix so the suite sorts where it belongs relative to the
+1. Add one entry per delivery type the suite should get, copying the variant's
+   existing entry for that type and changing `suite` and `debian_revision`.
+2. Choose the revision so the suite sorts where it belongs relative to the
    others for the same delivery type (see the ordering discussion in
-   [Overview](#overview)).
+   [Overview](#overview)), and so it does not collide with another entry
+   building the same `srcpkg`.
 
 No workflow dispatch choices need to be updated: manual Daily and Release
 inputs accept matrix-defined variant and suite strings.
+
+Run `ci/scripts/resolve-matrix.py --type Daily` and `--type Release` locally to
+validate a matrix change before pushing it; both validate the whole document,
+so either one catches a mistake in the other's entries.
 
 ## Contributing
 
