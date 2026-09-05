@@ -76,7 +76,7 @@ KREL_FILE := debian/kernel.release
 #   debian/localversion  Plain file containing the LOCALVERSION suffix (e.g. +qcom-next-20260722).
 #                        Read by override_dh_auto_build to pass LOCALVERSION= to make.
 #   debian/pkgversion    Plain file containing the full Debian package version
-#                        (e.g. 7.2.0-rc3+20260722-0qcom1).
+#                        (e.g. 7.2.0~rc3+git20260722-0qcom1).
 #                        Read by override_dh_gencontrol.
 # ---------------------------------------------------------------------------
 KVER_EXTRA       ?=
@@ -117,9 +117,9 @@ prepare:
 	fi; \
 	\
 	# ── Derive package version ───────────────────────────────────────────────
-	# Package version format: <base_kver>+<snapshot>-<debian_revision>
+	# Package version format: <base_kver>+git<snapshot>-<debian_revision>
 	# where base_kver = kernel version without the LOCALVERSION suffix, and
-	# snapshot = the SNAPSHOT input.
+	# snapshot = the SNAPSHOT input (YYYYMMDD with an optional respin ordinal).
 	# For branch-tip builds, which have no snapshot, version = <base_kver>-<debian_revision>.
 	#
 	# Extract base_kver: read directly from kernel Makefile (same as above but
@@ -144,7 +144,7 @@ prepare:
 			echo "ERROR: SNAPSHOT must be YYYYMMDD with an optional .<respin> (got '$(SNAPSHOT)')"; \
 			exit 1; \
 		}; \
-		UPSTREAM_VER="$${BASE_KVER_CLEAN}+$(SNAPSHOT)"; \
+		UPSTREAM_VER="$${BASE_KVER_CLEAN}+git$(SNAPSHOT)"; \
 	else \
 		UPSTREAM_VER="$${BASE_KVER_CLEAN}"; \
 	fi; \
