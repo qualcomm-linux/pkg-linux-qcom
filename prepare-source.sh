@@ -72,8 +72,10 @@ OPTIONS:
     --kver-extra SUFFIX       Extra suffix appended to the final KVER
                               (e.g. -ci42).
     --git-clone URL           Kernel repository URL, recorded in the changelog.
+                              Defaults to the checkout's origin remote.
     --git-ref REF             Resolved kernel ref (tag or branch), recorded in
-                              the changelog.
+                              the changelog. Defaults to the exact tag HEAD
+                              sits on, or the branch it is the tip of.
 
   Package naming:
     --srcpkg NAME             Source package name (default: $DEFAULT_SRCPKG)
@@ -188,6 +190,20 @@ VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 [[ -n "$GIT_SHA" ]] || GIT_SHA=$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || true)
 GITSHA="${GIT_SHA:0:12}"
 
+# ── Name the checkout ────────────────────────────────────────────────────────
+# The ref HEAD answers to: the exact tag it sits on, else the branch it is the
+# tip of. A detached HEAD reports HEAD, which is treated like any undated ref.
+# This names the checkout for the version derivation below and, when the
+# caller gave none, for the provenance recorded in the changelog -- so a local
+# build says where it came from just as a CI build does.
+CHECKOUT_REF=""
+if [[ -n "$GIT_SHA" ]]; then
+    CHECKOUT_REF=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null \
+        || git -C "$SOURCE_DIR" rev-parse --abbrev-ref HEAD)
+    [[ -n "$GIT_CLONE" ]] || GIT_CLONE=$(git -C "$SOURCE_DIR" remote get-url origin 2>/dev/null || true)
+    [[ -n "$GIT_REF" ]]   || GIT_REF="$CHECKOUT_REF"
+fi
+
 # ── Derive LOCALVERSION, SNAPSHOT and GITSHA from the checkout (if not given) ──
 # The same derivation CI performs, by the same script: the ref is the exact
 # tag HEAD sits on, or the branch it is the tip of, and the date is HEAD's
@@ -200,19 +216,11 @@ if [[ -z "$LOCALVERSION" ]]; then
         log_warn "Package will be named linux-image-<base-kver> (no flavour/date suffix)."
         log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722-g07f50dc44edd"
     else
-        GIT_TAG=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)
-        if [[ -n "$GIT_TAG" ]]; then
-            DERIVE_REF="$GIT_TAG"
-        else
-            # A detached HEAD reports HEAD, which derive-localversion.sh
-            # treats like any undated ref: the commit date supplies the
-            # snapshot. Committer date, normalised to UTC, as CI does.
-            DERIVE_REF=$(git -C "$SOURCE_DIR" rev-parse --abbrev-ref HEAD)
-        fi
+        # Committer date, normalised to UTC, as CI does.
         DERIVE_DATE=$(TZ=UTC git -C "$SOURCE_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
         FIELDS=$("$SCRIPT_DIR/ci/scripts/derive-localversion.sh" \
             --flavour "$FLAVOUR" \
-            --ref "$DERIVE_REF" \
+            --ref "$CHECKOUT_REF" \
             --sha "$GIT_SHA" \
             --date "$DERIVE_DATE")
         while IFS='=' read -r key value; do
@@ -223,7 +231,7 @@ if [[ -z "$LOCALVERSION" ]]; then
                 *) log_error "Unexpected field '$key' from derive-localversion.sh"; exit 1 ;;
             esac
         done <<< "$FIELDS"
-        log_info "Derived LOCALVERSION='$LOCALVERSION' SNAPSHOT='$SNAPSHOT' GITSHA='$GITSHA' from $DERIVE_REF"
+        log_info "Derived LOCALVERSION='$LOCALVERSION' SNAPSHOT='$SNAPSHOT' GITSHA='$GITSHA' from $CHECKOUT_REF"
     fi
 elif [[ -z "$SNAPSHOT" ]]; then
     # An explicit --localversion is not parsed for a snapshot; say so rather
@@ -242,6 +250,7 @@ log_info "  Debian revision:  $DEBIAN_REVISION"
 [[ -n "$LOCALVERSION" ]]   && log_info "  LOCALVERSION:     $LOCALVERSION"
 [[ -n "$SNAPSHOT" ]]       && log_info "  SNAPSHOT:         $SNAPSHOT"
 [[ -n "$GITSHA" ]]         && log_info "  GITSHA:           $GITSHA"
+[[ -n "$GIT_CLONE" ]]      && log_info "  Source:           $GIT_CLONE $GIT_REF"
 [[ -n "$KVER_EXTRA" ]]     && log_info "  KVER_EXTRA:       $KVER_EXTRA"
 [[ -n "$KERNEL_CONFIG" ]]  && log_info "  Kernel config:    $KERNEL_CONFIG"
 [[ -n "$DKMS_MODULES" ]]   && log_info "  DKMS modules:     $DKMS_MODULES"
