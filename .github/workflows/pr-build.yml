@@ -52,7 +52,7 @@ jobs:
   # resolute results on the PR.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.kernel_variant }} (${{ matrix.suite }})
+    name: ${{ matrix.kernel_variant }}
     needs: configure-matrix
     strategy:
       fail-fast: false
