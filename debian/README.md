@@ -394,7 +394,7 @@ A listed module is a presence contract — if it fails to build, or its
 `BUILD_EXCLUSIVE` gates exclude this kernel, the package build fails rather than
 shipping a kernel image without it. To stop bundling a module, drop it from the
 list its build was given (for CI builds, the `dkms` field in
-`ci/build-matrix.json`).
+`ci/build-matrix.yaml`).
 
 ### Standalone developer use
 
