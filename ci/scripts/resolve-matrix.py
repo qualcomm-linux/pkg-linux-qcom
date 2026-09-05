@@ -11,9 +11,8 @@ and prints them.
 
 There is one kind of entry, and it describes a kernel rather than a
 destination. Where a build is published is decided by the workflow running it,
-not stated here: the nightly promotes its Debian entries into the staging
-workspace, a PR build promotes nowhere, and release.yml promotes onward from
-staging without building anything.
+not stated here: the nightly promotes its Debian entries into the archive, and
+a PR build promotes nowhere.
 
 The document is validated in full on every invocation, not just the selected
 entries, so a typo in an entry nobody selected fails the run that would have
@@ -151,10 +150,9 @@ REF_FIELDS = ("git_clone", "branch_or_tag", "ref_strategy", "tag_pattern")
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 
-# The dispatch forms of daily.yml and release.yml take one builds field, where
-# "all" means every entry and anything else is a list of names. A build
-# actually called all would be unreachable through them, so the matrix may not
-# define one.
+# The dispatch form of daily.yml takes one builds field, where "all" means
+# every entry and anything else is a list of names. A build actually called all
+# would be unreachable through it, so the matrix may not define one.
 RESERVED_NAMES = ("all",)
 
 # A Debian revision: no hyphen (that would start a new revision component) and
