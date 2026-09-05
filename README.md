@@ -127,10 +127,10 @@ variant is a matrix change, not a workflow redesign.
 
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
-| `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
+| `daily.yml` | Resolves and runs the Daily matrix. The manual build entry point. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
 | `release.yml` | Resolves and runs the Release matrix. | Manual dispatch only. |
-| `build-kernel-debian.yml` | Builds one Debian-suite entry in Debusine and publishes it to S3. | Manual dispatch or called by Daily and PR build. |
-| `build-kernel-ubuntu.yml` | Builds one Ubuntu-suite entry on the Docker path and publishes it to S3. | Manual dispatch or called by Daily and PR build. |
+| `build-kernel-debian.yml` | Builds one Debian-suite entry in Debusine and publishes it to S3. | Called by Daily and PR build. |
+| `build-kernel-ubuntu.yml` | Builds one Ubuntu-suite entry on the Docker path and publishes it to S3. | Called by Daily and PR build. |
 | `release-kernel-debian.yml` | Builds one Debian-suite entry in Debusine and promotes it to the release workspace. | Called by Release. |
 
 The three build workflows share their steps through two composite actions
@@ -153,12 +153,12 @@ not take.
 Daily is the recurring build and artifact-publication path.
 
 - The scheduled run resolves the full `Daily` matrix.
-- A manual run selects one **Build scope**:
-  - **Full matrix** builds every configured variant and suite.
-  - **Selected builds** builds a comma-separated list of build names, e.g.
-    `qcom-next-trixie,qcom-next-debug-forky`.
-  - **Selected flavour (all suites)** builds one flavour in every suite it
-    targets.
+- A manual run says which entries to build in one **Builds** field:
+  - `all`, the default, builds every configured variant and suite.
+  - A comma-separated list of build names builds those entries, e.g.
+    `qcom-next-trixie,qcom-next-debug-forky`. A name matching no `Daily` entry
+    fails the run rather than narrowing it, and both families are selected from
+    one list, so a mixed list starts Debian and Ubuntu legs from one dispatch.
 - `latest_tag` resolves the newest matching dated tag; `branch_tip` resolves
   the configured branch directly.
 - Debian suites build in Debusine, then their `.deb` outputs are downloaded and
@@ -170,11 +170,11 @@ Daily is the recurring build and artifact-publication path.
 
 Release is the controlled promotion path.
 
-- It is manual only and uses one **Release scope** for a kernel variant:
-  - **Selected flavour (all suites)** is the normal release action and promotes
-    every configured Release suite for that flavour.
-  - **Selected builds** promotes a comma-separated list of build names when a
-    targeted action is required.
+- It is manual only, and says which entries to release in one **Builds** field,
+  the same way Daily does:
+  - `all`, the default, promotes every configured `Release` entry.
+  - A comma-separated list of build names promotes those entries when a
+    targeted action is required, e.g. `qcom-next-trixie,qcom-next-forky`.
 - It uses the pinned `branch_or_tag` from the selected `Release` matrix row; it
   never resolves a newest tag.
 - Debian source and binary artifacts are built in per-flavour, per-suite
@@ -186,11 +186,10 @@ Release is the controlled promotion path.
   the release credential and enforces the required approval gate before
   promotion to `qli`.
 
-Direct `build-kernel-debian.yml` and `build-kernel-ubuntu.yml` dispatches are
-build-only: neither has a promotion path to offer. Release promotion is
-initiated exclusively by `release.yml`, which owns the target workspace and
-production release controls, and is the only caller of
-`release-kernel-debian.yml`.
+A `daily.yml` dispatch is build-only: it publishes to the daily S3 path and has
+no promotion path to offer. Release promotion is initiated exclusively by
+`release.yml`, which owns the target workspace and production release controls,
+and is the only caller of `release-kernel-debian.yml`.
 
 Only the Debian family has a release path at all, because promotion runs
 through Debusine. `resolve-matrix.py` rejects a `Release` entry for any other
@@ -206,7 +205,7 @@ them to the workflow matrix as they stand. Each entry carries:
 
 | Field | Purpose |
 | --- | --- |
-| `name` | The name of this one build, and nothing else: its Actions job name, and what a manual dispatch asks for. Unique within a delivery type, so a Daily and its Release may share a name. Never reaches a package name, a version, or a published path. Lowercase letters, digits, and internal hyphens only. |
+| `name` | The name of this one build, and nothing else: its Actions job name, and what a manual dispatch asks for. Unique within a delivery type, so a Daily and its Release may share a name. Never reaches a package name, a version, or a published path. Lowercase letters, digits, and internal hyphens only, and not `all`, which a dispatch reads as every entry. |
 | `type` | `Daily` or `Release`. |
 | `suite` | The one suite this entry builds for. |
 | `flavour` | The kernel's own identity, and the only matrix field that reaches the built kernel. `derive-localversion.sh` makes it the LOCALVERSION suffix, so two flavours built from one ref get distinct kernel releases and their `linux-image` packages coexist. All entries sharing a flavour build the same package for different suites. |
@@ -257,11 +256,11 @@ face value:
 - Where a suite has both, its `Daily` revision is its `Release` revision plus a
   trailing `~`.
 
-A direct dispatch of a build workflow has no matrix context of its own, so when
-its `debian-revision` input is empty the `prepare-kernel-source` action looks up
-the `Daily` entry for the build name and suite it was given (`resolve-matrix.py
---field debian_revision`) and builds at the revision the daily build would have
-used.
+The build workflows pass their entry's own `debian_revision` through. A caller
+with no entry in hand can leave the `debian-revision` input empty, and the
+`prepare-kernel-source` action looks up the `Daily` entry for the build name and
+suite it was given (`resolve-matrix.py --field debian_revision`) and builds at
+the revision the daily build would have used.
 
 Each entry has a distinct prepared-source artifact, Debusine child workspace,
 and S3 path keyed by `flavour + suite`. This prevents two flavours that both
@@ -326,10 +325,9 @@ flowchart LR
 flowchart TD
     subgraph triggers[Triggers]
         A1["daily.yml\nScheduled full matrix"]
-        A2["daily.yml\nManual full or filtered builds"]
+        A2["daily.yml\nManual: all or named builds"]
         A5["pr-build.yml\nFull Daily matrix on every PR"]
-        A3["release.yml\nManual full or filtered builds"]
-        A4["build-kernel-debian.yml\nbuild-kernel-ubuntu.yml\nManual one-off build"]
+        A3["release.yml\nManual: all or named builds"]
     end
 
     subgraph matrix[Matrix entry points]
@@ -362,7 +360,6 @@ flowchart TD
     B2 --> C2
     B5 --> C2
     B4 --> C2
-    A4 --> C2
     C2 --> C3 & C4
     C3 --> C5 & C6
     C4 --> D1
@@ -492,42 +489,40 @@ out-of-tree module builds are required.
 
 ## Manual Builds
 
-Use **Actions** → **build-kernel-debian** or **build-kernel-ubuntu** for a
-one-off build, picking the one that builds the suite you want. These are
-explicit override workflows, not matrix-derived delivery flows: use `daily.yml`
-and `release.yml` for normal Daily and Release operations. Neither promotes.
-
-`build`, `suite`, and `ref-strategy` are the required build selection.
-All remaining package, configuration, and PR inputs are advanced overrides for
-validation or debugging. Build name and suite are free-text matrix values
-rather than static dropdowns, so adding a matrix entry never requires editing
-the workflow UI. A suite belonging to the other family is rejected by the
-`prepare` job before anything is cloned or built, so the only cost of picking
-the wrong workflow is a fast failure.
-
-The available inputs are:
+Use **Actions** → **daily** → **Run workflow** for a one-off build, and
+**Actions** → **release** to promote. Both are dispatched the same way: one
+**Builds** field naming what to run.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `build` | `qcom-next-trixie` | Names this build; also selects the matrix entry a blank `debian-revision` is taken from. |
-| `flavour` | `qcom-next` | Kernel flavour: the LOCALVERSION suffix, and so the kernel release identity. |
-| `suite` | `trixie` | Target suite. |
-| `ref-strategy` | `latest_tag` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
-| `kernel-branch` | `qcom-next` | Branch for `branch_tip`, or immutable ref for `pinned_ref`; ignored by `latest_tag`. |
-| `tag-pattern` | `qcom-next-*` | Tag glob for `latest_tag`; ignored by `branch_tip` and `pinned_ref`. |
-| `kernel-url` | `qualcomm-linux/kernel` | Advanced alternate kernel repository. |
-| `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
-| `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
-| `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:arch/arm64/configs/qcom_debug.config`. |
-| `dkms` | Empty | Advanced comma-separated DKMS modules bundled into the image package, each without the `-dkms` suffix. Empty bundles none. |
-| `debian-revision` | The matrix Daily revision | Advanced Debian revision override. Left empty, the build takes the `debian_revision` of the matrix's `Daily` entry for the selected variant and suite; direct builds always use the Daily entry since they are build-only and non-promoting. |
-| `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
-| `kver-extra` | Empty | Advanced kernel-release suffix. |
-| `debug-build` | `false` | Advanced debug configuration toggle. |
+| `builds` | `all` | `all` runs every entry of that workflow's delivery type. Otherwise a comma-separated list of build `name` values from `ci/build-matrix.yaml`, e.g. `qcom-next-trixie,qcom-next-debug-forky`. |
 
-The workflow also supports advanced Qualcomm-only PR overrides for validation
-builds. Direct builds are artifact builds; Release promotion is performed only
-through `release.yml`.
+Everything else about a build — its suite, flavour, kernel repository and ref,
+package names, config fragments, DKMS modules and Debian revision — comes from
+the entry, so there is nothing to retype and nothing to get wrong. Build names
+are free-text matrix values rather than a static dropdown, so adding a matrix
+entry never requires editing the workflow UI, and a name that matches no entry
+of the delivery type fails the run with the list of names that do. `daily`
+routes each selected entry to the workflow that builds its family, so one
+dispatch can name Debian and Ubuntu builds together.
+
+`daily` carries three further inputs, which the matrix deliberately says
+nothing about because they belong to a one-off validation run rather than to a
+delivery target. They apply to every selected build, and a scheduled run leaves
+them at their defaults:
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `debug-build` | `false` | Advanced debug configuration toggle. For a lasting debug kernel, use the `qcom-next-debug` flavour instead. |
+| `qcom-next-pr` | Empty | Advanced Qualcomm-only override: `qcom-next` PR numbers to merge before building. |
+| `kernel-topics-pr` | Empty | Advanced Qualcomm-only override: `kernel-topics` PR numbers to apply as patches. |
+
+A `daily` dispatch is an artifact build and publishes to the daily S3 path;
+Release promotion is performed only through `release.yml`. The build workflows
+themselves (`build-kernel-debian.yml`, `build-kernel-ubuntu.yml`,
+`release-kernel-debian.yml`) are `workflow_call` only and cannot be dispatched:
+one run of each is one matrix entry, and a reusable workflow cannot fan itself
+out over a list.
 
 ## Configuration
 
@@ -586,8 +581,9 @@ To add a new suite (for an existing or new variant):
    [Overview](#overview)), and so it does not collide with another entry
    building the same `srcpkg`.
 
-No workflow dispatch choices need to be updated: manual Daily and Release
-inputs accept matrix-defined variant and suite strings.
+No workflow dispatch choices need to be updated: the Daily and Release
+dispatches take build names as free text, so a new entry is dispatchable by
+name, and is picked up by `all`, as soon as it is merged.
 
 Run `ci/scripts/resolve-matrix.py --type Daily` and `--type Release` locally to
 validate a matrix change before pushing it; both validate the whole document,

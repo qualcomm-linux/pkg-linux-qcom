@@ -7,6 +7,10 @@ name: release
 # packages are promoted from the ephemeral Debusine CI workspace to the stable
 # target workspace (e.g. qli) via debusine-action lib/release.
 #
+# A dispatch says only which entries to release: "all", or a comma-separated
+# list of build names. Everything else about a release comes from the entry,
+# so there is nothing here to type that the matrix has not already reviewed.
+#
 # To update a release ref: open a PR that changes branch_or_tag on every
 # Release entry for that flavour in ci/build-matrix.yaml. A flavour's Release
 # entries must agree on the ref, so resolve-matrix.py rejects the matrix if
@@ -18,23 +22,10 @@ name: release
 on:
   workflow_dispatch:
     inputs:
-      release-scope:
-        description: 'Choose every suite of one flavour, or named build(s)'
-        type: choice
-        required: true
-        default: 'Selected flavour (all suites)'
-        options:
-          - 'Selected flavour (all suites)'
-          - 'Selected builds'
-      flavour:
-        description: 'Kernel flavour to release in every suite it targets (Selected flavour)'
-        required: true
-        default: 'qcom-next'
-        type: string
       builds:
-        description: 'Comma-separated build names, e.g. qcom-next-trixie,qcom-next-forky (Selected builds)'
+        description: 'Builds to release: all, or comma-separated Release build names from ci/build-matrix.yaml (e.g. qcom-next-trixie,qcom-next-forky)'
         required: true
-        default: 'qcom-next-trixie'
+        default: 'all'
         type: string
 
 permissions:
@@ -60,28 +51,21 @@ jobs:
       - name: Generate release matrix
         id: set-matrix
         env:
-          RELEASE_SCOPE_INPUT: ${{ github.event.inputs.release-scope }}
-          INPUT_FLAVOUR: ${{ github.event.inputs.flavour }}
-          INPUT_BUILDS: ${{ github.event.inputs.builds }}
+          INPUT_BUILDS: ${{ inputs.builds }}
         run: |
           set -euo pipefail
 
-          RELEASE_SCOPE="$RELEASE_SCOPE_INPUT"
+          BUILDS="${INPUT_BUILDS:-all}"
 
-          case "$RELEASE_SCOPE" in
-            "Selected flavour (all suites)")
-              echo "Source: ci/build-matrix.yaml (flavour: $INPUT_FLAVOUR, all suites)"
-              args=(--type Release --flavour "$INPUT_FLAVOUR")
-              ;;
-            "Selected builds")
-              echo "Source: ci/build-matrix.yaml (builds: $INPUT_BUILDS)"
-              args=(--type Release --build "$INPUT_BUILDS")
-              ;;
-            *)
-              echo "ERROR: unsupported release scope: $RELEASE_SCOPE" >&2
-              exit 1
-              ;;
-          esac
+          args=(--type Release)
+          if [[ "$BUILDS" == "all" ]]; then
+            echo "Source: ci/build-matrix.yaml (every Release entry)"
+          else
+            echo "Source: ci/build-matrix.yaml (builds: $BUILDS)"
+            # A name matching no Release entry fails here, so a typo stops the
+            # run rather than quietly releasing a smaller set than intended.
+            args+=(--build "$BUILDS")
+          fi
           MATRIX=$(ci/scripts/resolve-matrix.py "${args[@]}")
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"

@@ -8,6 +8,12 @@ name: build-kernel-debian
 # reaches this file has already decided the build belongs on the Debusine
 # path, so every job in it runs.
 #
+# workflow_call only. One run of this workflow is one matrix entry, and a
+# reusable workflow cannot fan itself out over several, so manual builds are
+# dispatched from daily.yml -- which resolves the entries and calls this once
+# per Debian entry it selected. That also keeps every value describing a build
+# in ci/build-matrix.yaml, rather than in a dispatch form that drifts from it.
+#
 # release-kernel-debian.yml is the same build with the release tail: it
 # promotes to a target Debusine workspace instead of publishing to S3.
 #
@@ -98,90 +104,6 @@ on:
       DEBUSINE_TOKEN:
         description: 'Debusine token for the CI child workspace'
         required: false
-
-  # Ad-hoc build of one Debian suite. Release promotion is not offered here:
-  # a manual build never promotes, so it always takes the S3 publish path.
-  workflow_dispatch:
-    inputs:
-      build:
-        description: 'Name of this build, as listed in ci/build-matrix.yaml'
-        required: true
-        default: 'qcom-next-trixie'
-        type: string
-      flavour:
-        description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
-        required: true
-        default: 'qcom-next'
-        type: string
-      suite:
-        description: 'Target Debian suite (trixie, forky, sid). An Ubuntu suite here is rejected before anything is built; dispatch build-kernel-ubuntu for those.'
-        required: true
-        default: 'trixie'
-        type: string
-      ref-strategy:
-        description: 'Kernel ref strategy'
-        required: true
-        default: 'latest_tag'
-        type: choice
-        options:
-          - latest_tag
-          - branch_tip
-          - pinned_ref
-      kernel-branch:
-        description: 'Branch for branch_tip or immutable ref for pinned_ref (ignored for latest_tag)'
-        required: false
-        default: 'qcom-next'
-      tag-pattern:
-        description: 'Tag glob used only by latest_tag (ignored for branch_tip and pinned_ref)'
-        required: false
-        default: 'qcom-next-*'
-      git-clone:
-        description: 'Advanced: custom kernel repository URL'
-        required: false
-        default: 'https://github.com/qualcomm-linux/kernel'
-      srcpkg:
-        description: 'Advanced: Debian source package name'
-        required: false
-        default: 'linux-qcom-next'
-      binpkg:
-        description: 'Advanced: kernel image metapackage name'
-        required: false
-        default: 'linux-image-qcom-next'
-      kernel-config:
-        description: 'Advanced: extra config fragments applied on top of all of debian/config-available/ (e.g. intree:arch/arm64/configs/qcom_debug.config)'
-        required: false
-        default: ''
-      dkms:
-        description: 'Advanced: out-of-tree DKMS modules to build and bundle into the kernel image, comma-separated and without the -dkms suffix (e.g. kgsl,camx); empty bundles nothing'
-        required: false
-        default: ''
-      debian-revision:
-        description: 'Advanced: Debian revision override (empty takes the Daily revision the matrix gives this build and suite)'
-        required: false
-        default: ''
-      localversion:
-        description: 'Advanced: LOCALVERSION override (auto-derived from the resolved ref if empty)'
-        required: false
-        default: ''
-      kver-extra:
-        description: 'Advanced: extra package-version suffix (e.g. -ci42)'
-        required: false
-        default: ''
-      debug-build:
-        description: 'Advanced: enable the debug build configuration'
-        type: boolean
-        required: false
-        default: false
-      qcom-next-pr:
-        description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
-        type: string
-        required: false
-        default: ''
-      kernel-topics-pr:
-        description: 'Advanced Qualcomm-only override: kernel-topics PR numbers to apply as patches'
-        type: string
-        required: false
-        default: ''
 
 permissions:
   contents: read

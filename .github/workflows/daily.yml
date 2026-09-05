@@ -1,9 +1,12 @@
 name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
-# build per Daily entry in ci/build-matrix.yaml. Manual dispatch can run the
-# full Daily matrix, a named set of builds, or every suite of one flavour.
-# Build names and flavours are matrix values, so new ones need no workflow edit.
+# build per Daily entry in ci/build-matrix.yaml.
+#
+# This is also the manual build entry point. Everything about a build comes
+# from its matrix entry, so a dispatch only says which entries to run: "all",
+# or a comma-separated list of build names. Build names are matrix values, so
+# a new one needs no workflow edit.
 #
 # Matrix schema: ci/build-matrix.yaml
 #   One entry is one generated package, so ci/scripts/resolve-matrix.py selects
@@ -22,24 +25,29 @@ on:
     - cron: '0 23 * * *'
   workflow_dispatch:
     inputs:
-      build-scope:
-        description: 'Choose the whole matrix, named build(s), or every suite of one flavour'
-        type: choice
-        required: true
-        default: 'Selected builds'
-        options:
-          - 'Full matrix'
-          - 'Selected builds'
-          - 'Selected flavour (all suites)'
       builds:
-        description: 'Comma-separated build names, e.g. qcom-next-trixie,qcom-next-debug-forky (Selected builds)'
+        description: 'Builds to run: all, or comma-separated Daily build names from ci/build-matrix.yaml (e.g. qcom-next-trixie,qcom-next-debug-forky)'
         required: true
-        default: 'qcom-next-trixie'
+        default: 'all'
         type: string
-      flavour:
-        description: 'Kernel flavour to build in every suite it targets (Selected flavour)'
-        required: true
-        default: 'qcom-next'
+      # The matrix says nothing about these: they are one-off validation
+      # overrides, so they are inputs rather than entry fields. They apply to
+      # every selected build, and a scheduled run leaves them at their
+      # defaults.
+      debug-build:
+        description: 'Advanced: enable the debug build configuration'
+        required: false
+        default: false
+        type: boolean
+      qcom-next-pr:
+        description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
+        required: false
+        default: ''
+        type: string
+      kernel-topics-pr:
+        description: 'Advanced Qualcomm-only override: kernel-topics PR numbers to apply as patches'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -51,9 +59,9 @@ jobs:
   # configure-matrix: select the Daily entries from ci/build-matrix.yaml.
   #
   # Delegates to ci/scripts/resolve-matrix.py, which validates the whole matrix
-  # and returns the entries with type: Daily. Manual dispatch selects the
-  # complete matrix, a comma-separated list of build names, or one flavour
-  # across every suite it targets.
+  # and returns the entries with type: Daily. A dispatch narrows that to a
+  # comma-separated list of build names; "all", and a scheduled run, take the
+  # whole Daily matrix.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -71,36 +79,23 @@ jobs:
       - name: Generate build matrix
         id: set-matrix
         env:
-          BUILD_SCOPE_INPUT: ${{ github.event.inputs.build-scope }}
-          INPUT_BUILDS: ${{ github.event.inputs.builds }}
-          INPUT_FLAVOUR: ${{ github.event.inputs.flavour }}
+          INPUT_BUILDS: ${{ inputs.builds }}
         run: |
           set -euo pipefail
 
-          BUILD_SCOPE="$BUILD_SCOPE_INPUT"
+          # A scheduled run carries no inputs, so it lands on the dispatch
+          # default: the whole Daily matrix.
+          BUILDS="${INPUT_BUILDS:-all}"
 
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            BUILD_SCOPE="Full matrix"
+          args=(--type Daily)
+          if [[ "$BUILDS" == "all" ]]; then
+            echo "Source: ci/build-matrix.yaml (every Daily entry)"
+          else
+            echo "Source: ci/build-matrix.yaml (builds: $BUILDS)"
+            # A name matching no Daily entry fails here, so a typo stops the
+            # run rather than quietly narrowing it to nothing.
+            args+=(--build "$BUILDS")
           fi
-
-          case "$BUILD_SCOPE" in
-            "Full matrix")
-              echo "Source: ci/build-matrix.yaml (full Daily matrix)"
-              args=(--type Daily)
-              ;;
-            "Selected builds")
-              echo "Source: ci/build-matrix.yaml (builds: $INPUT_BUILDS)"
-              args=(--type Daily --build "$INPUT_BUILDS")
-              ;;
-            "Selected flavour (all suites)")
-              echo "Source: ci/build-matrix.yaml (flavour: $INPUT_FLAVOUR, all suites)"
-              args=(--type Daily --flavour "$INPUT_FLAVOUR")
-              ;;
-            *)
-              echo "ERROR: unsupported build scope: $BUILD_SCOPE" >&2
-              exit 1
-              ;;
-          esac
 
           # One selection, split by build path. The two families are built by
           # different workflows, so each gets the entries it builds and neither
@@ -159,6 +154,11 @@ jobs:
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+      # Dispatch-only validation overrides. A scheduled run carries no inputs,
+      # so each falls back to the off value and builds the matrix as written.
+      debug-build: ${{ inputs.debug-build || false }}
+      qcom-next-pr: ${{ inputs.qcom-next-pr || '' }}
+      kernel-topics-pr: ${{ inputs.kernel-topics-pr || '' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
@@ -190,3 +190,6 @@ jobs:
       debian-revision: ${{ matrix.debian_revision }}
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
+      debug-build: ${{ inputs.debug-build || false }}
+      qcom-next-pr: ${{ inputs.qcom-next-pr || '' }}
+      kernel-topics-pr: ${{ inputs.kernel-topics-pr || '' }}

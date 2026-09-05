@@ -159,6 +159,12 @@ REF_FIELDS = ("git_clone", "branch_or_tag", "ref_strategy", "tag_pattern")
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 
+# The dispatch forms of daily.yml and release.yml take one builds field, where
+# "all" means every entry of the delivery type and anything else is a list of
+# names. A build actually called all would be unreachable through them, so the
+# matrix may not define one.
+RESERVED_NAMES = ("all",)
+
 # A Debian revision: no hyphen (that would start a new revision component) and
 # none of the characters dpkg rejects in a version.
 REVISION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+~]*$")
@@ -269,6 +275,12 @@ def check_entry(entry, report):
         value = entry.get(field)
         if isinstance(value, str) and not NAME_RE.match(value):
             report(f"{field} must use lowercase letters, digits, and internal hyphens")
+
+    if entry.get("name") in RESERVED_NAMES:
+        report(
+            f"name {entry['name']} is reserved by the build workflows' dispatch "
+            "form, where it selects every entry rather than one of them"
+        )
 
     check_kernel_config(entry, report)
     check_dkms(entry, report)

@@ -24,7 +24,8 @@
 # A build's name is what CI calls it: the Actions job name, and what a manual
 # dispatch asks for by name. It never reaches a package name or version, and
 # never a published path. It must be unique within a delivery type, so a Daily
-# and the Release that supersedes it share one.
+# and the Release that supersedes it share one. It may not be "all", which the
+# daily and release dispatch forms read as every entry of their type.
 #
 # dkms varies by suite because it depends on which <name>-dkms packages the
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
