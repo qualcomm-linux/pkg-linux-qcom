@@ -20,6 +20,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DEFAULT_DISTRO="trixie"
+DEFAULT_FLAVOUR="qcom-next"
 DEFAULT_SRCPKG="linux-qcom-next"
 DEFAULT_BINPKG="linux-image-qcom-next"
 DEFAULT_DEBIAN_REVISION="0qcom1"
@@ -51,14 +52,18 @@ OPTIONS:
   Version control:
     -d, --distro DISTRO       Target suite: trixie|forky|sid|noble|questing|resolute
                               (default: $DEFAULT_DISTRO)
+    --flavour NAME            Kernel flavour, the identity LOCALVERSION carries
+                              (default: $DEFAULT_FLAVOUR). Only consulted when
+                              --localversion is not given.
     --localversion SUFFIX     LOCALVERSION suffix appended to the base kernel
-                              version (e.g. +qcom-next-20260722).
-                              Auto-detected from git tag if not specified.
+                              version (e.g. +qcom-next-20260722-g07f50dc44edd).
+                              Derived from the checked-out tag or branch by
+                              ci/scripts/derive-localversion.sh if not given.
     --snapshot SNAPSHOT       Dated component of the Debian version: YYYYMMDD
                               with an optional .<respin> ordinal (e.g.
-                              20260722 or 20260722.1). Auto-detected from git
-                              tag alongside --localversion; pass it explicitly
-                              whenever --localversion is passed explicitly.
+                              20260722 or 20260722.1). Derived alongside
+                              --localversion; pass it explicitly whenever
+                              --localversion is passed explicitly.
     --git-sha SHA             Full commit SHA the build was cut from. Its
                               first 12 characters discriminate two builds of
                               one snapshot (a moved tag) in the version
@@ -108,13 +113,14 @@ OPTIONS:
     -h, --help                Show this help
 
 EXAMPLES:
-    # Minimal: auto-detect LOCALVERSION from git tag, default package names
+    # Minimal: derive LOCALVERSION from the checkout, default package names
     $0 --source-dir /path/to/kernel
 
     # Full CI invocation with all options
     $0 --source-dir /path/to/kernel \\
        --distro trixie \\
-       --localversion +qcom-next-20260722 \\
+       --localversion +qcom-next-20260722-g07f50dc44edd \\
+       --snapshot 20260722 \\
        --srcpkg linux-qcom-next \\
        --binpkg linux-image-qcom-next \\
        --debian-revision 0qcom1 \\
@@ -127,6 +133,7 @@ EOF
 # Defaults
 SOURCE_DIR=""
 DISTRO="$DEFAULT_DISTRO"
+FLAVOUR="$DEFAULT_FLAVOUR"
 LOCALVERSION=""
 SNAPSHOT=""
 KVER_EXTRA=""
@@ -143,6 +150,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -s|--source-dir)      SOURCE_DIR="$2";       shift 2 ;;
         -d|--distro)          DISTRO="$2";            shift 2 ;;
+        --flavour)            FLAVOUR="$2";           shift 2 ;;
         --localversion)       LOCALVERSION="$2";      shift 2 ;;
         --snapshot)           SNAPSHOT="$2";          shift 2 ;;
         --git-sha)            GIT_SHA="$2";           shift 2 ;;
@@ -180,38 +188,42 @@ VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 [[ -n "$GIT_SHA" ]] || GIT_SHA=$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || true)
 GITSHA="${GIT_SHA:0:12}"
 
-# ── Helper: derive LOCALVERSION, SNAPSHOT and GITSHA from a tag name ─────────
-# qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722-g<sha>   / 20260722
-# qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1-g<sha> / 20260722.1
-#
-# The trailing component is a YYYYMMDD snapshot with an optional respin ordinal
-# for a second tag cut on the same day. Matching the date width explicitly (and
-# not just "trailing digits") keeps the ordinal attached to it.
-#
-# All three fields come out of the tag and HEAD together. Recovering them from
-# LOCALVERSION afterwards would mean parsing a string that also holds a variant
-# name and a hex SHA that can end in eight digits.
-_auto_version_fields() {
-    local tag="$1"
-    if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]{8}(\.[0-9]+)?)$ ]]; then
-        SNAPSHOT="${BASH_REMATCH[2]}"
-        LOCALVERSION="+${BASH_REMATCH[1]}-${SNAPSHOT}-g${GITSHA}"
-    else
-        LOCALVERSION="+$tag"
-        SNAPSHOT=""
-    fi
-}
-
-# ── Auto-detect LOCALVERSION, SNAPSHOT and GITSHA from git (if not provided) ──
+# ── Derive LOCALVERSION, SNAPSHOT and GITSHA from the checkout (if not given) ──
+# The same derivation CI performs, by the same script: the ref is the exact
+# tag HEAD sits on, or the branch it is the tip of, and the date is HEAD's
+# committer date for the branch-tip case. A local build of a commit therefore
+# produces the version CI would give it, which is what lets a source package
+# built here stand in for one built there.
 if [[ -z "$LOCALVERSION" ]]; then
-    GIT_TAG=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)
-    if [[ -n "$GIT_TAG" ]]; then
-        _auto_version_fields "$GIT_TAG"
-        log_info "Auto-detected LOCALVERSION='$LOCALVERSION' SNAPSHOT='$SNAPSHOT' GITSHA='$GITSHA' from tag '$GIT_TAG'"
+    if [[ -z "$GIT_SHA" ]]; then
+        log_warn "LOCALVERSION not set and $SOURCE_DIR is not a git checkout."
+        log_warn "Package will be named linux-image-<base-kver> (no flavour/date suffix)."
+        log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722-g07f50dc44edd"
     else
-        log_warn "LOCALVERSION not set and no exact git tag found."
-        log_warn "Package will be named linux-image-<base-kver> (no branch/date suffix)."
-        log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722"
+        GIT_TAG=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)
+        if [[ -n "$GIT_TAG" ]]; then
+            DERIVE_REF="$GIT_TAG"
+        else
+            # A detached HEAD reports HEAD, which derive-localversion.sh
+            # treats like any undated ref: the commit date supplies the
+            # snapshot. Committer date, normalised to UTC, as CI does.
+            DERIVE_REF=$(git -C "$SOURCE_DIR" rev-parse --abbrev-ref HEAD)
+        fi
+        DERIVE_DATE=$(TZ=UTC git -C "$SOURCE_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
+        FIELDS=$("$SCRIPT_DIR/ci/scripts/derive-localversion.sh" \
+            --flavour "$FLAVOUR" \
+            --ref "$DERIVE_REF" \
+            --sha "$GIT_SHA" \
+            --date "$DERIVE_DATE")
+        while IFS='=' read -r key value; do
+            case "$key" in
+                LOCALVERSION) LOCALVERSION="$value" ;;
+                SNAPSHOT)     SNAPSHOT="$value" ;;
+                GITSHA)       GITSHA="$value" ;;
+                *) log_error "Unexpected field '$key' from derive-localversion.sh"; exit 1 ;;
+            esac
+        done <<< "$FIELDS"
+        log_info "Derived LOCALVERSION='$LOCALVERSION' SNAPSHOT='$SNAPSHOT' GITSHA='$GITSHA' from $DERIVE_REF"
     fi
 elif [[ -z "$SNAPSHOT" ]]; then
     # An explicit --localversion is not parsed for a snapshot; say so rather
@@ -223,6 +235,7 @@ fi
 log_step "Configuration:"
 log_info "  Source dir:       $SOURCE_DIR"
 log_info "  Distro:           $DISTRO"
+log_info "  Flavour:          $FLAVOUR"
 log_info "  Source package:   $SRCPKG"
 log_info "  Binary metapkg:   $BINPKG"
 log_info "  Debian revision:  $DEBIAN_REVISION"

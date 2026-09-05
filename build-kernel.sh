@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO="https://github.com/qualcomm-linux/kernel"
 DEFAULT_BRANCH="qcom-next"
 DEFAULT_DISTRO="trixie"
+DEFAULT_FLAVOUR="qcom-next"
 DEFAULT_BUILD_MODE="docker"
 KERNEL_DIR="$SCRIPT_DIR/kernel-source"
 OUTPUT_BASE_DIR="$SCRIPT_DIR/kernel-build"
@@ -38,11 +39,14 @@ OPTIONS:
     -r, --repo URL          Kernel repository URL (default: $DEFAULT_REPO)
 
   Version control:
-    --localversion TAG      LOCALVERSION suffix (e.g. qcom-next-20260312)
-                            Auto-detected from git tag when using --local-source
+    --flavour NAME          Kernel flavour carried in LOCALVERSION
+                            (default: $DEFAULT_FLAVOUR). Ignored with --localversion.
+    --localversion SUFFIX   LOCALVERSION suffix (e.g. +qcom-next-20260312-g07f50dc44edd)
+                            Derived from the checked-out tag or branch if not given,
+                            by prepare-source.sh, the same way CI derives it.
     --kver-extra SUFFIX     Extra suffix appended to the derived KVER, e.g.:
                               --kver-extra -mybuild
-                            Results in: 7.0.0-rc2-qcom-next-20260312-mybuild
+                            Results in: 7.0.0-rc2+qcom-next-20260312-g07f50dc44edd-mybuild
                             Useful for CI build IDs or local user builds.
 
   Build control:
@@ -95,7 +99,7 @@ EOF
 
 # Defaults
 TAG=""; LATEST_TAG=false; BRANCH="$DEFAULT_BRANCH"; REPO="$DEFAULT_REPO"
-DISTRO="$DEFAULT_DISTRO"; BUILD_MODE="$DEFAULT_BUILD_MODE"
+DISTRO="$DEFAULT_DISTRO"; BUILD_MODE="$DEFAULT_BUILD_MODE"; FLAVOUR="$DEFAULT_FLAVOUR"
 LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
 LOCAL_SOURCE=""; ENABLE_CONFIGS="squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can"; SKIP_PREPARE=false
 DKMS_MODULES=""
@@ -112,6 +116,7 @@ while [[ $# -gt 0 ]]; do
         -d|--distro)        DISTRO="$2";        shift 2 ;;
         --local-source)     LOCAL_SOURCE="$2";  shift 2 ;;
         --docker-build)     DOCKER_PKG_BUILD="$2"; shift 2 ;;
+        --flavour)          FLAVOUR="$2";       shift 2 ;;
         --localversion)     LOCALVERSION="$2";  shift 2 ;;
         --kver-extra)       KVER_EXTRA="$2";    shift 2 ;;
         --profiles)         PROFILES="$2";      shift 2 ;;
@@ -170,24 +175,14 @@ log_step "Configuration:"
 log_info "  Output:       $OUTPUT_DIR"
 log_info "  Distro:       $DISTRO   mode: $BUILD_MODE"
 [[ "$BUILD_MODE" == "docker" ]] && log_info "  Docker build: $DOCKER_PKG_BUILD"
-[[ -n "$LOCALVERSION" ]]  && log_info "  LOCALVERSION: $LOCALVERSION"
+[[ -n "$LOCALVERSION" ]]  && log_info "  LOCALVERSION: $LOCALVERSION" \
+                          || log_info "  Flavour:      $FLAVOUR"
 [[ -n "$KVER_EXTRA" ]]    && log_info "  KVER_EXTRA:   $KVER_EXTRA"
 [[ -n "$PROFILES" ]]        && log_info "  Profiles:     $PROFILES"
 [[ -n "$ENABLE_CONFIGS" ]]  && log_info "  Extra configs: $ENABLE_CONFIGS"
 [[ -n "$DKMS_MODULES" ]]    && log_info "  DKMS modules: $DKMS_MODULES"
 [[ "$SKIP_PREPARE" == true ]] && log_info "  Skip prepare: yes (source already prepared by prepare-source.sh)"
 echo
-
-# ── Helper: derive LOCALVERSION from a tag name ──────────────────────────────
-# qcom-next-6.19-rc8-20260210 → qcom-next-20260210
-_auto_localversion() {
-    local tag="$1"
-    if [[ "$tag" =~ ^([a-z-]+)-[0-9]+\.[0-9]+.*-([0-9]+)$ ]]; then
-        echo "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
-    else
-        echo "$tag"
-    fi
-}
 
 # ── Git operations: resolve ref → sync → checkout ────────────────────────────
 if [[ -z "$LOCAL_SOURCE" ]]; then
@@ -229,39 +224,23 @@ if [[ -z "$LOCAL_SOURCE" ]]; then
             git -C "$KERNEL_DIR" checkout -B "$BRANCH" FETCH_HEAD
         fi
     fi
-
-    # Auto-detect LOCALVERSION from tag (applies to both clone and update paths)
-    if [[ -n "$TAG" && -z "$LOCALVERSION" ]]; then
-        LOCALVERSION="$(_auto_localversion "$TAG")"
-        log_info "Auto-detected LOCALVERSION='$LOCALVERSION'"
-    fi
+else
+    log_info "Using local source as-is (skipping git checkout)"
 fi
 
 cd "$KERNEL_DIR"
 
-# ── Local source: LOCALVERSION detection ─────────────────────────────────────
-if [[ -n "$LOCAL_SOURCE" ]]; then
-    log_info "Using local source as-is (skipping git checkout)"
-    if [[ -z "$LOCALVERSION" ]]; then
-        GIT_TAG=$(git describe --tags --exact-match 2>/dev/null || true)
-        if [[ -n "$GIT_TAG" ]]; then
-            LOCALVERSION="$(_auto_localversion "$GIT_TAG")"
-            log_info "Auto-detected LOCALVERSION='$LOCALVERSION' from tag '$GIT_TAG'"
-        else
-            log_warn "LOCALVERSION not set and no exact git tag found."
-            log_warn "Package will be named linux-image-<base-kver>-qcom (no branch/ABI suffix)."
-            log_warn "Use --localversion to specify, e.g.: --localversion qcom-next-20260312"
-        fi
-    fi
-fi
-
 # ── Source preparation ────────────────────────────────────────────────────────
 # Delegates to prepare-source.sh, which is the single source of truth for
-# debian/ injection, config fragment activation, and debian/rules prepare.
+# debian/ injection, config fragment activation, version derivation, and
+# debian/rules prepare. Nothing about the version is decided here: an explicit
+# --localversion is passed through, and otherwise prepare-source.sh derives
+# it from the checkout the way CI does.
 # Skipped when --skip-prepare is set (CI mode: prepare-source.sh already ran
 # as a dedicated prior step).
 if [[ "$SKIP_PREPARE" != true ]]; then
-    PREPARE_ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO" --debian-dir "$DEBIAN_DIR")
+    PREPARE_ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO" --debian-dir "$DEBIAN_DIR"
+                  --flavour "$FLAVOUR")
     [[ -n "$LOCALVERSION" ]]   && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
     [[ -n "$KVER_EXTRA" ]]     && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
     [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--kernel-config "$ENABLE_CONFIGS")
