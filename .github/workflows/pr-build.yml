@@ -65,10 +65,10 @@ jobs:
   # fail-fast is disabled so a broken trixie leg still leaves forky and
   # resolute results on the PR.
   #
-  # target-workspace is deliberately not passed on. An entry carrying one is
-  # promoted into it by the nightly build; a PR build of the same entry only
-  # has to prove it builds, and must not put a pull request's kernel into an
-  # archive anyone installs from.
+  # target-workspace is deliberately not passed on. The nightly build names
+  # the staging workspace and its results are promoted there; a PR build of the
+  # same entry only has to prove it builds, and must not put a pull request's
+  # kernel into an archive anyone installs from.
   # ---------------------------------------------------------------------------
   build-debian:
     name: ${{ matrix.name }}

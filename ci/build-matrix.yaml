@@ -29,16 +29,13 @@
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
 # Ubuntu does not package.
 #
-# Every entry is built nightly. An entry that names a target_workspace is also
-# promoted into it once the build succeeds, so the archive carries the artifact
-# the nightly build tested rather than a rebuild of the same ref. Promoting
-# onward from there into a release workspace builds nothing and is driven by
-# release.yml, which names the version to promote; nothing here pins a release
-# ref. mainline, next and the topic branches name no target_workspace: they are
-# early-warning builds, published to S3 and nowhere else.
-#
-# Only a Debian suite may name a target_workspace. Promotion runs through
-# Debusine, which does not build the Ubuntu family.
+# Every entry is built nightly. Where a build is published is not stated here:
+# the workflow that runs the build decides it, because it depends on why the
+# build is running rather than on what is being built. The nightly promotes its
+# Debian entries into the staging workspace; a PR build of the same entry
+# promotes nowhere; and release.yml promotes onward from staging into the
+# release workspace, building nothing. So an entry describes a kernel, and
+# never a destination.
 #
 # debian_revision is stated outright, not derived. The trailing "~" marks a
 # version as unreleased, and it is carried into the archive as built: what
@@ -67,7 +64,6 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
-    target_workspace: qli-staging
 
   - name: qcom-next-forky
     suite: forky
@@ -85,7 +81,6 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~'
-    target_workspace: qli-staging
 
   - name: qcom-next-resolute
     suite: resolute
@@ -124,7 +119,6 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
-    target_workspace: qli-staging
 
   - name: qcom-next-debug-forky
     suite: forky
@@ -144,13 +138,11 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~'
-    target_workspace: qli-staging
 
   # ---------------------------------------------------------------------------
   # qcom-arduino — the Arduino hardware-enablement topic branch.
   #
-  # No target_workspace: a topic branch is built for early warning, not for
-  # anyone to install from an archive.
+  # A topic branch, built for early warning of what it will take to carry.
   # ---------------------------------------------------------------------------
   - name: qcom-arduino-trixie
     suite: trixie
@@ -185,9 +177,8 @@ builds:
   # ---------------------------------------------------------------------------
   # mainline — Linus's tree, tracked for early warning of upstream breakage.
   #
-  # No target_workspace, and no DKMS: the out-of-tree modules target the
-  # Qualcomm tree, and a listed module is a presence contract that would fail
-  # the build here.
+  # No DKMS: the out-of-tree modules target the Qualcomm tree, and a listed
+  # module is a presence contract that would fail the build here.
   # ---------------------------------------------------------------------------
   - name: mainline-trixie
     suite: trixie
@@ -217,8 +208,7 @@ builds:
   # next — linux-next, the integration tree, one step ahead of mainline.
   #
   # next-YYYYMMDD tags are cut daily, so latest_tag resolves the newest of
-  # them the same way qcom-next-* does. No target_workspace and no DKMS, as
-  # above.
+  # them the same way qcom-next-* does. No DKMS, as above.
   # ---------------------------------------------------------------------------
   - name: next-trixie
     suite: trixie

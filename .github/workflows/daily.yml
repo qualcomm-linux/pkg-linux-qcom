@@ -9,18 +9,19 @@ name: daily
 # a new one needs no workflow edit.
 #
 # This is the only workflow that builds a kernel on a schedule, and every
-# package the archives carry comes from a run of it: an entry naming a
-# target_workspace is promoted into that workspace as part of its build.
-# release.yml promotes onward from there and builds nothing, so nothing is
-# ever released that this workflow has not built and tested.
+# package the archives carry comes from a run of it: its Debian entries are
+# promoted into the staging workspace as part of the build. release.yml
+# promotes onward from there and builds nothing, so nothing is ever released
+# that this workflow has not built and tested.
 #
 # Matrix schema: ci/build-matrix.yaml
 #   One entry is one generated package, so ci/scripts/resolve-matrix.py passes
 #   the selected entries through as they stand. Every field (name, suite,
 #   flavour, srcpkg, binpkg, kernel_config, dkms, debian_revision, git_clone,
-#   branch_or_tag, ref_strategy, target_workspace) becomes an input of the
-#   build workflow for the entry's family. name labels the job; flavour is what
-#   reaches the built kernel's version and its published paths.
+#   branch_or_tag, ref_strategy) becomes an input of the build workflow for the
+#   entry's family. name labels the job; flavour is what reaches the built
+#   kernel's version and its published paths. Where the result is published is
+#   this workflow's to decide, not the entry's.
 #
 # To add a daily build target: add an entry to ci/build-matrix.yaml. No
 # workflow changes needed.
@@ -140,9 +141,12 @@ jobs:
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
-      # An entry naming a workspace is promoted into it once its build
-      # succeeds; one that names none is built and published to S3 only.
-      target-workspace: ${{ matrix.target_workspace || '' }}
+      # Every Debian entry the nightly builds is promoted into the staging
+      # workspace once its build succeeds. The destination belongs to the run
+      # rather than to the entry: this is the nightly, so its results are what
+      # staging is for. A PR build of the same entry passes nothing here and
+      # promotes nowhere, and release.yml promotes onward from staging.
+      target-workspace: ${{ vars.DEBUSINE_STAGING_WORKSPACE || 'qli-staging' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}

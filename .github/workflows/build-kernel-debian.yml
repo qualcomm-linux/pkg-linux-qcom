@@ -15,8 +15,8 @@ name: build-kernel-debian
 # per Debian entry it selected. That also keeps every value describing a build
 # in ci/build-matrix.yaml, rather than in a dispatch form that drifts from it.
 #
-# There is no separate release build. An entry that names a target-workspace is
-# promoted into it by this workflow, and release.yml promotes onward from that
+# There is no separate release build. A caller that names a target-workspace
+# has the result promoted into it, and release.yml promotes onward from that
 # workspace without building anything, so what is released is the artifact this
 # build produced and tested rather than a second build of the same ref.
 #
@@ -94,9 +94,9 @@ on:
       target-workspace:
         description: >
           Debusine workspace to promote the built package into, empty to
-          promote nowhere. Set from the matrix entry's target_workspace by the
-          nightly build; left empty by pr-build.yml, whose builds must not
-          reach an archive.
+          promote nowhere. The caller decides: the nightly build names the
+          staging workspace, and pr-build.yml leaves it empty because a pull
+          request's kernel must not reach an archive.
         type: string
         default: ''
     secrets:
