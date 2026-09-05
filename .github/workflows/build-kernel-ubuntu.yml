@@ -19,8 +19,8 @@ on:
         description: Target Ubuntu suite (noble, questing, resolute)
         type: string
         required: true
-      kernel-variant:
-        description: 'Kernel variant identifier used to isolate prepared-source artifacts and published packages'
+      flavour:
+        description: 'Kernel flavour, isolating prepared-source artifacts and published packages'
         type: string
         required: true
 
@@ -60,7 +60,7 @@ jobs:
       - name: Download prepared source tree
         uses: actions/download-artifact@v4
         with:
-          name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.distro }}
+          name: kernel-srcpkg-${{ inputs.flavour }}-${{ inputs.distro }}
           path: /tmp/srcpkg-artifact
 
       - name: Extract prepared source tree
@@ -96,4 +96,4 @@ jobs:
         with:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: kernel-build/${{ inputs.distro }}
-          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.kernel-variant }}/${{ inputs.distro }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.distro }}/${{ github.run_id }}-${{ github.run_attempt }}/
