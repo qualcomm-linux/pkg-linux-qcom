@@ -100,14 +100,6 @@ on:
           reach an archive.
         type: string
         default: ''
-      qcom-next-pr:
-        description: 'qcom-next PR numbers to merge (e.g. "42 43")'
-        type: string
-        default: ''
-      kernel-topics-pr:
-        description: 'kernel-topics PR numbers to apply as patches'
-        type: string
-        default: ''
       promote-environment:
         description: >
           GitHub environment the promote job runs in, and so which approvals
@@ -181,8 +173,6 @@ jobs:
           debian-revision: ${{ inputs.debian-revision }}
           localversion: ${{ inputs.localversion }}
           kver-extra: ${{ inputs.kver-extra }}
-          qcom-next-pr: ${{ inputs.qcom-next-pr }}
-          kernel-topics-pr: ${{ inputs.kernel-topics-pr }}
 
       # Only needed to ask the target workspace what it already has, so it is
       # checked out only when there is a target workspace to ask.
@@ -389,13 +379,9 @@ jobs:
   # promoting a nightly afterwards -- by then there would be nothing left to
   # promote from.
   #
-  # The if: is the whole of the decision. A caller that named no workspace
-  # promotes nowhere, and a run carrying any of the validation overrides
-  # promotes nowhere either: those builds are deliberately not the kernel the
-  # matrix describes, and an archive must only ever receive that one. Guarding
-  # it here rather than in the caller means it holds for every caller,
-  # including a future one that forwards target-workspace without thinking
-  # about the overrides.
+  # The if: is the whole of the decision: a caller that named no workspace
+  # promotes nowhere. pr-build.yml is that caller, so a pull request's kernel
+  # never reaches an archive.
   #
   # Which archive, and what stands in front of it, is the caller's:
   # promote-environment carries the approval gate, so a release into qli can
@@ -406,10 +392,7 @@ jobs:
     # build alone: it already needs prepare, so a run prepare skipped as
     # already published skips the build and this job with it.
     needs: build
-    if: >-
-      ${{ inputs.target-workspace != ''
-      && inputs.qcom-next-pr == ''
-      && inputs.kernel-topics-pr == '' }}
+    if: ${{ inputs.target-workspace != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read  # actions/checkout
