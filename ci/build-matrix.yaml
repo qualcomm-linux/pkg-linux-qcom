@@ -35,12 +35,14 @@
 # Debian entries into the archive; a PR build of the same entry promotes
 # nowhere. So an entry describes a kernel, and never a destination.
 #
-# debian_revision is stated outright, not derived. The trailing "~" marks a
-# version as unreleased, and it is carried into the archive as built: what is
-# published is the tested artifact, never a rebuild at a tidier version. The
-# rest of the revision places the suite where it belongs relative
-# to the other suites (see the ordering discussion in README.md). No two
-# entries may produce the same srcpkg at the same debian_revision.
+# debian_revision is stated outright, not derived. It carries no marker for
+# where a build is in its life: the version is decided once, when the package is
+# built, and the same artifact is what any archive later holds, so there is no
+# second version for it to sort against. What the revision does say is where
+# the suite belongs relative to the other suites -- "~bpo13+1" puts a trixie
+# backport below a forky build of the same kernel (see the ordering discussion
+# in README.md). No two entries may produce the same srcpkg at the same
+# debian_revision.
 
 builds:
   # ---------------------------------------------------------------------------
@@ -61,7 +63,7 @@ builds:
       - camx
       - iris-vpu
       - audioreach
-    debian_revision: '0qli1~bpo13+1~'
+    debian_revision: '0qli1~bpo13+1'
 
   - name: qcom-next-forky
     suite: forky
@@ -78,7 +80,7 @@ builds:
       - camx
       - iris-vpu
       - audioreach
-    debian_revision: '0qli1~'
+    debian_revision: '0qli1'
 
   - name: qcom-next-resolute
     suite: resolute
@@ -93,7 +95,7 @@ builds:
     # kgsl alone: camx-dkms and iris-vpu-dkms are not packaged for Ubuntu.
     dkms:
       - kgsl
-    debian_revision: '0qli1~26.04.1~'
+    debian_revision: '0qli1~26.04.1'
 
   # ---------------------------------------------------------------------------
   # qcom-next-debug — the same kernel ref built with the in-tree debug
@@ -116,7 +118,7 @@ builds:
       - camx
       - iris-vpu
       - audioreach
-    debian_revision: '0qli1~bpo13+1~'
+    debian_revision: '0qli1~bpo13+1'
 
   - name: qcom-next-debug-forky
     suite: forky
@@ -135,7 +137,7 @@ builds:
       - camx
       - iris-vpu
       - audioreach
-    debian_revision: '0qli1~'
+    debian_revision: '0qli1'
 
   # ---------------------------------------------------------------------------
   # qcom-arduino — the Arduino hardware-enablement topic branch.
@@ -155,7 +157,7 @@ builds:
       - kgsl
       - camx
       - iris-vpu
-    debian_revision: '0qli~bpo13+1~'
+    debian_revision: '0qli1~bpo13+1'
 
   - name: qcom-arduino-forky
     suite: forky
@@ -170,7 +172,7 @@ builds:
       - kgsl
       - camx
       - iris-vpu
-    debian_revision: '0qli~'
+    debian_revision: '0qli1'
 
   # ---------------------------------------------------------------------------
   # mainline — Linus's tree, tracked for early warning of upstream breakage.
@@ -188,7 +190,7 @@ builds:
     binpkg: linux-image-mainline
     kernel_config: []
     dkms: []
-    debian_revision: '0qli~bpo13+1~'
+    debian_revision: '0qli1~bpo13+1'
 
   - name: mainline-forky
     suite: forky
@@ -200,7 +202,7 @@ builds:
     binpkg: linux-image-mainline
     kernel_config: []
     dkms: []
-    debian_revision: '0qli~'
+    debian_revision: '0qli1'
 
   # ---------------------------------------------------------------------------
   # next — linux-next, the integration tree, one step ahead of mainline.
@@ -219,7 +221,7 @@ builds:
     binpkg: linux-image-next
     kernel_config: []
     dkms: []
-    debian_revision: '0qli~bpo13+1~'
+    debian_revision: '0qli1~bpo13+1'
 
   - name: next-forky
     suite: forky
@@ -232,4 +234,4 @@ builds:
     binpkg: linux-image-next
     kernel_config: []
     dkms: []
-    debian_revision: '0qli~'
+    debian_revision: '0qli1'
