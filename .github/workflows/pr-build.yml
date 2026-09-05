@@ -52,7 +52,7 @@ jobs:
   # resolute results on the PR.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.kernel_variant }}
+    name: ${{ matrix.name }}
     needs: configure-matrix
     strategy:
       fail-fast: false
@@ -61,7 +61,7 @@ jobs:
     uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
-      kernel-variant: ${{ matrix.kernel_variant }}
+      build: ${{ matrix.name }}
       flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
