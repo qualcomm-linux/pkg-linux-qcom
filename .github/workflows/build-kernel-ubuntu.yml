@@ -28,27 +28,27 @@ on:
       build:
         description: 'Name of this build, as listed in ci/build-matrix.yaml'
         type: string
-        default: 'qcom-next-resolute'
+        required: true
       flavour:
         description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
         type: string
-        default: 'qcom-next'
+        required: true
       suite:
         description: 'Target Ubuntu suite (noble, resolute)'
         type: string
-        default: 'resolute'
+        required: true
       kernel-branch:
         description: 'Source branch or pinned tag used by branch_tip or pinned_ref'
         type: string
-        default: 'qcom-next'
+        required: true
       git-clone:
         description: 'Kernel repository URL'
         type: string
-        default: 'https://github.com/qualcomm-linux/kernel'
+        required: true
       ref-strategy:
         description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
         type: string
-        default: 'latest_tag'
+        required: true
       tag-pattern:
         description: 'Tag glob used when ref-strategy=latest_tag'
         type: string
@@ -56,11 +56,11 @@ on:
       srcpkg:
         description: 'Source package name'
         type: string
-        default: 'linux-qcom-next'
+        required: true
       binpkg:
         description: 'Binary metapackage name'
         type: string
-        default: 'linux-image-qcom-next'
+        required: true
       kernel-config:
         description: 'Extra config fragments applied on top of all of debian/config-available/'
         type: string
@@ -72,7 +72,7 @@ on:
       debian-revision:
         description: 'Debian revision component of the package version'
         type: string
-        default: '0qli1'
+        required: true
       localversion:
         description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
         type: string
