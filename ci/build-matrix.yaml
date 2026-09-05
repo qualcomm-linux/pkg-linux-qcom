@@ -1,0 +1,192 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+#
+# Kernel delivery matrix.
+#
+# One entry in "deliveries" is one generated package: a single kernel_variant,
+# a single delivery type, and a single suite. The only list-valued fields are
+# kernel_config and dkms, which name the fragments and the out-of-tree modules
+# that go into that one package, so an entry needs no expansion — ci/scripts/
+# resolve-matrix.py validates the document, filters it, and hands the matching
+# entries straight to the workflow matrix.
+#
+# Entries are written out in full rather than sharing YAML anchors, so each one
+# can be read, grepped, and changed on its own. resolve-matrix.py enforces the
+# consistency that duplication would otherwise put at risk: a variant's entries
+# must agree on srcpkg, binpkg and kernel_config, and its entries of one
+# delivery type must agree on the kernel ref they build.
+#
+# debian_revision is stated outright, not derived. Daily revisions end in "~"
+# so they sort below the Release revision for the same suite; the rest of the
+# revision places the suite where it belongs relative to the other suites (see
+# the ordering discussion in README.md). No two entries may produce the same
+# srcpkg at the same debian_revision.
+
+deliveries:
+  # ---------------------------------------------------------------------------
+  # qcom-next — the standard kernel.
+  # ---------------------------------------------------------------------------
+  - kernel_variant: qcom-next
+    type: Daily
+    suite: trixie
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next
+    ref_strategy: latest_tag
+    tag_pattern: 'qcom-next-*'
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1~'
+
+  - kernel_variant: qcom-next
+    type: Daily
+    suite: forky
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next
+    ref_strategy: latest_tag
+    tag_pattern: 'qcom-next-*'
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~'
+
+  - kernel_variant: qcom-next
+    type: Daily
+    suite: resolute
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next
+    ref_strategy: latest_tag
+    tag_pattern: 'qcom-next-*'
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~26.04.1~'
+
+  - kernel_variant: qcom-next
+    type: Release
+    suite: trixie
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-rc7-20260821
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1'
+    target_workspace: qli
+
+  - kernel_variant: qcom-next
+    type: Release
+    suite: forky
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-rc7-20260821
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next
+    binpkg: linux-image-qcom-next
+    kernel_config: []
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1'
+    target_workspace: qli
+
+  # ---------------------------------------------------------------------------
+  # qcom-next-debug — the same kernel ref built with the in-tree debug
+  # fragments, packaged separately so it installs alongside qcom-next.
+  # ---------------------------------------------------------------------------
+  - kernel_variant: qcom-next-debug
+    type: Daily
+    suite: trixie
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next
+    ref_strategy: latest_tag
+    tag_pattern: 'qcom-next-*'
+    srcpkg: linux-qcom-next-debug
+    binpkg: linux-image-qcom-next-debug
+    kernel_config:
+      - intree:arch/arm64/configs/qcom_debug.config
+      - intree:kernel/configs/debug.config
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1~'
+
+  - kernel_variant: qcom-next-debug
+    type: Daily
+    suite: forky
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next
+    ref_strategy: latest_tag
+    tag_pattern: 'qcom-next-*'
+    srcpkg: linux-qcom-next-debug
+    binpkg: linux-image-qcom-next-debug
+    kernel_config:
+      - intree:arch/arm64/configs/qcom_debug.config
+      - intree:kernel/configs/debug.config
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~'
+
+  - kernel_variant: qcom-next-debug
+    type: Release
+    suite: trixie
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-rc7-20260821
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next-debug
+    binpkg: linux-image-qcom-next-debug
+    kernel_config:
+      - intree:arch/arm64/configs/qcom_debug.config
+      - intree:kernel/configs/debug.config
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1~bpo13+1'
+    target_workspace: qli
+
+  - kernel_variant: qcom-next-debug
+    type: Release
+    suite: forky
+    git_clone: https://github.com/qualcomm-linux/kernel
+    branch_or_tag: qcom-next-7.2-rc7-20260821
+    ref_strategy: pinned_ref
+    srcpkg: linux-qcom-next-debug
+    binpkg: linux-image-qcom-next-debug
+    kernel_config:
+      - intree:arch/arm64/configs/qcom_debug.config
+      - intree:kernel/configs/debug.config
+    dkms:
+      - kgsl
+      - camx
+      - iris-vpu
+      - audioreach
+    debian_revision: '0qli1'
+    target_workspace: qli

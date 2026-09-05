@@ -1,0 +1,523 @@
+#!/usr/bin/env python3
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+"""Validate and select entries from the kernel delivery matrix.
+
+ci/build-matrix.yaml holds one entry per generated package: a single
+kernel_variant, a single delivery type, and a single suite. Nothing here
+expands or derives anything -- the matrix is already flat, and each entry
+states its own debian_revision. This script validates the whole document,
+selects the entries a caller asked for, and prints them.
+
+The document is validated in full on every invocation, not just the selected
+entries, so a typo in a Release entry fails the daily build too rather than
+lying in wait until someone runs a release.
+
+Usage:
+  ci/scripts/resolve-matrix.py --type Daily
+  ci/scripts/resolve-matrix.py --type Release --kernel-variant qcom-next
+  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next --suite trixie
+  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next \\
+      --suite trixie --field debian_revision
+
+Options:
+  --type TYPE                Delivery type to select (Daily or Release).
+                               Required.
+  --kernel-variant VARIANT   Select only this kernel variant.
+  --suite SUITE              Select only this suite.
+  --field NAME               Print just this field of the single selected
+                               entry, unquoted. Errors unless exactly one
+                               entry matches.
+  --matrix-file FILE         Matrix path (default: ci/build-matrix.yaml
+                               relative to CWD).
+
+Output:
+  Without --field, a compact JSON array of the selected entries, ready for a
+  GitHub Actions matrix `include`. kernel_config and dkms are joined into the
+  comma-separated strings that build-kernel-deb.yml's kernel-config and dkms
+  inputs, and prepare-source.sh's --kernel-config and --dkms, expect; every
+  other field is passed through as written.
+
+  With --field, the named field's value alone, so a workflow step can capture
+  it directly.
+
+Exit codes:
+  0  Success, at least one entry selected.
+  1  Error (invalid arguments, matrix validation failure, no matching entry,
+     or --field matching more than one entry).
+"""
+
+import argparse
+import json
+import re
+import sys
+from collections import defaultdict
+
+try:
+    import yaml
+except ImportError:
+    sys.exit(
+        "ERROR: PyYAML is required to read the delivery matrix.\n"
+        "       Install it with 'apt-get install python3-yaml' or 'pip install pyyaml'."
+    )
+
+DEFAULT_MATRIX_FILE = "ci/build-matrix.yaml"
+
+DELIVERY_TYPES = ("Daily", "Release")
+REF_STRATEGIES = ("latest_tag", "branch_tip", "pinned_ref")
+
+# A delivery type constrains how its kernel ref is chosen: a Daily build tracks
+# something moving, a Release build is pinned to an immutable ref.
+REF_STRATEGIES_FOR_TYPE = {
+    "Daily": ("latest_tag", "branch_tip"),
+    "Release": ("pinned_ref",),
+}
+
+REQUIRED_STRING_FIELDS = (
+    "kernel_variant",
+    "type",
+    "suite",
+    "git_clone",
+    "branch_or_tag",
+    "ref_strategy",
+    "srcpkg",
+    "binpkg",
+    "debian_revision",
+)
+
+OPTIONAL_STRING_FIELDS = (
+    "tag_pattern",
+    "target_workspace",
+    "localversion",
+    "kver_extra",
+    "debusine_parent_workspace",
+)
+
+KNOWN_FIELDS = frozenset(
+    REQUIRED_STRING_FIELDS + OPTIONAL_STRING_FIELDS + ("kernel_config", "dkms")
+)
+
+# Fields that identify the variant itself rather than one of its build legs.
+# Every entry for a variant must agree on them, because they decide what the
+# package is; the entries only differ in where it is delivered.
+VARIANT_IDENTITY_FIELDS = ("srcpkg", "binpkg", "kernel_config", "dkms")
+
+# Fields deciding which kernel tree is built. All entries for one variant and
+# delivery type build the same source, so a stale suite cannot quietly ship a
+# different kernel from its siblings.
+REF_FIELDS = ("git_clone", "branch_or_tag", "ref_strategy", "tag_pattern")
+
+NAME_RE = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
+
+# A Debian revision: no hyphen (that would start a new revision component) and
+# none of the characters dpkg rejects in a version.
+REVISION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+~]*$")
+
+# An "intree:" entry names a fragment shipped by the kernel source, as a path
+# relative to the kernel source root. A bare entry names a fragment in
+# debian/config-available/, with or without its .config extension.
+INTREE_PATH_RE = re.compile(r"^([A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.config$")
+BARE_FRAGMENT_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+# A dkms entry is a package name stem: the build wants <name>-dkms available,
+# and generates both the Build-Depends entry and the debian/dkms-modules
+# manifest from it. Same shape debian/rules enforces at prepare time, checked
+# here so a typo fails before a runner is claimed rather than mid-build.
+DKMS_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]*$")
+
+
+def fragment_basename(fragment):
+    """Filename a fragment lands under in debian/config/, minus .config.
+
+    Every fragment is copied into debian/config/ under its basename, so
+    arch/arm64/configs/hardening.config and kernel/configs/hardening.config
+    collide there even though the entries differ.
+    """
+    return fragment.removeprefix("intree:").rsplit("/", 1)[-1].removesuffix(".config")
+
+
+def check_kernel_config(entry, report):
+    """Validate one entry's kernel_config list."""
+    fragments = entry.get("kernel_config")
+    if not isinstance(fragments, list):
+        report("kernel_config must be a list")
+        return
+    if any(not isinstance(f, str) or not f for f in fragments):
+        report("kernel_config must contain only non-empty strings")
+        return
+    if any("," in f for f in fragments):
+        report(
+            "kernel_config entries must not contain commas; "
+            "use one list element per fragment"
+        )
+        return
+    if len(set(fragments)) != len(fragments):
+        report("kernel_config must not contain duplicates")
+
+    for fragment in fragments:
+        if fragment.startswith("intree:"):
+            path = fragment.removeprefix("intree:")
+            traversal = path == ".." or path.startswith("../") or "/../" in path
+            if not INTREE_PATH_RE.match(path) or traversal or path.endswith("/.."):
+                report(
+                    f"intree: entry '{fragment}' must be a kernel-source-relative "
+                    "path ending in .config "
+                    "(e.g. intree:arch/arm64/configs/qcom_debug.config)"
+                )
+        elif not BARE_FRAGMENT_RE.match(fragment):
+            report(
+                f"kernel_config entry '{fragment}' must be a fragment name from "
+                "debian/config-available/ or an intree: path"
+            )
+
+    basenames = [fragment_basename(f) for f in fragments]
+    if len(set(basenames)) != len(basenames):
+        report("kernel_config entries must not resolve to the same fragment filename")
+
+
+def check_dkms(entry, report):
+    """Validate one entry's dkms list.
+
+    An empty list is meaningful: it bundles nothing, as opposed to leaving the
+    field out, which the matrix does not allow.
+    """
+    modules = entry.get("dkms")
+    if not isinstance(modules, list):
+        report("dkms must be a list")
+        return
+    if any(not isinstance(m, str) or not m for m in modules):
+        report("dkms must contain only non-empty strings")
+        return
+    if len(set(modules)) != len(modules):
+        report("dkms must not contain duplicates")
+
+    for module in modules:
+        if module.endswith("-dkms"):
+            report(
+                f"dkms entry '{module}' must omit the -dkms suffix "
+                f"(use '{module.removesuffix('-dkms')}')"
+            )
+        elif not DKMS_NAME_RE.match(module):
+            report(f"dkms entry '{module}' must be a package name stem, e.g. kgsl")
+
+
+def check_entry(entry, report):
+    """Validate one delivery entry in isolation."""
+    for field in REQUIRED_STRING_FIELDS:
+        value = entry.get(field)
+        if not isinstance(value, str) or not value:
+            report(f"missing or invalid {field}")
+
+    for field in OPTIONAL_STRING_FIELDS:
+        if field in entry and not isinstance(entry[field], str):
+            report(f"invalid {field}")
+
+    for field in sorted(set(entry) - KNOWN_FIELDS):
+        report(f"unknown field {field}")
+
+    for field in ("kernel_variant", "suite"):
+        value = entry.get(field)
+        if isinstance(value, str) and not NAME_RE.match(value):
+            report(f"{field} must use lowercase letters, digits, and internal hyphens")
+
+    check_kernel_config(entry, report)
+    check_dkms(entry, report)
+
+    delivery_type = entry.get("type")
+    if delivery_type not in DELIVERY_TYPES:
+        report("type must be Daily or Release")
+
+    ref_strategy = entry.get("ref_strategy")
+    if ref_strategy not in REF_STRATEGIES:
+        report("ref_strategy must be " + ", ".join(REF_STRATEGIES))
+    elif delivery_type in REF_STRATEGIES_FOR_TYPE:
+        allowed = REF_STRATEGIES_FOR_TYPE[delivery_type]
+        if ref_strategy not in allowed:
+            report(
+                f"{delivery_type} entries must use "
+                + " or ".join(f"ref_strategy={s}" for s in allowed)
+            )
+
+    if ref_strategy == "latest_tag":
+        if not entry.get("tag_pattern"):
+            report("missing or invalid tag_pattern")
+    elif "tag_pattern" in entry:
+        report("tag_pattern is only valid with ref_strategy=latest_tag")
+
+    if delivery_type == "Release":
+        if not entry.get("target_workspace"):
+            report("missing or invalid target_workspace")
+    elif "target_workspace" in entry:
+        report("target_workspace is only valid for Release")
+
+    revision = entry.get("debian_revision")
+    if isinstance(revision, str) and revision:
+        if not REVISION_RE.match(revision):
+            report(
+                f'debian_revision "{revision}" is not a valid Debian revision '
+                "(letters, digits, and . + ~ only, starting with a letter or digit)"
+            )
+        # A trailing ~ sorts a version below the same version without it, so a
+        # Daily always sorts below the Release it will be superseded by.
+        elif delivery_type == "Daily" and not revision.endswith("~"):
+            report(f'debian_revision "{revision}" must end in ~ for a Daily entry')
+        elif delivery_type == "Release" and revision.endswith("~"):
+            report(f'debian_revision "{revision}" must not end in ~ for a Release entry')
+
+
+def describe(entry, index):
+    """Label an entry in an error message by what identifies it to a reader."""
+    if not isinstance(entry, dict):
+        return f"entry {index}"
+    parts = [
+        str(entry[field])
+        for field in ("kernel_variant", "type", "suite")
+        if isinstance(entry.get(field), str)
+    ]
+    return f"entry {index} ({'/'.join(parts)})" if parts else f"entry {index}"
+
+
+def check_consistency(deliveries, errors):
+    """Validate the invariants that span entries.
+
+    Entries are written out in full, so the matrix can state a variant twice
+    and disagree with itself. These checks are what makes that duplication
+    safe to read at face value.
+    """
+    by_leg = defaultdict(list)
+    by_variant = defaultdict(list)
+    by_variant_type = defaultdict(list)
+    by_package_version = defaultdict(list)
+    variants_by_package = defaultdict(set)
+
+    for entry in deliveries:
+        if not isinstance(entry, dict):
+            continue
+        variant = entry.get("kernel_variant")
+        delivery_type = entry.get("type")
+        suite = entry.get("suite")
+        if not isinstance(variant, str):
+            continue
+
+        by_variant[variant].append(entry)
+        by_variant_type[(variant, delivery_type)].append(entry)
+        by_leg[(variant, delivery_type, suite)].append(entry)
+
+        for field in ("srcpkg", "binpkg"):
+            if isinstance(entry.get(field), str) and entry[field]:
+                variants_by_package[(field, entry[field])].add(variant)
+
+        if isinstance(entry.get("srcpkg"), str) and isinstance(
+            entry.get("debian_revision"), str
+        ):
+            by_package_version[(entry["srcpkg"], entry["debian_revision"])].append(entry)
+
+    for (variant, delivery_type, suite), entries in sorted(
+        by_leg.items(), key=lambda item: str(item[0])
+    ):
+        if len(entries) > 1:
+            errors.append(
+                f"kernel_variant {variant} defines {len(entries)} {delivery_type} "
+                f"entries for suite {suite}; one entry is one generated package"
+            )
+
+    for variant, entries in sorted(by_variant.items()):
+        for field in VARIANT_IDENTITY_FIELDS:
+            values = {json.dumps(entry.get(field), sort_keys=True) for entry in entries}
+            if len(values) > 1:
+                errors.append(
+                    f"kernel_variant {variant} must use one {field} across all its "
+                    "entries (got " + ", ".join(sorted(values)) + ")"
+                )
+        types = {entry.get("type") for entry in entries}
+        for delivery_type in DELIVERY_TYPES:
+            if delivery_type not in types:
+                errors.append(
+                    f"kernel_variant {variant} has no {delivery_type} entry; "
+                    "every variant must define at least one of each"
+                )
+
+    for (variant, delivery_type), entries in sorted(
+        by_variant_type.items(), key=lambda item: str(item[0])
+    ):
+        for field in REF_FIELDS:
+            values = {entry.get(field) for entry in entries}
+            if len(values) > 1:
+                rendered = ", ".join(sorted(str(v) for v in values))
+                errors.append(
+                    f"kernel_variant {variant} must build one {field} across its "
+                    f"{delivery_type} entries (got {rendered})"
+                )
+
+    for (field, package), variants in sorted(variants_by_package.items()):
+        if len(variants) > 1:
+            errors.append(
+                f"{field} {package} is shared by kernel variants "
+                + ", ".join(sorted(variants))
+            )
+
+    for (srcpkg, revision), entries in sorted(
+        by_package_version.items(), key=lambda item: str(item[0])
+    ):
+        if len(entries) > 1:
+            suites = ", ".join(sorted(str(entry.get("suite")) for entry in entries))
+            errors.append(
+                f"srcpkg {srcpkg} is built at debian_revision {revision} for "
+                f"suites {suites}; each entry needs a revision of its own"
+            )
+
+    # A suite's Daily and Release differ only by the Daily's trailing ~, so the
+    # Daily reliably sorts below the Release that supersedes it.
+    for variant, entries in sorted(by_variant.items()):
+        revisions = {
+            (entry.get("type"), entry.get("suite")): entry.get("debian_revision")
+            for entry in entries
+        }
+        for (delivery_type, suite), revision in sorted(
+            revisions.items(), key=lambda item: str(item[0])
+        ):
+            if delivery_type != "Daily" or not isinstance(revision, str):
+                continue
+            release = revisions.get(("Release", suite))
+            if isinstance(release, str) and revision != release + "~":
+                errors.append(
+                    f"kernel_variant {variant} suite {suite}: Daily "
+                    f'debian_revision "{revision}" must be the Release revision '
+                    f'"{release}" with a trailing ~'
+                )
+
+
+def validate(deliveries):
+    """Return every problem found in the matrix, as a list of messages."""
+    errors = []
+    for index, entry in enumerate(deliveries):
+        if not isinstance(entry, dict):
+            errors.append(f"{describe(entry, index)}: delivery entries must be mappings")
+            continue
+        label = describe(entry, index)
+        check_entry(entry, lambda message, label=label: errors.append(f"{label}: {message}"))
+    check_consistency(deliveries, errors)
+    return errors
+
+
+def load_matrix(path):
+    """Read, parse, and validate the matrix, returning its deliveries."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = yaml.safe_load(handle)
+    except FileNotFoundError:
+        sys.exit(f"ERROR: Matrix file not found: {path}")
+    except OSError as error:
+        sys.exit(f"ERROR: Cannot read {path}: {error}")
+    except yaml.YAMLError as error:
+        sys.exit(f"ERROR: Invalid YAML in {path}: {error}")
+
+    if not isinstance(document, dict):
+        sys.exit(f"ERROR: {path}: matrix root must be a mapping with a deliveries key")
+
+    # deliveries is the whole schema. Anything else at the root is a leftover
+    # from an older matrix (suite_suffix_mapping, say) that would otherwise sit
+    # there looking authoritative while nothing read it.
+    unknown_root = sorted(set(document) - {"deliveries"})
+    if unknown_root:
+        sys.exit(
+            f"ERROR: {path}: unknown top-level key(s) {', '.join(unknown_root)}; "
+            "deliveries is the only one"
+        )
+
+    deliveries = document.get("deliveries")
+    if not isinstance(deliveries, list):
+        sys.exit(f"ERROR: {path}: deliveries must be a list")
+    if not deliveries:
+        sys.exit(f"ERROR: {path}: deliveries must contain at least one entry")
+
+    errors = validate(deliveries)
+    if errors:
+        sys.exit(
+            f"ERROR: Invalid kernel delivery matrix in {path}:\n"
+            + "\n".join(f"  - {error}" for error in errors)
+        )
+
+    return deliveries
+
+
+def select(deliveries, delivery_type, kernel_variant, suite):
+    """Return the entries matching the requested filters, in matrix order."""
+    return [
+        entry
+        for entry in deliveries
+        if entry["type"] == delivery_type
+        and kernel_variant in ("", entry["kernel_variant"])
+        and suite in ("", entry["suite"])
+    ]
+
+
+def describe_selection(delivery_type, kernel_variant, suite):
+    """Render the active filters for an error message."""
+    parts = [f"type={delivery_type}"]
+    if kernel_variant:
+        parts.append(f"kernel_variant={kernel_variant}")
+    if suite:
+        parts.append(f"suite={suite}")
+    return " ".join(parts)
+
+
+def for_workflow(entry):
+    """Shape one entry the way build-kernel-deb.yml's inputs expect it."""
+    return {
+        **entry,
+        "kernel_config": ",".join(entry["kernel_config"]),
+        "dkms": ",".join(entry["dkms"]),
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Validate and select entries from the kernel delivery matrix.",
+        epilog="See the module docstring in this file for full documentation.",
+    )
+    parser.add_argument(
+        "--type", required=True, choices=DELIVERY_TYPES, help="delivery type to select"
+    )
+    parser.add_argument(
+        "--kernel-variant", default="", help="select only this kernel variant"
+    )
+    parser.add_argument("--suite", default="", help="select only this suite")
+    parser.add_argument(
+        "--field",
+        default="",
+        help="print just this field of the single selected entry",
+    )
+    parser.add_argument(
+        "--matrix-file", default=DEFAULT_MATRIX_FILE, help="path to the matrix YAML"
+    )
+    args = parser.parse_args()
+
+    deliveries = load_matrix(args.matrix_file)
+    selected = select(deliveries, args.type, args.kernel_variant, args.suite)
+
+    what = describe_selection(args.type, args.kernel_variant, args.suite)
+    if not selected:
+        sys.exit(f"ERROR: No matrix entries found for {what}")
+
+    if not args.field:
+        print(json.dumps([for_workflow(entry) for entry in selected], separators=(",", ":")))
+        return
+
+    if len(selected) > 1:
+        sys.exit(
+            f"ERROR: --field {args.field} needs exactly one entry, but {what} "
+            f"selects {len(selected)}; narrow it with --kernel-variant and --suite"
+        )
+
+    entry = for_workflow(selected[0])
+    if args.field not in entry:
+        sys.exit(
+            f"ERROR: {what} has no field {args.field}; "
+            "available: " + ", ".join(sorted(entry))
+        )
+    print(entry[args.field])
+
+
+if __name__ == "__main__":
+    main()
