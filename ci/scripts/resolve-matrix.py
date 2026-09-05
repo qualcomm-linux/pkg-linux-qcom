@@ -4,27 +4,39 @@
 """Validate and select entries from the kernel delivery matrix.
 
 ci/build-matrix.yaml holds one entry per generated package: a single named
-build, one delivery type, and one suite. Nothing here
-expands or derives anything -- the matrix is already flat, and each entry
-states its own debian_revision. This script validates the whole document,
-selects the entries a caller asked for, and prints them.
+build for a single suite. Nothing here expands or derives anything -- the
+matrix is already flat, and each entry states its own debian_revision. This
+script validates the whole document, selects the entries a caller asked for,
+and prints them.
 
-The document is validated in full on every invocation, not just the selected
-entries, so a typo in a Release entry fails the daily build too rather than
-lying in wait until someone runs a release.
+The document has two lists of entries, both of the same shape. "builds" is
+what is built nightly: every entry is built, and an entry that names a
+target_workspace is also promoted into it, so the archive carries the artifact
+the nightly build tested rather than a second build of the same ref.
+"releases" is the other list, selected with --releases. Nothing runs its
+entries on a schedule; each names the workspace it publishes into and pins the
+exact ref that ships.
+
+Both lists are validated in full on every invocation, not just the selected
+entries, so a typo in an entry nobody selected fails the run that would have
+built its siblings rather than lying in wait. They are validated separately and
+never mix: a name may appear in both, and means the same build in each.
 
 Usage:
-  ci/scripts/resolve-matrix.py --type Daily
-  ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie
-  ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie,qcom-next-forky
-  ci/scripts/resolve-matrix.py --type Release --flavour qcom-next
-  ci/scripts/resolve-matrix.py --type Daily --family ubuntu --allow-empty
-  ci/scripts/resolve-matrix.py --type Daily --build qcom-next-trixie \\
-      --field debian_revision
+  ci/scripts/resolve-matrix.py
+  ci/scripts/resolve-matrix.py --build qcom-next-trixie
+  ci/scripts/resolve-matrix.py --build qcom-next-trixie,qcom-next-forky
+  ci/scripts/resolve-matrix.py --flavour qcom-next
+  ci/scripts/resolve-matrix.py --family ubuntu --allow-empty
+  ci/scripts/resolve-matrix.py --build qcom-next-trixie --field debian_revision
+  ci/scripts/resolve-matrix.py --releases
+  ci/scripts/resolve-matrix.py --releases --build qcom-next-trixie
 
 Options:
-  --type TYPE                Delivery type to select (Daily or Release).
-                               Required.
+  --releases                 Select from the releases list rather than from
+                               builds. Release entries carry a
+                               target_workspace and pin their ref, so this is
+                               how release.yml asks what may be released.
   --build NAMES              Select only these builds by name, comma-separated.
                                A name identifies one build, so this is the way
                                to ask for a specific set of them.
@@ -47,9 +59,9 @@ Options:
                                relative to CWD).
 
   Filters combine: an entry must match every filter given. Every name in a
-  filter must match at least one entry of the selected type, so a typo or a
-  stale name fails instead of quietly narrowing the build set. That check is
-  per filter, so --allow-empty still rejects a name that matches nothing.
+  filter must match at least one entry, so a typo or a stale name fails
+  instead of quietly narrowing the build set. That check is per filter, so
+  --allow-empty still rejects a name that matches nothing.
 
 Output:
   Without --field, a compact JSON array of the selected entries, ready for a
@@ -84,7 +96,6 @@ except ImportError:
 
 DEFAULT_MATRIX_FILE = "ci/build-matrix.yaml"
 
-DELIVERY_TYPES = ("Daily", "Release")
 REF_STRATEGIES = ("latest_tag", "branch_tip", "pinned_ref")
 
 # Which build path a suite takes. Debian-family suites are built by Debusine;
@@ -101,16 +112,9 @@ def family_for(suite):
     """Return the build family a suite belongs to."""
     return "debian" if suite in DEBIAN_SUITES else "ubuntu"
 
-# A delivery type constrains how its kernel ref is chosen: a Daily build tracks
-# something moving, a Release build is pinned to an immutable ref.
-REF_STRATEGIES_FOR_TYPE = {
-    "Daily": ("latest_tag", "branch_tip"),
-    "Release": ("pinned_ref",),
-}
 
 REQUIRED_STRING_FIELDS = (
     "name",
-    "type",
     "suite",
     "flavour",
     "git_clone",
@@ -129,9 +133,17 @@ OPTIONAL_STRING_FIELDS = (
     "debusine_parent_workspace",
 )
 
+# A release entry states its destination, and a build entry may not. This is
+# the whole difference between the two lists: where a nightly build is
+# published follows from why it is running, so its entry says nothing about it,
+# while a release exists precisely to put one ref into one archive.
+RELEASE_REQUIRED_STRING_FIELDS = ("target_workspace",)
+
 KNOWN_FIELDS = frozenset(
     REQUIRED_STRING_FIELDS + OPTIONAL_STRING_FIELDS + ("kernel_config", "dkms")
 )
+
+RELEASE_KNOWN_FIELDS = KNOWN_FIELDS | frozenset(RELEASE_REQUIRED_STRING_FIELDS)
 
 # Everything about what is built is anchored on flavour, not on the build's
 # name. The flavour is the kernel's own identity: it becomes the LOCALVERSION
@@ -147,22 +159,20 @@ FLAVOUR_IDENTITY_FIELDS = ("srcpkg", "binpkg", "kernel_config")
 
 # Fields a flavour may vary between suites but not within one. The out-of-tree
 # module set depends on which <name>-dkms packages the target archive has, so
-# it is a property of the flavour in a suite rather than of the flavour. A
-# suite's Daily and Release must still agree: a Daily that bundles a different
-# module set from the Release it precedes is not testing what will ship.
+# it is a property of the flavour in a suite rather than of the flavour.
 SUITE_IDENTITY_FIELDS = ("dkms",)
 
-# Fields deciding which kernel tree is built. All entries for one flavour and
-# delivery type build the same source, so a stale suite cannot quietly ship a
-# different kernel from its siblings.
+# Fields deciding which kernel tree is built. All entries for one flavour build
+# the same source, so a stale suite cannot quietly ship a different kernel from
+# its siblings.
 REF_FIELDS = ("git_clone", "branch_or_tag", "ref_strategy", "tag_pattern")
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 
 # The dispatch forms of daily.yml and release.yml take one builds field, where
-# "all" means every entry of the delivery type and anything else is a list of
-# names. A build actually called all would be unreachable through them, so the
-# matrix may not define one.
+# "all" means every entry and anything else is a list of names. A build
+# actually called all would be unreachable through them, so the matrix may not
+# define one.
 RESERVED_NAMES = ("all",)
 
 # A Debian revision: no hyphen (that would start a new revision component) and
@@ -257,9 +267,15 @@ def check_dkms(entry, report):
             report(f"dkms entry '{module}' must be a package name stem, e.g. kgsl")
 
 
-def check_entry(entry, report):
+def check_entry(entry, report, release=False):
     """Validate one delivery entry in isolation."""
-    for field in REQUIRED_STRING_FIELDS:
+    required = REQUIRED_STRING_FIELDS
+    known = KNOWN_FIELDS
+    if release:
+        required += RELEASE_REQUIRED_STRING_FIELDS
+        known = RELEASE_KNOWN_FIELDS
+
+    for field in required:
         value = entry.get(field)
         if not isinstance(value, str) or not value:
             report(f"missing or invalid {field}")
@@ -268,7 +284,10 @@ def check_entry(entry, report):
         if field in entry and not isinstance(entry[field], str):
             report(f"invalid {field}")
 
-    for field in sorted(set(entry) - KNOWN_FIELDS):
+    for field in sorted(set(entry) - known):
+        # target_workspace on a build entry is the likely version of this, and
+        # says something the nightly would silently ignore: a build entry can
+        # no more choose an archive than it can choose to run.
         report(f"unknown field {field}")
 
     for field in ("name", "suite", "flavour"):
@@ -285,20 +304,9 @@ def check_entry(entry, report):
     check_kernel_config(entry, report)
     check_dkms(entry, report)
 
-    delivery_type = entry.get("type")
-    if delivery_type not in DELIVERY_TYPES:
-        report("type must be Daily or Release")
-
     ref_strategy = entry.get("ref_strategy")
     if ref_strategy not in REF_STRATEGIES:
         report("ref_strategy must be " + ", ".join(REF_STRATEGIES))
-    elif delivery_type in REF_STRATEGIES_FOR_TYPE:
-        allowed = REF_STRATEGIES_FOR_TYPE[delivery_type]
-        if ref_strategy not in allowed:
-            report(
-                f"{delivery_type} entries must use "
-                + " or ".join(f"ref_strategy={s}" for s in allowed)
-            )
 
     if ref_strategy == "latest_tag":
         if not entry.get("tag_pattern"):
@@ -306,36 +314,46 @@ def check_entry(entry, report):
     elif "tag_pattern" in entry:
         report("tag_pattern is only valid with ref_strategy=latest_tag")
 
-    if delivery_type == "Release":
-        if not entry.get("target_workspace"):
-            report("missing or invalid target_workspace")
-        # Promotion runs through Debusine, and only the Debian family is built
-        # there. An Ubuntu Release entry would build the package and then have
-        # no workspace to promote it from, publishing to the daily S3 path and
-        # reporting success without ever releasing anything.
+    # Promotion runs through Debusine, and only the Debian family is built
+    # there. An Ubuntu entry naming a target_workspace would build the package
+    # and then have no workspace to promote it from, publishing to the S3 path
+    # and reporting success without the archive ever gaining anything.
+    if entry.get("target_workspace"):
         suite = entry.get("suite")
         if isinstance(suite, str) and family_for(suite) != "debian":
             report(
-                f"Release entries must target a Debian suite, not {suite}; "
-                "promotion runs through Debusine, which builds "
-                + ", ".join(DEBIAN_SUITES)
+                f"target_workspace needs a Debian suite, not {suite}; promotion "
+                "runs through Debusine, which builds " + ", ".join(DEBIAN_SUITES)
             )
-    elif "target_workspace" in entry:
-        report("target_workspace is only valid for Release")
 
     revision = entry.get("debian_revision")
-    if isinstance(revision, str) and revision:
-        if not REVISION_RE.match(revision):
-            report(
-                f'debian_revision "{revision}" is not a valid Debian revision '
-                "(letters, digits, and . + ~ only, starting with a letter or digit)"
-            )
-        # A trailing ~ sorts a version below the same version without it, so a
-        # Daily always sorts below the Release it will be superseded by.
-        elif delivery_type == "Daily" and not revision.endswith("~"):
-            report(f'debian_revision "{revision}" must end in ~ for a Daily entry')
-        elif delivery_type == "Release" and revision.endswith("~"):
-            report(f'debian_revision "{revision}" must not end in ~ for a Release entry')
+    if isinstance(revision, str) and revision and not REVISION_RE.match(revision):
+        report(
+            f'debian_revision "{revision}" is not a valid Debian revision '
+            "(letters, digits, and . + ~ only, starting with a letter or digit)"
+        )
+
+    if not release:
+        return
+
+    # A release names the exact source that ships. latest_tag would make two
+    # dispatches of one entry release different kernels, and branch_tip would
+    # make them release whatever the branch had reached by then.
+    if ref_strategy in REF_STRATEGIES and ref_strategy != "pinned_ref":
+        report(
+            f"ref_strategy must be pinned_ref for a release (got {ref_strategy}); "
+            "a release names one immutable ref"
+        )
+
+    # Promotion runs through Debusine, which is the Debian path. The Ubuntu
+    # path publishes to S3 and has no workspace to promote into, so an entry
+    # here would name a destination nothing could deliver it to.
+    suite = entry.get("suite")
+    if isinstance(suite, str) and suite and family_for(suite) != "debian":
+        report(
+            f"suite {suite} is not a Debian suite; only the Debian path can "
+            "promote into a workspace, so only its builds can be released"
+        )
 
 
 def describe(entry, index):
@@ -344,7 +362,7 @@ def describe(entry, index):
         return f"entry {index}"
     parts = [
         str(entry[field])
-        for field in ("name", "type", "suite")
+        for field in ("name", "suite")
         if isinstance(entry.get(field), str)
     ]
     return f"entry {index} ({'/'.join(parts)})" if parts else f"entry {index}"
@@ -361,9 +379,8 @@ def check_consistency(builds, errors):
     only checked for the one thing it is used for: identifying that build
     uniquely.
     """
-    by_leg = defaultdict(list)
+    by_name = defaultdict(list)
     by_flavour = defaultdict(list)
-    by_flavour_type = defaultdict(list)
     by_flavour_suite = defaultdict(list)
     by_package_version = defaultdict(list)
     flavours_by_package = defaultdict(set)
@@ -372,15 +389,13 @@ def check_consistency(builds, errors):
         if not isinstance(entry, dict):
             continue
         flavour = entry.get("flavour")
-        delivery_type = entry.get("type")
         suite = entry.get("suite")
         if not isinstance(flavour, str):
             continue
 
         by_flavour[flavour].append(entry)
-        by_flavour_type[(flavour, delivery_type)].append(entry)
         by_flavour_suite[(flavour, suite)].append(entry)
-        by_leg[(delivery_type, entry.get("name"))].append(entry)
+        by_name[entry.get("name")].append(entry)
 
         for field in ("srcpkg", "binpkg"):
             if isinstance(entry.get(field), str) and entry[field]:
@@ -392,17 +407,13 @@ def check_consistency(builds, errors):
             by_package_version[(entry["srcpkg"], entry["debian_revision"])].append(entry)
 
     # A name identifies one build: it is the Actions job name and what a
-    # workflow dispatch asks for. It only has to be unique within a delivery
-    # type, because a run only ever resolves one type, and that lets a Daily and
-    # its Release share a name. Two entries sharing both would give a run two
+    # workflow dispatch asks for. Two entries sharing one would give a run two
     # identically named jobs and make the dispatch filter ambiguous.
-    for (delivery_type, name), entries in sorted(
-        by_leg.items(), key=lambda item: str(item[0])
-    ):
+    for name, entries in sorted(by_name.items(), key=lambda item: str(item[0])):
         if len(entries) > 1:
             suites = ", ".join(sorted(str(e.get("suite")) for e in entries))
             errors.append(
-                f"name {name} is used by {len(entries)} {delivery_type} entries "
+                f"name {name} is used by {len(entries)} entries "
                 f"(suites {suites}); a name identifies exactly one build"
             )
 
@@ -414,15 +425,6 @@ def check_consistency(builds, errors):
                     f"flavour {flavour} must use one {field} across all its "
                     "entries (got " + ", ".join(sorted(values)) + ")"
                 )
-        # A Release must be preceded by the Daily that tests it, but the
-        # converse does not hold: a flavour tracking a moving upstream has
-        # nothing immutable to pin, so it is built daily and never promoted.
-        types = {entry.get("type") for entry in entries}
-        if "Release" in types and "Daily" not in types:
-            errors.append(
-                f"flavour {flavour} has a Release entry but no Daily entry; "
-                "a release must be preceded by the daily build that tests it"
-            )
 
     for (flavour, suite), entries in sorted(
         by_flavour_suite.items(), key=lambda item: str(item[0])
@@ -435,16 +437,14 @@ def check_consistency(builds, errors):
                     f"{suite} entries (got " + ", ".join(sorted(values)) + ")"
                 )
 
-    for (flavour, delivery_type), entries in sorted(
-        by_flavour_type.items(), key=lambda item: str(item[0])
-    ):
+    for flavour, entries in sorted(by_flavour.items()):
         for field in REF_FIELDS:
             values = {entry.get(field) for entry in entries}
             if len(values) > 1:
                 rendered = ", ".join(sorted(str(v) for v in values))
                 errors.append(
                     f"flavour {flavour} must build one {field} across its "
-                    f"{delivery_type} entries (got {rendered})"
+                    f"entries (got {rendered})"
                 )
 
     # Two flavours sharing a package name would overwrite each other in the
@@ -465,42 +465,34 @@ def check_consistency(builds, errors):
                 f"suites {suites}; each entry needs a revision of its own"
             )
 
-    # A suite's Daily and Release differ only by the Daily's trailing ~, so the
-    # Daily reliably sorts below the Release that supersedes it.
-    for flavour, entries in sorted(by_flavour.items()):
-        revisions = {
-            (entry.get("type"), entry.get("suite")): entry.get("debian_revision")
-            for entry in entries
-        }
-        for (delivery_type, suite), revision in sorted(
-            revisions.items(), key=lambda item: str(item[0])
-        ):
-            if delivery_type != "Daily" or not isinstance(revision, str):
-                continue
-            release = revisions.get(("Release", suite))
-            if isinstance(release, str) and revision != release + "~":
-                errors.append(
-                    f"flavour {flavour} suite {suite}: Daily "
-                    f'debian_revision "{revision}" must be the Release revision '
-                    f'"{release}" with a trailing ~'
-                )
 
-
-def validate(builds):
-    """Return every problem found in the matrix, as a list of messages."""
+def validate(builds, release=False):
+    """Return every problem found in one list of entries, as messages."""
     errors = []
     for index, entry in enumerate(builds):
         if not isinstance(entry, dict):
             errors.append(f"{describe(entry, index)}: delivery entries must be mappings")
             continue
         label = describe(entry, index)
-        check_entry(entry, lambda message, label=label: errors.append(f"{label}: {message}"))
+        check_entry(
+            entry,
+            lambda message, label=label: errors.append(f"{label}: {message}"),
+            release=release,
+        )
     check_consistency(builds, errors)
     return errors
 
 
-def load_matrix(path):
-    """Read, parse, and validate the matrix, returning its builds."""
+ROOT_KEYS = ("builds", "releases")
+
+
+def load_matrix(path, section="builds"):
+    """Read and validate the whole matrix, returning one section's entries.
+
+    Both sections are validated however few of them the caller wants, so a
+    broken release entry fails a nightly run too -- rather than waiting to be
+    found by whoever next tries to release.
+    """
     try:
         with open(path, encoding="utf-8") as handle:
             document = yaml.safe_load(handle)
@@ -514,36 +506,56 @@ def load_matrix(path):
     if not isinstance(document, dict):
         sys.exit(f"ERROR: {path}: matrix root must be a mapping with a builds key")
 
-    # builds is the whole schema. Anything else at the root is a leftover from
-    # an older matrix (suite_suffix_mapping, say) that would otherwise sit
-    # there looking authoritative while nothing read it.
-    unknown_root = sorted(set(document) - {"builds"})
+    # builds and releases are the whole schema. Anything else at the root is a
+    # leftover from an older matrix (suite_suffix_mapping, say) that would
+    # otherwise sit there looking authoritative while nothing read it.
+    unknown_root = sorted(set(document) - set(ROOT_KEYS))
     if unknown_root:
         sys.exit(
             f"ERROR: {path}: unknown top-level key(s) {', '.join(unknown_root)}; "
-            "builds is the only one"
+            + " and ".join(ROOT_KEYS) + " are the only ones"
         )
 
-    builds = document.get("builds")
-    if not isinstance(builds, list):
-        sys.exit(f"ERROR: {path}: builds must be a list")
-    if not builds:
-        sys.exit(f"ERROR: {path}: builds must contain at least one entry")
+    sections = {}
+    for key in ROOT_KEYS:
+        entries = document.get(key)
+        # releases is optional, and a matrix with none is a matrix nothing has
+        # blessed yet rather than a broken one. builds is not: a matrix that
+        # builds nothing is a mistake in every case.
+        if entries is None and key != "builds":
+            sections[key] = []
+            continue
+        if not isinstance(entries, list):
+            sys.exit(f"ERROR: {path}: {key} must be a list")
+        if not entries and key == "builds":
+            sys.exit(f"ERROR: {path}: builds must contain at least one entry")
+        sections[key] = entries
 
-    errors = validate(builds)
+    errors = []
+    for key, entries in sections.items():
+        errors += [
+            f"{key}: {error}" for error in validate(entries, release=key == "releases")
+        ]
     if errors:
         sys.exit(
             f"ERROR: Invalid kernel delivery matrix in {path}:\n"
             + "\n".join(f"  - {error}" for error in errors)
         )
 
+    selected = sections[section]
+    if not selected:
+        sys.exit(
+            f"ERROR: {path}: no {section} are defined, so there is nothing to "
+            "select from"
+        )
+
     # Derived, never written: family follows from suite, so the matrix cannot
     # state one that disagrees with the suite it is built for. Attached after
     # validation, which rejects family as an unknown field on an entry.
-    for entry in builds:
+    for entry in selected:
         entry["family"] = family_for(entry["suite"])
 
-    return builds
+    return selected
 
 
 def parse_filter(value):
@@ -553,7 +565,7 @@ def parse_filter(value):
     return [name.strip() for name in value.split(",") if name.strip()]
 
 
-def select(builds, delivery_type, filters):
+def select(builds, filters):
     """Return the entries matching the requested filters, in matrix order.
 
     filters maps a field name to the list of values allowed for it, or to
@@ -562,51 +574,47 @@ def select(builds, delivery_type, filters):
     return [
         entry
         for entry in builds
-        if entry["type"] == delivery_type
-        and all(
+        if all(
             wanted is None or entry[field] in wanted
             for field, wanted in filters.items()
         )
     ]
 
 
-def unmatched_filters(builds, delivery_type, filters):
-    """Names asked for that no entry of this delivery type offers.
+def unmatched_filters(builds, filters):
+    """Names asked for that no entry offers.
 
     family is exempt: it routes a selection to a build path rather than naming
     something in the matrix, argparse already restricts it to a real family,
-    and a type having no builds on one path is an ordinary state of the matrix
-    rather than a mistake in the request.
+    and a matrix having no builds on one path is an ordinary state of it rather
+    than a mistake in the request.
     """
     missing = []
     for field, wanted in filters.items():
         if wanted is None or field == "family":
             continue
-        available = {
-            entry[field] for entry in builds if entry["type"] == delivery_type
-        }
+        available = {entry[field] for entry in builds}
         for name in wanted:
             if name not in available:
                 missing.append(
-                    f"no {delivery_type} entry has {field} {name} "
+                    f"no entry has {field} {name} "
                     f"(available: {', '.join(sorted(available))})"
                 )
     return missing
 
 
-def describe_selection(delivery_type, filters):
+def describe_selection(filters):
     """Render the active filters for an error message."""
-    parts = [f"type={delivery_type}"]
-    parts += [
+    parts = [
         f"{field}={','.join(wanted)}"
         for field, wanted in filters.items()
         if wanted is not None
     ]
-    return " ".join(parts)
+    return " ".join(parts) if parts else "the whole matrix"
 
 
 def for_workflow(entry):
-    """Shape one entry the way build-kernel-deb.yml's inputs expect it."""
+    """Shape one entry the way the build workflows' inputs expect it."""
     return {
         **entry,
         "kernel_config": ",".join(entry["kernel_config"]),
@@ -620,7 +628,9 @@ def main():
         epilog="See the module docstring in this file for full documentation.",
     )
     parser.add_argument(
-        "--type", required=True, choices=DELIVERY_TYPES, help="delivery type to select"
+        "--releases",
+        action="store_true",
+        help="select from the releases list rather than from builds",
     )
     parser.add_argument(
         "--build",
@@ -654,26 +664,28 @@ def main():
     )
     args = parser.parse_args()
 
-    builds = load_matrix(args.matrix_file)
+    builds = load_matrix(
+        args.matrix_file, section="releases" if args.releases else "builds"
+    )
     filters = {
         "name": parse_filter(args.build),
         "flavour": parse_filter(args.flavour),
         "suite": parse_filter(args.suite),
         "family": parse_filter(args.family),
     }
-    what = describe_selection(args.type, filters)
+    what = describe_selection(filters)
 
     # Report a name that matches nothing before reporting an empty selection:
-    # "no Daily entry has name qcom-next" says what to fix, where
-    # "no entries found" leaves the reader to work out which filter was wrong.
-    unmatched = unmatched_filters(builds, args.type, filters)
+    # "no entry has name qcom-nxt" says what to fix, where "no entries found"
+    # leaves the reader to work out which filter was wrong.
+    unmatched = unmatched_filters(builds, filters)
     if unmatched:
         sys.exit(
             f"ERROR: Nothing to build for {what}:\n"
             + "\n".join(f"  - {problem}" for problem in unmatched)
         )
 
-    selected = select(builds, args.type, filters)
+    selected = select(builds, filters)
     if not selected:
         # A caller splitting one dispatch across both build paths asks each
         # family for the same selection, and one of them legitimately has

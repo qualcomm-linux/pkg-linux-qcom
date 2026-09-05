@@ -3,11 +3,11 @@ description: >
   Generate the Debian source package from the prepared tree and submit it to
   Debusine, returning the CI workspace it was built in.
 
-# Shared by the two Debian workflows, which differ only in what they do with
-# the result: build-kernel-debian.yml downloads the .deb files and uploads them
-# to S3, release-kernel-debian.yml promotes them to a target workspace. Holding
-# these steps in a composite action lets each workflow declare its own runner,
-# container and environment while keeping one copy of the build itself.
+# Called by build-kernel-debian.yml, which decides what becomes of the result:
+# every build is downloaded and uploaded to S3, and one whose entry names a
+# target workspace is also promoted into it. Holding these steps in a composite
+# action keeps the submission itself in one place, separate from the job that
+# declares the runner, container and environment it happens in.
 #
 # The caller must have checked out pkg-linux-qcom into the workspace first,
 # which is also where this action comes from. Runs inside the
@@ -41,9 +41,9 @@ inputs:
   extra-build-dep-workspaces:
     description: >
       Workspaces the build resolves its build-dependencies from, space
-      separated. A staging build may depend on a package version that has only
-      reached qli-staging; a release build reads qli alone, so a released
-      kernel is never built against something unreleased.
+      separated. The nightly build reads qli-staging as well as qli, because a
+      kernel may need a -dkms package version that has reached staging and not
+      yet been released.
     default: 'qli'
   debusine-action-ref:
     description: 'Ref of qualcomm-linux/debusine-action to use'

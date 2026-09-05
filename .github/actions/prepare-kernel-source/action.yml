@@ -20,6 +20,15 @@ description: >
 # kernel ref comes from a remote's tag list, and on pr-build.yml the inputs
 # come from the build matrix as the pull request wrote it.
 
+outputs:
+  srcpkg_version:
+    description: >
+      Version of the source package this build will produce, read from the
+      generated debian/changelog. A caller that promotes the result into an
+      archive needs it before the build starts, to see whether that version is
+      already published there.
+    value: ${{ steps.version.outputs.srcpkg_version }}
+
 inputs:
   build:
     description: 'Name of this build, as listed in ci/build-matrix.yaml'
@@ -294,10 +303,9 @@ runs:
     - name: Resolve Debian revision
       # The build workflows pass the matrix entry's own debian-revision
       # straight through, so this lookup is the fallback for a caller that has
-      # no entry in hand and leaves the input empty: it looks up the Daily
-      # entry for the build name and suite it was given, and builds at the
-      # revision the daily build would have used. Always the Daily entry --
-      # a release is driven by release.yml, which passes its own revision.
+      # no entry in hand and leaves the input empty: it looks up the entry for
+      # the build name and suite it was given, and builds at the revision the
+      # nightly build uses.
       id: revision
       shell: bash
       env:
@@ -311,11 +319,10 @@ runs:
           echo "Using supplied Debian revision: $DEBIAN_REVISION"
         else
           DEBIAN_REVISION=$(ci/scripts/resolve-matrix.py \
-            --type Daily \
             --build "$BUILD_INPUT" \
             --suite "$DISTRO" \
             --field debian_revision) || {
-            echo "::error::No Daily matrix entry named $BUILD_INPUT for suite $DISTRO."
+            echo "::error::No matrix entry named $BUILD_INPUT for suite $DISTRO."
             echo "::error::Add one to ci/build-matrix.yaml, or set the debian-revision input to build this combination ad hoc."
             exit 1
           }
@@ -425,6 +432,29 @@ runs:
           -v "$PWD:$PWD" --workdir="$PWD" \
           "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
           ./prepare-source.sh "${ARGS[@]}"
+
+    - name: Read the generated source version
+      # prepare-source.sh has just written debian/changelog, so the version
+      # this build will produce is now decided and can be reported to the
+      # caller. Taken from the changelog rather than recomputed here: that file
+      # is what the source package is built from, so nothing can disagree with
+      # it. Parsed with sed rather than dpkg-parsechangelog because these steps
+      # run on the runner host, which is not required to have dpkg-dev; the
+      # first line of a changelog is "srcpkg (version) suite; urgency=...".
+      id: version
+      shell: bash
+      env:
+        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
+      run: |
+        set -euo pipefail
+        SRCPKG_VERSION=$(sed -n '1s/^[^ ]* (\([^)]*\)).*/\1/p' \
+          "$KERNEL_DIR/debian/changelog")
+        [[ -n "$SRCPKG_VERSION" ]] || {
+          echo "::error::Could not read a version from the generated debian/changelog."
+          exit 1
+        }
+        echo "Source version: $SRCPKG_VERSION"
+        echo "srcpkg_version=$SRCPKG_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Pack prepared source tree
       shell: bash

@@ -13,17 +13,17 @@ takes its packaging and its CI scripts from the same commit.
 The CI model is matrix-driven. This single repository can deliver multiple
 kernel variants, each with independent source/package identity, kernel source
 and ref strategy, configuration fragments, Debian revision, target suites, and
-release destination.
+archive destination.
 
 Every entry in the matrix is one isolated build leg producing one package. A
-kernel flavour owns as many entries as it has suites and delivery types.
+kernel flavour owns as many entries as it has suites.
 
 ### Configured variants
 
-| Variant | Source package | Image metapackage | Daily suites | Release suites | Notes |
-|---------|----------------|-------------------|--------------|----------------|-------|
-| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
-| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
+| Variant | Source package | Image metapackage | Suites | Promoted to | Notes |
+|---------|----------------|-------------------|--------|-------------|-------|
+| `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | `qli-staging` (trixie, forky) | Standard kernel |
+| `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | `qli-staging` | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
 | `qcom-arduino` | `linux-qcom-arduino` | `linux-image-qcom-arduino` | trixie, forky | none | Arduino hardware-enablement topic branch (`early/hwe/arduino` of `kernel-topics`) |
 | `mainline` | `linux-mainline` | `linux-image-mainline` | trixie, forky | none | Tip of Linus's tree, tracked for early warning of upstream breakage. No DKMS modules |
 | `next` | `linux-next` | `linux-image-next` | trixie, forky | none | Newest `next-YYYYMMDD` tag of linux-next. No DKMS modules |
@@ -35,29 +35,35 @@ image package that can be installed alongside the others. The flavour is what
 the kernel is; a build's `name` is only what CI calls it. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
 
-The last three track a moving upstream — a branch tip, or a tag cut every
-night — and so have no `Release` entries: a release must name an immutable ref
-to promote. They are built and published daily and never promoted to `qli`.
+The last three name no `target_workspace`: they track a moving upstream for
+early warning, are published to S3, and never reach an archive anyone installs
+from.
 
 `ci/build-matrix.yaml` is the source of truth; this table is a summary.
 
-Two entry points use the same reusable build pipeline:
+Entries come in two lists, each with a workflow that builds them:
 
-- **Daily** uses the matrix-selected latest-tag or branch-tip strategy and
-  builds every configured Daily suite.
-- **Release** uses a pinned matrix ref and promotes successful Debian packages
-  to the selected production Debusine workspace.
+- **`daily.yml`** builds every `builds` entry nightly, using the matrix-selected
+  latest-tag or branch-tip strategy, and promotes each entry that names a
+  `target_workspace` into that workspace as part of the build that produced it.
+- **`release.yml`** builds a `releases` entry on request, from the immutable ref
+  that entry pins, and promotes it into `qli` behind an approval.
 
-One entry in `builds` is one generated package: a single `name`, a single
-`type`, and a single `suite`. The `name` labels that one build and nothing
-else — it is the Actions job name and what a manual dispatch asks for. Nothing
-is expanded or derived at resolve time, so what an entry says is what gets
-built:
+Neither publishes a build some earlier run produced. The Debusine workspace a
+build runs in is named after that run and does not outlive it, so the only
+moment its contents can be published is while the run still holds it —
+promotion is in the build or it is nowhere, and a release therefore builds the
+ref it ships rather than promoting a nightly. What the archive carries is
+therefore always an artifact the run that published it built and tested.
+
+One entry in `builds` is one generated package: a single `name` for a single
+`suite`. The `name` labels that one build and nothing else — it is the Actions
+job name and what a manual dispatch asks for. Nothing is expanded or derived at
+resolve time, so what an entry says is what gets built:
 
 ```yaml
 builds:
   - name: qcom-next-trixie
-    type: Daily
     suite: trixie
     flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
@@ -73,24 +79,7 @@ builds:
       - iris-vpu
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
-
-  - name: qcom-next-trixie
-    type: Release
-    suite: trixie
-    flavour: qcom-next
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: <pinned-qcom-next-tag>
-    ref_strategy: pinned_ref
-    srcpkg: linux-qcom-next
-    binpkg: linux-image-qcom-next
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1~bpo13+1'
-    target_workspace: qli
+    target_workspace: qli-staging
 ```
 
 Entries are written out in full rather than sharing YAML anchors, so each one
@@ -100,25 +89,24 @@ consistency that duplication would otherwise put at risk — see
 
 Each entry states its `debian_revision` outright. The configured values are:
 
-| Suite | Daily | Release |
-| --- | --- | --- |
-| Trixie | `0qli1~bpo13+1~` | `0qli1~bpo13+1` |
-| Forky | `0qli1~` | `0qli1` |
-| Resolute | `0qli1~26.04.1~` | (not a configured Release suite) |
+| Suite | Revision |
+| --- | --- |
+| Trixie | `0qli~bpo13+1~` |
+| Forky | `0qli~` |
+| Resolute | `0qli~26.04.1~` |
 
-`~` always sorts below the same prefix without it in Debian version
-ordering, so a suite's Daily always sorts below its Release; `resolve-matrix.py`
-requires a Daily revision to be exactly its Release revision plus a trailing
-`~`. Ordering across *different* suites depends entirely on the configured
-revisions: with the values above, Resolute < Trixie < Forky for the same
-delivery type, matching a Debian-backports-then-unstable promotion chain.
-This is a deliberate ordering policy, not an automatic guarantee — adding a
-suite means choosing a revision that sorts where that suite belongs relative to
-the others. One nuance to be aware of: because Forky's revision carries no
-suite component, its Daily revision ends immediately after the trailing `~`, so
-Trixie Daily does not sort below Forky Daily even though Trixie Release sorts
-below Forky Release. This does not affect the supported Release-to-Release
-upgrade path.
+The trailing `~` marks the version as one nobody has blessed yet, and it stays
+on the version through release. That is a consequence of releasing by
+promotion: what reaches `qli` is the artifact `qli-staging` holds, byte for
+byte, so its version is the version it was built with. A release that dropped
+the `~` would have to be a different build, which is exactly what this design
+removes.
+
+Ordering across *different* suites depends entirely on the configured
+revisions: with the values above, Resolute < Trixie < Forky, matching a
+Debian-backports-then-unstable promotion chain. This is a deliberate ordering
+policy, not an automatic guarantee — adding a suite means choosing a revision
+that sorts where that suite belongs relative to the others.
 
 `ci/build-matrix.yaml` is the authoritative configuration. Adding a kernel
 variant is a matrix change, not a workflow redesign.
@@ -127,86 +115,139 @@ variant is a matrix change, not a workflow redesign.
 
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
-| `daily.yml` | Resolves and runs the Daily matrix. The manual build entry point. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
-| `release.yml` | Resolves and runs the Release matrix. | Manual dispatch only. |
-| `build-kernel-debian.yml` | Builds one Debian-suite entry in Debusine and publishes it to S3. | Called by Daily and PR build. |
+| `daily.yml` | Resolves and runs the matrix. The manual build entry point. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
+| `release.yml` | Builds the pinned refs in the matrix's `releases` list and promotes them into the released archive. | Manual dispatch only. |
+| `build-kernel-debian.yml` | Builds one Debian-suite entry in Debusine, publishes it to S3, and promotes it into the workspace its caller named, if any. | Called by Daily, Release and PR build. |
 | `build-kernel-ubuntu.yml` | Builds one Ubuntu-suite entry on the Docker path and publishes it to S3. | Called by Daily and PR build. |
-| `release-kernel-debian.yml` | Builds one Debian-suite entry in Debusine and promotes it to the release workspace. | Called by Release. |
 
-The three build workflows share their steps through two composite actions
-rather than through a common orchestrator workflow:
+The two build workflows share their steps through two composite actions rather
+than through a common orchestrator workflow:
 
 | Action | Used by |
 | --- | --- |
-| `.github/actions/prepare-kernel-source` | All three, as the `prepare` job. |
-| `.github/actions/debusine-build` | The two Debian workflows, as the `build` job. |
+| `.github/actions/prepare-kernel-source` | Both, as the `prepare` job. |
+| `.github/actions/debusine-build` | The Debian workflow, as the `build` job. |
 
 Which of them a build leg calls is decided by the caller, from the entry's
 suite: `resolve-matrix.py --family debian|ubuntu` splits the selection, and
 each family's entries call only the workflow that builds them. Nothing inside a
-build workflow is conditional on the suite or on whether the run releases, so a
-run starts exactly the jobs it needs and shows no skipped job for a path it did
-not take.
+build workflow is conditional on the suite, so a run starts exactly the jobs it
+needs and shows no skipped job for a path it did not take.
 
 ### Daily
 
-Daily is the recurring build and artifact-publication path.
+Daily builds every entry in the matrix, and everything in the staging archive
+comes from a run of it.
 
-- The scheduled run resolves the full `Daily` matrix.
+- The scheduled run resolves the full matrix.
 - A manual run says which entries to build in one **Builds** field:
   - `all`, the default, builds every configured variant and suite.
   - A comma-separated list of build names builds those entries, e.g.
-    `qcom-next-trixie,qcom-next-debug-forky`. A name matching no `Daily` entry
-    fails the run rather than narrowing it, and both families are selected from
-    one list, so a mixed list starts Debian and Ubuntu legs from one dispatch.
+    `qcom-next-trixie,qcom-next-debug-forky`. A name matching no entry fails
+    the run rather than narrowing it, and both families are selected from one
+    list, so a mixed list starts Debian and Ubuntu legs from one dispatch.
 - `latest_tag` resolves the newest matching dated tag; `branch_tip` resolves
   the configured branch directly.
 - Debian suites build in Debusine, then their `.deb` outputs are downloaded and
   uploaded to the configured S3 bucket.
+- An entry naming a `target_workspace` is then promoted into it with Debusine's
+  `package-publish` workflow, making it installable from that archive.
 - `resolute` stays on the Docker-based Ubuntu path and uploads its package
   outputs to the existing temporary-package S3 location.
 
+Because the package version is a function of the resolved ref and the entry's
+revision, a night on which the tracked tag has not moved would rebuild a
+version the archive already has and then fail promoting the duplicate. The
+`prepare` job therefore asks the target workspace whether it already holds the
+version this run would produce, and skips the build, the S3 publication and the
+promotion when it does. A run that skips this way is green: nothing was wrong,
+there was simply nothing new upstream.
+
+Three kinds of run deliberately promote nowhere: a PR build, which never
+forwards a `target_workspace`; a dispatch setting any of the advanced
+validation overrides (`debug-build`, `qcom-next-pr`, `kernel-topics-pr`),
+whose kernel is by definition not the one the matrix describes; and any entry
+that names no workspace.
+
 ### Release
 
-Release is the controlled promotion path.
+A release builds the ref it releases, and publishes the result into `qli`.
 
-- It is manual only, and says which entries to release in one **Builds** field,
-  the same way Daily does:
-  - `all`, the default, promotes every configured `Release` entry.
-  - A comma-separated list of build names promotes those entries when a
-    targeted action is required, e.g. `qcom-next-trixie,qcom-next-forky`.
-- It uses the pinned `branch_or_tag` from the selected `Release` matrix row; it
-  never resolves a newest tag.
-- Debian source and binary artifacts are built in per-flavour, per-suite
-  Debusine CI workspaces.
-- Successful builds are promoted with Debusine's `package-publish` workflow to
-  the `qli` workspace, where they are available through the production Debusine
-  APT repository.
-- The Release job runs in the **Production** GitHub environment. This provides
-  the release credential and enforces the required approval gate before
-  promotion to `qli`.
+- Every value describing a release lives in `ci/build-matrix.yaml` under
+  `releases`: the pinned ref, the suites, the packaging, and the
+  `target_workspace` each entry publishes into. A dispatch only says which
+  entries to run, in the same **Builds** field Daily uses.
+- Updating a release is a pull request that changes `branch_or_tag`. That is
+  what puts the ref that ships under review, rather than a version typed into
+  a dispatch form at the moment of releasing.
+- `ref_strategy` must be `pinned_ref`. `latest_tag` would make two dispatches
+  of one entry release different kernels, and `branch_tip` would make them
+  release whatever the branch had reached.
+- Debian suites only, and `resolve-matrix.py` rejects anything else: promotion
+  runs through Debusine, and the Ubuntu path has no workspace to promote into.
+- The `promote` job runs in the **Production** environment, so whatever
+  approval that environment requires stands between the run and the archive.
+- Build-Depends resolve against `qli` alone, so a released kernel cannot depend
+  on a `-dkms` package that has not itself been released.
 
-A `daily.yml` dispatch is build-only: it publishes to the daily S3 path and has
-no promotion path to offer. Release promotion is initiated exclusively by
-`release.yml`, which owns the target workspace and production release controls,
-and is the only caller of `release-kernel-debian.yml`.
+It rebuilds rather than promoting a nightly because there is nothing left to
+promote from: the CI workspace a nightly ran in is named after that run and does
+not outlive it. What reaches `qli` is therefore the artifact this run built and
+tested, from a ref that cannot have moved since it was reviewed.
 
-Only the Debian family has a release path at all, because promotion runs
-through Debusine. `resolve-matrix.py` rejects a `Release` entry for any other
-suite rather than letting it build and then silently not promote.
+### Publishing
+
+Promotion happens inside the build, in the `promote` job of
+`build-kernel-debian.yml`.
+
+- It reads the ephemeral CI child workspace the build ran in and publishes the
+  source and binary artifacts into the workspace the caller named.
+- It is in-run by necessity. `lib/build` names that workspace
+  `<parent>-gh-<repo-id>-<run-id>-<attempt>-<leg>`, creating it fresh for the
+  run and not keeping it afterwards, so a later workflow would have neither the
+  name nor the contents to promote. Publishing is part of the build or it does
+  not happen.
+- Only the Debian family reaches it, because promotion runs through Debusine
+  and the Ubuntu path does not build there.
+- Which GitHub environment it runs in is the caller's, through
+  `promote-environment`. Daily leaves it at **Staging** and promotes
+  unattended, because `qli-staging` is where an unreviewed nightly kernel
+  belongs; Release passes **Production**, so an approval stands in front of
+  `qli`.
+
+A nightly promotion changes no file in this repository: there is no ref to pin
+and no entry to bless, because what is published is what was built. A release
+does, and that is the difference between them — the ref it ships is written
+down and reviewed before the run that ships it.
+
+#### Moving the nightly to `qli`
+
+`qli-staging` is the nightly's destination, named by the `target_workspace` of
+each nightly entry in [ci/build-matrix.yaml](ci/build-matrix.yaml). Pointing
+those at `qli` would publish every night's kernel straight into the released
+archive with nothing in between, and the approval gate that
+`promote-environment` provides would then have to be applied to every nightly
+run — stopping each of them to wait for one. The two archives, with
+`release.yml` between them, are what keep nightlies unattended and `qli` gated.
 
 ## Matrix Model
 
-`ci/build-matrix.yaml` is a mapping with exactly one top-level key, `builds`.
-One entry in it is one generated package, so there is no
+`ci/build-matrix.yaml` is a mapping with two top-level keys, `builds` and
+`releases`. One entry in either is one generated package, so there is no
 expansion step: `ci/scripts/resolve-matrix.py` validates the whole document,
-selects the entries matching the requested type, variant, and suite, and hands
-them to the workflow matrix as they stand. Each entry carries:
+selects the entries matching the requested names, variant, and suite, and hands
+them to the workflow matrix as they stand.
+
+The two lists have the same shape and are validated separately, so a name may
+appear in both and means the same build in each. `builds` is what Daily runs
+nightly; `releases` is what `release.yml` can ship, selected with
+`--releases`. Both are validated on every invocation whichever is asked for, so
+a broken release entry fails a nightly run rather than waiting to be found by
+whoever next tries to release. Each entry carries:
 
 | Field | Purpose |
 | --- | --- |
-| `name` | The name of this one build, and nothing else: its Actions job name, and what a manual dispatch asks for. Unique within a delivery type, so a Daily and its Release may share a name. Never reaches a package name, a version, or a published path. Lowercase letters, digits, and internal hyphens only, and not `all`, which a dispatch reads as every entry. |
-| `type` | `Daily` or `Release`. |
+| `name` | The name of this one build, and nothing else: its Actions job name, and what a manual dispatch asks for. Unique across the matrix. Never reaches a package name, a version, or a published path. Lowercase letters, digits, and internal hyphens only, and not `all`, which a dispatch reads as every entry. |
 | `suite` | The one suite this entry builds for. |
 | `flavour` | The kernel's own identity, and the only matrix field that reaches the built kernel. `derive-localversion.sh` makes it the LOCALVERSION suffix, so two flavours built from one ref get distinct kernel releases and their `linux-image` packages coexist. All entries sharing a flavour build the same package for different suites. |
 | `git_clone` | Kernel source repository. |
@@ -217,50 +258,45 @@ them to the workflow matrix as they stand. Each entry carries:
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per list element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.py` joins it into the comma-separated `kernel-config` workflow input. |
 | `dkms` | Out-of-tree DKMS modules built and bundled into the image package, one per list element, each named without the `-dkms` suffix (e.g. `kgsl`). Each needs a `<name>-dkms` package in the suite being built for, so this varies between suites. An empty list bundles nothing. A listed module is a presence contract: a build fails rather than shipping an image without it. `resolve-matrix.py` joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh --dkms`; see [debian/README.md](debian/README.md) for what the packaging does with it. |
-| `debian_revision` | The Debian revision this package is built at, stated outright. Daily revisions end in `~`; Release revisions do not. |
+| `debian_revision` | The Debian revision this package is built at, stated outright. Carried into every archive the package reaches, because a release promotes the built artifact rather than rebuilding it. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
-| `target_workspace` | Debusine destination for Release entries only. |
+| `target_workspace` | The Debusine workspace this entry publishes into. On a `builds` entry it is optional and names where the nightly promotes it; an entry without one is built and published to S3 and reaches no archive. On a `releases` entry it is required, because putting one ref into one archive is the whole of what a release is. Debian suites only. |
 
 `resolve-matrix.py` rejects the matrix — before any build job starts — where an
 entry has an unknown field or a missing required one, a malformed variant or
-suite identifier, a `ref_strategy` its `type` does not allow (`Daily` must
-track something moving, `Release` must be pinned), a `tag_pattern` without
-`latest_tag`, a `target_workspace` on a `Daily` entry or none on a `Release`
-one, a `kernel_config` fragment that escapes the kernel source root or collides
-with another fragment's filename, a `dkms` entry that is not a package name
-stem or repeats, or a `debian_revision` that is not a valid Debian revision or
-carries the wrong trailing `~` for its `type`.
+suite identifier, an unknown `ref_strategy`, a `tag_pattern` without
+`latest_tag`, a `target_workspace` on a non-Debian suite, a `kernel_config`
+fragment that escapes the kernel source root or collides with another
+fragment's filename, a `dkms` entry that is not a package name stem or repeats,
+or a `debian_revision` that is not a valid Debian revision.
+
+A `releases` entry is held to two rules of its own: `ref_strategy` must be
+`pinned_ref`, so releasing twice releases the same kernel, and `suite` must be
+a Debian one, because only that path can promote into a workspace.
 
 Because entries are written out in full, the resolver also checks the
 invariants that span them, which is what makes the duplication safe to read at
 face value:
 
-- No two entries of one `type` share a `name` — a name identifies exactly one
-  build, so a run cannot produce two jobs with one name and a dispatch cannot
-  be ambiguous.
+- No two entries share a `name` — a name identifies exactly one build, so a run
+  cannot produce two jobs with one name and a dispatch cannot be ambiguous.
 - A flavour's entries agree on `srcpkg`, `binpkg` and `kernel_config`; those
   decide what the package *is*, and the entries differ only in where it goes.
 - A flavour's entries for one suite agree on `dkms`. The module set depends on
   which `<name>-dkms` packages the target archive carries, so it varies between
-  suites — but a suite's Daily and Release must match, or the Daily is not
-  testing the module set the Release will ship.
-- A flavour's entries of one `type` agree on `git_clone`, `branch_or_tag`,
-  `ref_strategy` and `tag_pattern`, so a forgotten suite cannot quietly ship a
-  different kernel from its siblings after a release ref bump.
-- A flavour with a `Release` entry also has a `Daily` one, so nothing is
-  promoted that the daily build has not tested. The converse is allowed: a
-  flavour tracking a moving upstream is built daily and never released.
+  suites but not within one.
+- A flavour's entries agree on `git_clone`, `branch_or_tag`, `ref_strategy` and
+  `tag_pattern`, so a forgotten suite cannot quietly ship a different kernel
+  from its siblings.
 - No `srcpkg` or `binpkg` is shared between flavours, and no two entries build
   the same `srcpkg` at the same `debian_revision`.
-- Where a suite has both, its `Daily` revision is its `Release` revision plus a
-  trailing `~`.
 
 The build workflows pass their entry's own `debian_revision` through. A caller
 with no entry in hand can leave the `debian-revision` input empty, and the
-`prepare-kernel-source` action looks up the `Daily` entry for the build name and
-suite it was given (`resolve-matrix.py --field debian_revision`) and builds at
-the revision the daily build would have used.
+`prepare-kernel-source` action looks up the entry for the build name and suite
+it was given (`resolve-matrix.py --field debian_revision`) and builds at the
+revision the nightly build uses.
 
 Each entry has a distinct prepared-source artifact, Debusine child workspace,
 and S3 path keyed by `flavour + suite`. This prevents two flavours that both
@@ -268,7 +304,7 @@ build, for example, `trixie` from consuming or publishing each other's inputs
 or outputs. They key on `flavour`, not on the build's `name`, so renaming a
 build never moves a published artifact.
 
-Daily S3 outputs use these layouts, where `<run>` is
+S3 outputs use these layouts, where `<run>` is
 `<github.run_id>-<github.run_attempt>`:
 
 ```text
@@ -298,23 +334,25 @@ This document covers the CI generator. For the packaging internals: `debian/rule
 targets, the config fragment merge pipeline, DKMS module bundling and the produced
 package layout see [debian/README.md](debian/README.md).
 
-Both branches below are taken in the caller, when the matrix is resolved: the
-family from the entry's suite, the tail from which workflow is running. By the
-time a build workflow starts, there is nothing left to decide.
+The family branch below is taken in the caller, when the matrix is resolved,
+from the entry's suite. The promotion branch is taken from the entry's own
+`target_workspace`. By the time a build workflow starts, there is nothing left
+to decide.
 
 ```mermaid
 flowchart LR
     IN["Matrix entries"] --> R{"resolve-matrix.py\n--family"}
 
-    R -->|"debian: trixie · forky"| DT{"Which caller"}
+    R -->|"debian: trixie · forky"| DEB["build-kernel-debian.yml\nGenerate source package\nSubmit with lib/build\nDebusine builds binaries"]
     R -->|"ubuntu: resolute"| UBU["build-kernel-ubuntu.yml\nbuild-kernel.sh in Docker\nBuild binary packages"]
 
-    DT -->|"daily.yml · pr-build.yml"| DEB["build-kernel-debian.yml\nGenerate source package\nSubmit with lib/build\nDebusine builds binaries"]
-    DT -->|"release.yml"| REL["release-kernel-debian.yml\nSame build, release tail"]
-
     DEB --> S3["Download .deb files\nPublish to S3"]
-    REL --> QLI["Promote source and binaries\nto qli"]
+    DEB --> TW{"target_workspace\nset?"}
+    TW -->|"yes, via daily.yml"| STG["Promote to qli-staging\nStaging environment"]
+    TW -->|"yes, via release.yml"| REL["Promote to qli\nProduction environment"]
+    TW -->|no| NONE["No archive"]
     UBU --> US3["Publish .deb files to S3"]
+
 ```
 
 ## For CI Maintainers
@@ -326,56 +364,57 @@ flowchart TD
     subgraph triggers[Triggers]
         A1["daily.yml\nScheduled full matrix"]
         A2["daily.yml\nManual: all or named builds"]
-        A5["pr-build.yml\nFull Daily matrix on every PR"]
-        A3["release.yml\nManual: all or named builds"]
+        A3["release.yml\nManual: pinned refs from releases"]
+        A5["pr-build.yml\nFull matrix on every PR"]
+        A3["release.yml\nManual: version to release"]
     end
 
     subgraph matrix[Matrix entry points]
-        B1["configure-matrix\nDaily entries, split by family"]
+        B1["configure-matrix\nEntries, split by family"]
         B2["build-debian legs\nqcom-next · qcom-next-debug · qcom-arduino\nmainline · next / trixie · forky"]
         B5["build-ubuntu legs\nqcom-next / resolute"]
-        B3["configure-matrix\nRelease entries, Debian by construction"]
-        B4["build legs\nqcom-next · qcom-next-debug / trixie · forky"]
+        B3["configure-matrix\nEntries with a target_workspace"]
     end
 
     subgraph build[One build workflow per leg]
-        C2["prepare\nprepare-kernel-source action\nClone ref, run prepare-source.sh\nUpload kernel-srcpkg-flavour-suite"]
+        C2["prepare\nprepare-kernel-source action\nClone ref, run prepare-source.sh\nSkip the run if the version is published"]
         C3["build\ndebusine-build action"]
         C4["build\nbuild-kernel.sh in Docker"]
         C5["publish\nDownload .deb files, upload to S3"]
-        C6["release\nPromote to target workspace"]
+        C6["promote\nlib/release into target_workspace"]
     end
 
     subgraph outputs[Outputs]
-        D1["Daily S3 artifacts"]
-        D2["Release qli APT repository"]
+        D1["S3 artifacts"]
+        D3["qli-staging APT repository"]
+        D4["qli APT repository"]
     end
 
     A1 --> B1
     A2 --> B1
+    A3 --> B1
     A5 --> B1
-    A3 --> B3
     B1 --> B2 & B5
-    B3 --> B4
     B2 --> C2
     B5 --> C2
-    B4 --> C2
     C2 --> C3 & C4
     C3 --> C5 & C6
     C4 --> D1
     C5 --> D1
-    C6 --> D2
+    C6 --> D3 & D4
 ```
 
-Every leg runs every job drawn under it. `build-debian` and `build-ubuntu` legs
-reach different build workflows, and `publish` and `release` belong to
-different ones, so no leg starts a job it will skip.
+A leg runs every job drawn under it except `promote`, which only a caller
+naming a workspace reaches — so a PR build stops at S3. Which archive `promote`
+reaches, and whether it waits for an approval first, is that caller's too: the
+nightly goes to `qli-staging` unattended, and a release to `qli` through the
+Production environment.
 
 ### Prepare stage
 
 ```mermaid
 flowchart LR
-    K["Matrix-selected kernel repository\nDaily: latest tag or branch tip\nRelease: pinned ref"] --> PS
+    K["Matrix-selected kernel repository\nlatest tag, branch tip, or pinned ref"] --> PS
     M["pkg-linux-qcom\ndebian/ and ci/ from this commit"] --> PS
 
     PS["prepare-source.sh\n\nInject debian/\nApply all config-available fragments plus any extras\nGenerate control, changelog, localversion, pkgversion"] --> TAR
@@ -387,7 +426,7 @@ flowchart LR
 > Unix execute bits. Kernel build scripts require those permissions. The tar
 > archive preserves them between the prepare and build jobs.
 
-### Debian Daily path
+### Debian build path
 
 ```mermaid
 flowchart LR
@@ -401,23 +440,28 @@ flowchart LR
     SUBMIT --> DEB["Debusine\nBuild binary packages"]
     DEB --> WS["Unique variant + suite workspace"]
 
-    subgraph publish[Daily publish job]
+    subgraph publish[publish job]
         WS --> APT["generate-apt-config\nchdist isolated APT environment\nDownload .deb files"]
-        APT --> S3["S3\nDaily package artifacts"]
+        APT --> S3["S3\npackage artifacts"]
+    end
+
+    subgraph promote[promote job: only when target_workspace is set]
+        WS --> PROMOTE["lib/release\nStart package-publish"]
+        PROMOTE --> STG["qli-staging (daily)\nqli (release)\nDebusine APT repository"]
     end
 ```
 
-### Debian Release path
+### Release path
+
+Nothing is built. `release.yml` promotes a version that the nightly build
+already put in `qli-staging`.
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg-variant-suite\nartifact"] --> GSP["generate-source-package\nProduce .dsc"]
-    GSP --> SUBMIT["lib/build\nSubmit source package to a unique\nDebusine CI child workspace"]
-    SUBMIT --> DEB["Debusine\nBuild binary packages"]
-    DEB --> WS["CI workspace\nsource and binary artifacts"]
+    STG["qli-staging\nsource and binary artifacts"] --> PROMOTE
 
-    subgraph release[Release job: Production GitHub environment]
-        WS --> PROMOTE["lib/release\nStart package-publish"]
+    subgraph release[promote job: Production GitHub environment]
+        PROMOTE["lib/release\nSRCPKG_VERSION = upstream-version + entry revision\nStart package-publish"]
         PROMOTE --> QLI["qli\nProduction Debusine APT repository"]
     end
 ```
@@ -433,7 +477,7 @@ flowchart LR
         BK["build-kernel.sh\n--skip-prepare\n--local-source\n--build-mode docker\ndpkg-buildpackage -b"] --> S3
     end
 
-    S3["S3\nDaily package artifacts"]
+    S3["S3\npackage artifacts"]
 ```
 
 `--skip-prepare` is safe because `prepare-source.sh` has already generated the
@@ -490,21 +534,29 @@ out-of-tree module builds are required.
 ## Manual Builds
 
 Use **Actions** → **daily** → **Run workflow** for a one-off build, and
-**Actions** → **release** to promote. Both are dispatched the same way: one
-**Builds** field naming what to run.
+**Actions** → **release** to promote a version that has already been built.
+Both name what to act on in one **Builds** field.
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `builds` | `all` | `all` runs every entry of that workflow's delivery type. Otherwise a comma-separated list of build `name` values from `ci/build-matrix.yaml`, e.g. `qcom-next-trixie,qcom-next-debug-forky`. |
+| `builds` | `all` | `all` selects every entry — for `release`, every entry that names a `target_workspace`. Otherwise a comma-separated list of build `name` values from `ci/build-matrix.yaml`, e.g. `qcom-next-trixie,qcom-next-debug-forky`. |
 
 Everything else about a build — its suite, flavour, kernel repository and ref,
 package names, config fragments, DKMS modules and Debian revision — comes from
 the entry, so there is nothing to retype and nothing to get wrong. Build names
 are free-text matrix values rather than a static dropdown, so adding a matrix
 entry never requires editing the workflow UI, and a name that matches no entry
-of the delivery type fails the run with the list of names that do. `daily`
-routes each selected entry to the workflow that builds its family, so one
-dispatch can name Debian and Ubuntu builds together.
+fails the run with the list of names that do. `daily` routes each selected
+entry to the workflow that builds its family, so one dispatch can name Debian
+and Ubuntu builds together.
+
+`release` carries two further inputs, because a promotion has to say what it is
+promoting:
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `upstream-version` | None, required | The version to release without its Debian revision, e.g. `7.2.0~rc7+20260821`. Each selected entry promotes this plus its own `debian_revision`. |
+| `release-workspace` | `qli` | The Debusine workspace to promote into. |
 
 `daily` carries three further inputs, which the matrix deliberately says
 nothing about because they belong to a one-off validation run rather than to a
@@ -517,12 +569,28 @@ them at their defaults:
 | `qcom-next-pr` | Empty | Advanced Qualcomm-only override: `qcom-next` PR numbers to merge before building. |
 | `kernel-topics-pr` | Empty | Advanced Qualcomm-only override: `kernel-topics` PR numbers to apply as patches. |
 
-A `daily` dispatch is an artifact build and publishes to the daily S3 path;
-Release promotion is performed only through `release.yml`. The build workflows
-themselves (`build-kernel-debian.yml`, `build-kernel-ubuntu.yml`,
-`release-kernel-debian.yml`) are `workflow_call` only and cannot be dispatched:
-one run of each is one matrix entry, and a reusable workflow cannot fan itself
-out over a list.
+A `daily` dispatch publishes to S3 and, for an entry that names one, promotes
+into that entry's `target_workspace` — unless it sets one of the advanced
+overrides above, which suppress promotion because the kernel they build is not
+the one the matrix describes. Promotion into the release workspace happens only
+through `release.yml`. The build workflows themselves
+(`build-kernel-debian.yml`, `build-kernel-ubuntu.yml`) are `workflow_call` only
+and cannot be dispatched: one run of each is one matrix entry, and a reusable
+workflow cannot fan itself out over a list.
+
+### Releasing
+
+Use **Actions** → **release** → **Run workflow**. It takes the same **Builds**
+field, selecting from the matrix's `releases` list rather than from `builds`,
+and nothing else — the ref, the packaging and the destination archive are all
+the entry's.
+
+Release a kernel by opening a pull request that sets `branch_or_tag` on the
+entries being released, merging it, and dispatching `release` for those names.
+The run stops at the `promote` job for the Production environment's approval,
+having already built, published to S3 and printed what it is about to release
+in the run summary, so the approval is given against the refs and versions in
+front of you.
 
 ## Configuration
 
@@ -530,7 +598,7 @@ out over a list.
 
 | Variable | Purpose |
 | --- | --- |
-| `ARTIFACT_S3_BUCKET` | S3 bucket for Daily Debian artifacts and Ubuntu build artifacts. |
+| `ARTIFACT_S3_BUCKET` | S3 bucket for Debian and Ubuntu build artifacts. |
 | `DEBUSINE_HOST` | Production Debusine host. |
 | `DEBUSINE_SCOPE` | Debusine scope. |
 | `DEBUSINE_PARENT_WORKSPACE` | Parent workspace used to create per-run CI child workspaces. |
@@ -540,54 +608,67 @@ out over a list.
 | Secret | Scope | Purpose |
 | --- | --- | --- |
 | `DEBUSINE_USER` | Repository | User for Debusine archive and signing-key access. |
-| `DEBUSINE_TOKEN` | Repository | Token for Debusine build and artifact operations. |
-| `DEBUSINE_RELEASE_TOKEN` | Production environment | Token used only to promote Release artifacts to `qli`. |
+| `DEBUSINE_TOKEN` | Repository | Token for Debusine build and artifact operations, including the nightly promotion into `qli-staging`. |
+| `DEBUSINE_RELEASE_TOKEN` | Production environment | Token used only to promote into the release workspace. |
 
-The Debian build and Release jobs select the **Production** GitHub environment.
-This makes environment-scoped release credentials available to the promotion job
-and keeps production approval controls in the workflow path.
+The `build` job of `build-kernel-debian.yml` always selects the **Staging**
+GitHub environment. The `promote` job selects whichever its caller names
+through `promote-environment`: **Staging** for the nightly, which is what lets
+it promote unattended, and **Production** for a release, which is what makes it
+wait for an approval.
+
+`DEBUSINE_TOKEN` is what both promotions authenticate with, so it needs write
+access to every `target_workspace` the matrix names — `qli-staging` for the
+nightly entries and `qli` for the `releases` ones. `DEBUSINE_RELEASE_TOKEN` is not read by
+any workflow; a release is gated by the Production environment rather than by a
+credential of its own.
 
 ## Maintaining the Matrix
 
 To add a kernel variant:
 
 1. Add one entry to `builds` per package the variant should produce: one per
-   Daily suite and one per Release suite, each spelling out all of its own
-   fields, and each with a `name` unique within its delivery type. Do not rely
-   on another variant's values.
+   suite, each spelling out all of its own fields, and each with a `name`
+   unique across the matrix. Do not rely on another variant's values.
 2. Give them all the same `flavour`, distinct from every other flavour's — it
    becomes the LOCALVERSION suffix, so this is what lets the new kernel install
-   alongside the existing ones. Keep `srcpkg`, `binpkg` and `kernel_config`
-   identical across every entry for the flavour, and the ref fields identical
-   across its entries of one `type`. `resolve-matrix.py` rejects the matrix if
-   they drift apart.
-3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
-   `pinned_ref` for Release, and update that ref through a reviewed PR.
+   alongside the existing ones. Keep `srcpkg`, `binpkg`, `kernel_config` and
+   the ref fields identical across every entry for the flavour.
+   `resolve-matrix.py` rejects the matrix if they drift apart.
+3. Use `latest_tag` with a dated tag glob, or `branch_tip`, to track a moving
+   upstream; `pinned_ref` freezes the variant on one ref.
 4. Give the variant distinct `srcpkg` and `binpkg` values. Set
-   `target_workspace` on each Release entry.
-5. Give each entry a `debian_revision`: the Daily one is the Release one for
-   the same suite plus a trailing `~`.
+   `target_workspace` on the Debian entries that should be installable from an
+   archive, and leave it off the ones built only for early warning.
+5. Give each entry a `debian_revision` that sorts where its suite belongs
+   relative to the others and collides with no other entry building the same
+   `srcpkg`.
 6. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
    the Docker path.
-7. Run a filtered Daily validation for the new variant, then its full Daily and
-   Release flows.
+7. Run a filtered daily validation for the new variant, then a full daily run.
+   Nothing further is needed to release it: once its packages are in the
+   staging workspace, `release.yml` can promote them.
 
 To add a new suite (for an existing or new variant):
 
-1. Add one entry per delivery type the suite should get, copying the variant's
-   existing entry for that type and changing `suite` and `debian_revision`.
+1. Add one entry for the suite, copying one of the variant's existing entries
+   and changing `suite` and `debian_revision`.
 2. Choose the revision so the suite sorts where it belongs relative to the
-   others for the same delivery type (see the ordering discussion in
-   [Overview](#overview)), and so it does not collide with another entry
-   building the same `srcpkg`.
+   others (see the ordering discussion in [Overview](#overview)), and so it
+   does not collide with another entry building the same `srcpkg`.
 
-No workflow dispatch choices need to be updated: the Daily and Release
+To make a variant releasable, add the matching entries to `releases`: the same
+fields, plus `target_workspace`, with `ref_strategy: pinned_ref` and
+`branch_or_tag` naming the ref that ships. A variant with no `releases` entries
+is built nightly and never shipped, which is the right state for a topic branch
+or a tracking build.
+
+No workflow dispatch choices need to be updated: the daily and release
 dispatches take build names as free text, so a new entry is dispatchable by
 name, and is picked up by `all`, as soon as it is merged.
 
-Run `ci/scripts/resolve-matrix.py --type Daily` and `--type Release` locally to
-validate a matrix change before pushing it; both validate the whole document,
-so either one catches a mistake in the other's entries.
+Run `ci/scripts/resolve-matrix.py` locally to validate a matrix change before
+pushing it; it validates the whole document regardless of what it selects.
 
 ## Contributing
 
