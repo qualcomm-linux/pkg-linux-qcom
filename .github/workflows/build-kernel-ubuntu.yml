@@ -212,9 +212,13 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # build: build the prepared source in a suite-matched container, then publish.
+  #
+  # Named for where the build happens, as the Debian workflows' Build (Debusine)
+  # is: this one runs in a suite-matched pkg-builder container on the runner
+  # rather than being submitted to a build service.
   # ---------------------------------------------------------------------------
   build:
-    name: Build kernel package
+    name: Build (Docker)
     needs: prepare
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     env:
