@@ -72,6 +72,15 @@ KREL_FILE := debian/kernel.release
 #   GIT_SHA          Full kernel HEAD commit SHA, recorded in the changelog.
 #                    GITSHA above is the same commit at 12 characters, for the
 #                    version strings; this is the unabbreviated value.
+#   CHANGELOG_DATE   Date of the changelog entry, RFC 2822 (date -R form).
+#                    prepare-source.sh passes the kernel commit's committer
+#                    date, so the entry is dated by the source it describes
+#                    and two builds of one commit write one changelog.
+#                    dpkg-source takes the debian tarball's mtimes from this
+#                    date and dpkg-buildpackage exports it as
+#                    SOURCE_DATE_EPOCH, so it is also what makes the source
+#                    package reproducible. Defaults to now, for a prepare run
+#                    by hand.
 #
 # Outputs (generated files, all listed in debian/clean):
 #   debian/control       Substituted from debian/control.in
@@ -101,6 +110,7 @@ DKMS_MODULES     ?=
 GIT_CLONE        ?= unknown
 GIT_REF          ?= unknown
 GIT_SHA          ?= unknown
+CHANGELOG_DATE   ?= $(shell date -R)
 
 .PHONY: prepare
 prepare:
@@ -241,6 +251,7 @@ prepare:
 		-e "s|@GITCLONE@|$(GIT_CLONE)|g" \
 		-e "s|@BRANCH@|$(GIT_REF)|g" \
 		-e "s|@GITSHA@|$(GIT_SHA)|g" \
+		-e "s|@DATE@|$(CHANGELOG_DATE)|g" \
 		debian/changelog.in > debian/changelog; \
 	\
 	# ── Write runtime state files ─────────────────────────────────────────────

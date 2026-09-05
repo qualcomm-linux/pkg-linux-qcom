@@ -76,6 +76,10 @@ OPTIONS:
     --git-ref REF             Resolved kernel ref (tag or branch), recorded in
                               the changelog. Defaults to the exact tag HEAD
                               sits on, or the branch it is the tip of.
+    --changelog-date DATE     Date of the changelog entry, RFC 2822 (date -R
+                              form). Defaults to HEAD's committer date, so
+                              the entry is dated by the source and the
+                              source package is reproducible.
 
   Package naming:
     --srcpkg NAME             Source package name (default: $DEFAULT_SRCPKG)
@@ -147,6 +151,7 @@ DKMS_MODULES=""
 GIT_CLONE=""
 GIT_REF=""
 GIT_SHA=""
+CHANGELOG_DATE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -159,6 +164,7 @@ while [[ $# -gt 0 ]]; do
         --kver-extra)         KVER_EXTRA="$2";        shift 2 ;;
         --git-clone)          GIT_CLONE="$2";         shift 2 ;;
         --git-ref)            GIT_REF="$2";           shift 2 ;;
+        --changelog-date)     CHANGELOG_DATE="$2";    shift 2 ;;
         --srcpkg)             SRCPKG="$2";            shift 2 ;;
         --binpkg)             BINPKG="$2";            shift 2 ;;
         --debian-revision)    DEBIAN_REVISION="$2";   shift 2 ;;
@@ -196,13 +202,22 @@ GITSHA="${GIT_SHA:0:12}"
 # This names the checkout for the version derivation below and, when the
 # caller gave none, for the provenance recorded in the changelog -- so a local
 # build says where it came from just as a CI build does.
+#
+# Every git call here tolerates failure. CI passes all of these values in and
+# runs this script in a container as a different user from the one owning
+# the checkout, where git refuses to read the repository at all; nothing it
+# was given is then asked of git.
+_git() { git -C "$SOURCE_DIR" "$@" 2>/dev/null || true; }
 CHECKOUT_REF=""
-if [[ -n "$GIT_SHA" ]]; then
-    CHECKOUT_REF=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null \
-        || git -C "$SOURCE_DIR" rev-parse --abbrev-ref HEAD)
-    [[ -n "$GIT_CLONE" ]] || GIT_CLONE=$(git -C "$SOURCE_DIR" remote get-url origin 2>/dev/null || true)
-    [[ -n "$GIT_REF" ]]   || GIT_REF="$CHECKOUT_REF"
+if [[ -z "$GIT_REF" || -z "$LOCALVERSION" ]]; then
+    CHECKOUT_REF=$(_git describe --tags --exact-match)
+    [[ -n "$CHECKOUT_REF" ]] || CHECKOUT_REF=$(_git rev-parse --abbrev-ref HEAD)
 fi
+[[ -n "$GIT_CLONE" ]] || GIT_CLONE=$(_git remote get-url origin)
+[[ -n "$GIT_REF" ]]   || GIT_REF="$CHECKOUT_REF"
+# Committer date, like the snapshot: it describes the source rather than the
+# build, so rebuilding a commit rewrites the same changelog entry.
+[[ -n "$CHANGELOG_DATE" ]] || CHANGELOG_DATE=$(_git log -1 --format=%cD)
 
 # ── Derive LOCALVERSION, SNAPSHOT and GITSHA from the checkout (if not given) ──
 # The same derivation CI performs, by the same script: the ref is the exact
@@ -211,8 +226,8 @@ fi
 # produces the version CI would give it, which is what lets a source package
 # built here stand in for one built there.
 if [[ -z "$LOCALVERSION" ]]; then
-    if [[ -z "$GIT_SHA" ]]; then
-        log_warn "LOCALVERSION not set and $SOURCE_DIR is not a git checkout."
+    if [[ -z "$GIT_SHA" || -z "$CHECKOUT_REF" ]]; then
+        log_warn "LOCALVERSION not set and $SOURCE_DIR is not a readable git checkout."
         log_warn "Package will be named linux-image-<base-kver> (no flavour/date suffix)."
         log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722-g07f50dc44edd"
     else
@@ -373,11 +388,16 @@ PREPARE_ARGS="DISTRO=$DISTRO SRCPKG=$SRCPKG BINPKG=$BINPKG DEBIAN_REVISION=$DEBI
 [[ -n "$GIT_CLONE" ]]    && PREPARE_ARGS="$PREPARE_ARGS GIT_CLONE=$GIT_CLONE"
 [[ -n "$GIT_REF" ]]      && PREPARE_ARGS="$PREPARE_ARGS GIT_REF=$GIT_REF"
 [[ -n "$GIT_SHA" ]]      && PREPARE_ARGS="$PREPARE_ARGS GIT_SHA=$GIT_SHA"
+# Quoted separately: an RFC 2822 date has spaces, which the string-built
+# argument list above would split. Empty means "now", which debian/rules
+# decides for itself.
+CHANGELOG_DATE_ARG=()
+[[ -n "$CHANGELOG_DATE" ]] && CHANGELOG_DATE_ARG=("CHANGELOG_DATE=$CHANGELOG_DATE")
 # Spaces are stripped so a list written as "kgsl, camx" stays a single make
 # argument; debian/rules validates the names it is given.
 [[ -n "$DKMS_MODULES" ]] && PREPARE_ARGS="$PREPARE_ARGS DKMS_MODULES=$(tr -d ' ' <<< "$DKMS_MODULES")"
 # shellcheck disable=SC2086
-make -f "$SOURCE_DIR/debian/rules" -C "$SOURCE_DIR" prepare $PREPARE_ARGS
+make -f "$SOURCE_DIR/debian/rules" -C "$SOURCE_DIR" prepare $PREPARE_ARGS "${CHANGELOG_DATE_ARG[@]}"
 
 echo
 log_step "Source preparation complete."

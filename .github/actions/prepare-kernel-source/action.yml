@@ -245,6 +245,13 @@ runs:
         echo "kernel_date=$KERNEL_DATE" >> "$GITHUB_OUTPUT"
         echo "Kernel HEAD commit date (UTC): $KERNEL_DATE"
 
+        # The same instant in RFC 2822 form, for the changelog entry. Read
+        # here, on the host that owns the clone, because prepare-source.sh
+        # runs in a container as root and git will not read a checkout owned
+        # by someone else.
+        CHANGELOG_DATE=$(git -C "$KERNEL_DIR" log -1 --format=%cD)
+        echo "changelog_date=$CHANGELOG_DATE" >> "$GITHUB_OUTPUT"
+
     - name: Derive version fields
       id: localversion
       shell: bash
@@ -308,6 +315,7 @@ runs:
         KERNEL_URL: ${{ inputs.kernel-url }}
         KERNEL_REF: ${{ steps.ref.outputs.kernel_ref }}
         KERNEL_SHA: ${{ steps.clone.outputs.kernel_sha }}
+        CHANGELOG_DATE: ${{ steps.clone.outputs.changelog_date }}
       run: |
         # No -x here: keep xtrace off for this step as it assembles the
         # prepare-source.sh argument list which may include sensitive paths.
@@ -319,6 +327,7 @@ runs:
           --srcpkg "$SRCPKG_INPUT"
           --binpkg "$BINPKG_INPUT"
           --debian-revision "$DEBIAN_REVISION"
+          --changelog-date "$CHANGELOG_DATE"
         )
 
         # The version fields all come from derive-localversion.sh, which
