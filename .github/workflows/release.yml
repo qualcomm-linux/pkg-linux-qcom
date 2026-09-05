@@ -25,14 +25,14 @@ on:
         default: 'Selected flavour (all suites)'
         options:
           - 'Selected flavour (all suites)'
-          - 'Selected variants'
+          - 'Selected builds'
       flavour:
         description: 'Kernel flavour to release in every suite it targets (Selected flavour)'
         required: true
         default: 'qcom-next'
         type: string
-      kernel-variants:
-        description: 'Comma-separated variants to release, e.g. qcom-next-trixie,qcom-next-forky (Selected variants)'
+      builds:
+        description: 'Comma-separated build names, e.g. qcom-next-trixie,qcom-next-forky (Selected builds)'
         required: true
         default: 'qcom-next-trixie'
         type: string
@@ -60,7 +60,7 @@ jobs:
         env:
           RELEASE_SCOPE_INPUT: ${{ github.event.inputs.release-scope }}
           INPUT_FLAVOUR: ${{ github.event.inputs.flavour }}
-          INPUT_VARIANTS: ${{ github.event.inputs.kernel-variants }}
+          INPUT_BUILDS: ${{ github.event.inputs.builds }}
         run: |
           set -euo pipefail
 
@@ -72,8 +72,8 @@ jobs:
               args=(--type Release --flavour "$INPUT_FLAVOUR")
               ;;
             "Selected variants")
-              echo "Source: ci/build-matrix.yaml (variants: $INPUT_VARIANTS)"
-              args=(--type Release --kernel-variant "$INPUT_VARIANTS")
+              echo "Source: ci/build-matrix.yaml (builds: $INPUT_BUILDS)"
+              args=(--type Release --build "$INPUT_BUILDS")
               ;;
             *)
               echo "ERROR: unsupported release scope: $RELEASE_SCOPE" >&2
@@ -93,7 +93,7 @@ jobs:
   # release path (lib/release) instead of the S3 publish path.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.kernel_variant }}
+    name: ${{ matrix.name }}
     needs: configure-matrix
     strategy:
       fail-fast: false
@@ -102,7 +102,7 @@ jobs:
     uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
-      kernel-variant: ${{ matrix.kernel_variant }}
+      build: ${{ matrix.name }}
       flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
