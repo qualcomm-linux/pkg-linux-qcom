@@ -3,7 +3,14 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 set -euo pipefail
 
-# Derive the LOCALVERSION suffix from a kernel variant and resolved ref.
+# Derive the version fields for a build from a kernel variant and resolved ref.
+#
+# Emits LOCALVERSION (the kernel release suffix) and SNAPSHOT (the dated
+# component of the Debian version), both derived from the ref in one place.
+# SNAPSHOT is emitted alongside rather than recovered from LOCALVERSION later:
+# reading it back out means guessing where the date ends in a string that also
+# carries a variant name and, for branch-tip builds, a hex SHA that can end in
+# eight digits of its own.
 #
 # For dated tag builds (ref ends in -YYYYMMDD):
 #   Produces +<kernel-variant>-<date>.
@@ -38,8 +45,14 @@ set -euo pipefail
 #   --sha SHA          Short commit SHA (required for branch-tip builds).
 #
 # Output:
-#   LOCALVERSION suffix printed to stdout (e.g. +qcom-next-20260722).
-#   Always starts with a plus.
+#   Two KEY=VALUE lines on stdout, in GITHUB_ENV / 'set -a' form:
+#
+#     LOCALVERSION=+qcom-next-20260722
+#     SNAPSHOT=20260722
+#
+#   LOCALVERSION always starts with a plus. SNAPSHOT is empty for branch-tip
+#   builds, which have no date; the Debian version then carries no snapshot
+#   component at all.
 #
 # Exit codes:
 #   0  Success.
@@ -73,8 +86,8 @@ done
 # Dated tags use a trailing YYYYMMDD snapshot. The matrix selects the tag set;
 # the variant supplies the stable package identity used in LOCALVERSION.
 if [[ "$REF" =~ -([0-9]{8})$ ]]; then
-    DATE="${BASH_REMATCH[1]}"
-    echo "+${VARIANT}-${DATE}"
+    SNAPSHOT="${BASH_REMATCH[1]}"
+    LOCALVERSION="+${VARIANT}-${SNAPSHOT}"
 else
     # Branch-tip build: need SHA for uniqueness.
     [[ -n "$SHA" ]] || {
@@ -83,5 +96,9 @@ else
     }
     # Use first 12 chars of SHA for a compact but unambiguous suffix.
     SHORT_SHA="${SHA:0:12}"
-    echo "+${VARIANT}-g${SHORT_SHA}"
+    LOCALVERSION="+${VARIANT}-g${SHORT_SHA}"
+    SNAPSHOT=""
 fi
+
+echo "LOCALVERSION=${LOCALVERSION}"
+echo "SNAPSHOT=${SNAPSHOT}"
