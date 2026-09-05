@@ -295,11 +295,9 @@ face value:
 - No `srcpkg` or `binpkg` is shared between flavours, and no two entries build
   the same `srcpkg` at the same `debian_revision`.
 
-The build workflows pass their entry's own `debian_revision` through. A caller
-with no entry in hand can leave the `debian-revision` input empty, and the
-`prepare-kernel-source` action looks up the entry for the build name and suite
-it was given (`resolve-matrix.py --field debian_revision`) and builds at the
-revision the nightly build uses.
+The build workflows pass their entry's own `debian_revision` through, and the
+`prepare-kernel-source` action requires it: there is no caller without an
+entry in hand, so there is no fallback to look one up.
 
 Each entry has a distinct prepared-source artifact, Debusine child workspace,
 and S3 path keyed by `flavour + suite`. This prevents two flavours that both
