@@ -18,9 +18,8 @@ name: build-kernel-ubuntu
 # per Ubuntu entry it selected. That also keeps every value describing a build
 # in ci/build-matrix.yaml, rather than in a dispatch form that drifts from it.
 #
-# Jobs:
-#   prepare (self-hosted): clone, inject debian/, build the source package.
-#   build   (self-hosted): build the .deb files and upload them to S3.
+# One job, on the self-hosted runner: clone, inject debian/, build the source
+# package, build the .deb files from it, and upload them to S3.
 
 on:
   workflow_call:
@@ -88,20 +87,38 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # prepare: clone kernel source, inject packaging, run prepare-source.sh.
+  # build: clone, prepare, build the source package, build binaries from it,
+  # and publish them.
+  #
+  # One job rather than a prepare job and a build job, because every step
+  # runs on the same runner label: the source package the prepare action
+  # writes is consumed here from the workspace it was written into, with no
+  # artifact uploaded only to be downloaded again by the next job. The action
+  # still uploads it, as the record of what was built.
+  #
+  # Named for where the build happens, as the Debian workflow's Build package
+  # (Debusine) is: this one runs in a suite-matched pkg-builder container on
+  # the runner rather than being submitted to a build service.
   # ---------------------------------------------------------------------------
-  prepare:
-    name: Generate source package
+  build:
+    name: Build package (Docker)
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     permissions:
       contents: read  # actions/checkout
       packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
+    env:
+      DISTRO: ${{ inputs.suite }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # Also pulls, or builds from a docker-pkg-build checkout, the suite's
+      # pkg-builder image -- the image the binary build below runs sbuild in.
       - name: Prepare kernel source
         uses: ./.github/actions/prepare-kernel-source
         with:
@@ -121,86 +138,24 @@ jobs:
           localversion: ${{ inputs.localversion }}
           kver-extra: ${{ inputs.kver-extra }}
 
-  # ---------------------------------------------------------------------------
-  # build: build the source package in a suite-matched container, then publish.
-  #
-  # Named for where the build happens, as the Debian workflows' Build package
-  # (Debusine) is: this one runs in a suite-matched pkg-builder container on
-  # the runner rather than being submitted to a build service.
-  # ---------------------------------------------------------------------------
-  build:
-    name: Build package (Docker)
-    needs: prepare
-    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
-    permissions:
-      contents: read  # actions/checkout
-      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
-    env:
-      DISTRO: ${{ inputs.suite }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout pkg-linux-qcom
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # Pinned to @main while native kernel-build support is still landing
-      # upstream in qualcomm-linux/docker-pkg-build.
-      - name: Checkout docker-pkg-build
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          repository: qualcomm-linux/docker-pkg-build
-          ref: main
-          path: docker-pkg-build
-
-      - name: Fetch builder image
-        env:
-          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # No -x: REGISTRY_TOKEN is in env.
-          set -euo pipefail
-          # Same split as prepare-kernel-source: pull what docker-pkg-build
-          # publishes, build what it does not. Nothing is forced here, because
-          # docker_deb_build.py builds the image itself when the build below
-          # finds it missing -- so an unpublished suite needs no step of its
-          # own, only the absence of a pull.
-          case "$DISTRO" in
-            resolute)
-              echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-              docker pull "ghcr.io/qualcomm-linux/pkg-builder:$DISTRO"
-              ;;
-            *)
-              echo "No published pkg-builder image for $DISTRO; it will be built on demand."
-              ;;
-          esac
-          docker image ls
-
-      - name: Download source package
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: source-package-${{ inputs.flavour }}-${{ inputs.suite }}
-          path: source-package
-
       - name: Build kernel package
         run: |
-          # The prepare job built the source package; --dsc hands it to
-          # sbuild in the suite's pkg-builder image, so what is built here
-          # is the .dsc the run reported, exactly as Debusine builds it for
-          # the Debian family. Nothing is cloned or prepared again.
+          # The source package sits where the action wrote it. --dsc hands
+          # it to sbuild in the suite's pkg-builder image, so what is built
+          # here is the .dsc the run reported, exactly as Debusine builds it
+          # for the Debian family. Nothing is cloned or prepared again, and
+          # build-kernel.sh finds the docker-pkg-build checkout the action
+          # leaves behind when it had to build the image itself.
           set -euo pipefail
           DSC=$(ls source-package/*.dsc)
           [[ $(wc -l <<<"$DSC") -eq 1 ]] || {
-            echo "::error::Expected exactly one .dsc in the source package artifact, found: $DSC"
+            echo "::error::Expected exactly one .dsc in source-package/, found: $DSC"
             exit 1
           }
           ./build-kernel.sh \
             --build-mode docker \
             --distro "$DISTRO" \
-            --dsc "$DSC" \
-            --docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py"
+            --dsc "$DSC"
 
       - name: Upload .deb packages to S3
         # build-kernel.sh outputs to kernel-build/<distro>/ by default.
