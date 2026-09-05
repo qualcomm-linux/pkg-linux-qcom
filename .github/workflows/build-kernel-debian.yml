@@ -202,7 +202,7 @@ jobs:
       # An empty ref leaves actions/checkout on github.sha, the commit this run
       # was dispatched from or the one the calling workflow runs at.
       - name: Checkout pkg-linux-qcom
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -248,7 +248,7 @@ jobs:
       # Only for the debusine-build action itself: the package being built
       # comes from the prepared-source artifact, not from this checkout.
       - name: Checkout pkg-linux-qcom
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -280,7 +280,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout debusine-action helpers
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: qualcomm-linux/debusine-action
