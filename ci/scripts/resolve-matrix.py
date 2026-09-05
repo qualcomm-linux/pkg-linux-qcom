@@ -9,11 +9,11 @@ matrix is already flat, and each entry states its own debian_revision. This
 script validates the whole document, selects the entries a caller asked for,
 and prints them.
 
-There is one kind of entry. Every entry is built nightly, and an entry that
-names a target_workspace is also promoted into it, so the archive carries the
-artifact the nightly build tested rather than a second build of the same ref.
-Promoting that artifact onward to a release workspace is a separate step that
-builds nothing; see release.yml.
+There is one kind of entry, and it describes a kernel rather than a
+destination. Where a build is published is decided by the workflow running it,
+not stated here: the nightly promotes its Debian entries into the staging
+workspace, a PR build promotes nowhere, and release.yml promotes onward from
+staging without building anything.
 
 The document is validated in full on every invocation, not just the selected
 entries, so a typo in an entry nobody selected fails the run that would have
@@ -118,7 +118,6 @@ REQUIRED_STRING_FIELDS = (
 
 OPTIONAL_STRING_FIELDS = (
     "tag_pattern",
-    "target_workspace",
     "localversion",
     "kver_extra",
     "debusine_parent_workspace",
@@ -287,18 +286,6 @@ def check_entry(entry, report):
             report("missing or invalid tag_pattern")
     elif "tag_pattern" in entry:
         report("tag_pattern is only valid with ref_strategy=latest_tag")
-
-    # Promotion runs through Debusine, and only the Debian family is built
-    # there. An Ubuntu entry naming a target_workspace would build the package
-    # and then have no workspace to promote it from, publishing to the S3 path
-    # and reporting success without the archive ever gaining anything.
-    if entry.get("target_workspace"):
-        suite = entry.get("suite")
-        if isinstance(suite, str) and family_for(suite) != "debian":
-            report(
-                f"target_workspace needs a Debian suite, not {suite}; promotion "
-                "runs through Debusine, which builds " + ", ".join(DEBIAN_SUITES)
-            )
 
     revision = entry.get("debian_revision")
     if isinstance(revision, str) and revision and not REVISION_RE.match(revision):
