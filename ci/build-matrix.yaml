@@ -80,7 +80,8 @@ builds:
       - camx
       - iris-vpu
       - audioreach
-    debian_revision: '0qli1'
+    # TODO: added manual revision
+    debian_revision: '0qli1+staging1'
 
   # - name: qcom-next-resolute
   #   suite: resolute
