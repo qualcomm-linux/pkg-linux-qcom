@@ -77,7 +77,7 @@ builds:
       - camx
       - iris-vpu
       - audioreach
-    debian_revision: '0qli1~bpo13+1~'
+    debian_revision: '0qli1~bpo13+1'
 ```
 
 Entries are written out in full rather than sharing YAML anchors, so each one
@@ -89,16 +89,15 @@ Each entry states its `debian_revision` outright. The configured values are:
 
 | Suite | Revision |
 | --- | --- |
-| Trixie | `0qli~bpo13+1~` |
-| Forky | `0qli~` |
-| Resolute | `0qli~26.04.1~` |
+| Trixie | `0qli1~bpo13+1` |
+| Forky | `0qli1` |
+| Resolute | `0qli1~26.04.1` |
 
-The trailing `~` marks the version as one nobody has blessed yet, and it stays
-on the version through release. That is a consequence of releasing by
-promotion: what reaches `qli` is the artifact `qli-staging` holds, byte for
-byte, so its version is the version it was built with. A release that dropped
-the `~` would have to be a different build, which is exactly what this design
-removes.
+None of them carries a trailing `~`. That marker existed to sort a daily build
+below the release rebuilt from the same ref, and there is no such rebuild: the
+version is decided once, when the package is built, and the artifact any
+archive holds is that one. With nothing for it to sort against, a trailing `~`
+would only make every published kernel look permanently provisional.
 
 Ordering across *different* suites depends entirely on the configured
 revisions: with the values above, Resolute < Trixie < Forky, matching a
