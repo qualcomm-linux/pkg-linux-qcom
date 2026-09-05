@@ -77,6 +77,7 @@ REQUIRED_STRING_FIELDS = (
     "kernel_variant",
     "type",
     "suite",
+    "flavour",
     "git_clone",
     "branch_or_tag",
     "ref_strategy",
@@ -97,19 +98,26 @@ KNOWN_FIELDS = frozenset(
     REQUIRED_STRING_FIELDS + OPTIONAL_STRING_FIELDS + ("kernel_config", "dkms")
 )
 
-# Fields that identify the variant itself rather than one of its build legs.
-# Every entry for a variant must agree on them, because they decide what the
-# package is; the entries only differ in where it is delivered.
-VARIANT_IDENTITY_FIELDS = ("srcpkg", "binpkg", "kernel_config")
+# Everything about what is built is anchored on flavour, not kernel_variant.
+# The flavour is the kernel's own identity: it becomes the LOCALVERSION
+# suffix, so two flavours built from one ref produce distinct kernel releases
+# whose linux-image packages install alongside each other. kernel_variant
+# names the build in CI -- job names, artifacts, Debusine workspaces, S3
+# paths -- and carries no packaging meaning.
 
-# Fields a variant may vary between suites but not within one. The out-of-tree
+# Fields that identify the flavour itself rather than one of its build legs.
+# Every entry for a flavour must agree on them, because they decide what the
+# package is; the entries only differ in where it is delivered.
+FLAVOUR_IDENTITY_FIELDS = ("srcpkg", "binpkg", "kernel_config")
+
+# Fields a flavour may vary between suites but not within one. The out-of-tree
 # module set depends on which <name>-dkms packages the target archive has, so
-# it is a property of the variant in a suite rather than of the variant. A
+# it is a property of the flavour in a suite rather than of the flavour. A
 # suite's Daily and Release must still agree: a Daily that bundles a different
 # module set from the Release it precedes is not testing what will ship.
 SUITE_IDENTITY_FIELDS = ("dkms",)
 
-# Fields deciding which kernel tree is built. All entries for one variant and
+# Fields deciding which kernel tree is built. All entries for one flavour and
 # delivery type build the same source, so a stale suite cannot quietly ship a
 # different kernel from its siblings.
 REF_FIELDS = ("git_clone", "branch_or_tag", "ref_strategy", "tag_pattern")
@@ -222,7 +230,7 @@ def check_entry(entry, report):
     for field in sorted(set(entry) - KNOWN_FIELDS):
         report(f"unknown field {field}")
 
-    for field in ("kernel_variant", "suite"):
+    for field in ("kernel_variant", "suite", "flavour"):
         value = entry.get(field)
         if isinstance(value, str) and not NAME_RE.match(value):
             report(f"{field} must use lowercase letters, digits, and internal hyphens")
@@ -287,40 +295,47 @@ def describe(entry, index):
 def check_consistency(deliveries, errors):
     """Validate the invariants that span entries.
 
-    Entries are written out in full, so the matrix can state a variant twice
+    Entries are written out in full, so the matrix can state a flavour twice
     and disagree with itself. These checks are what makes that duplication
     safe to read at face value.
+
+    Everything about the package is grouped by flavour. kernel_variant is
+    only checked for the one thing it is used for: naming a build leg
+    uniquely.
     """
     by_leg = defaultdict(list)
-    by_variant = defaultdict(list)
-    by_variant_type = defaultdict(list)
+    by_flavour = defaultdict(list)
+    by_flavour_type = defaultdict(list)
+    by_flavour_suite = defaultdict(list)
     by_package_version = defaultdict(list)
-    variants_by_package = defaultdict(set)
-    by_variant_suite = defaultdict(list)
+    flavours_by_package = defaultdict(set)
 
     for entry in deliveries:
         if not isinstance(entry, dict):
             continue
-        variant = entry.get("kernel_variant")
+        flavour = entry.get("flavour")
         delivery_type = entry.get("type")
         suite = entry.get("suite")
-        if not isinstance(variant, str):
+        if not isinstance(flavour, str):
             continue
 
-        by_variant[variant].append(entry)
-        by_variant_type[(variant, delivery_type)].append(entry)
-        by_variant_suite[(variant, suite)].append(entry)
-        by_leg[(variant, delivery_type, suite)].append(entry)
+        by_flavour[flavour].append(entry)
+        by_flavour_type[(flavour, delivery_type)].append(entry)
+        by_flavour_suite[(flavour, suite)].append(entry)
+        by_leg[(entry.get("kernel_variant"), delivery_type, suite)].append(entry)
 
         for field in ("srcpkg", "binpkg"):
             if isinstance(entry.get(field), str) and entry[field]:
-                variants_by_package[(field, entry[field])].add(variant)
+                flavours_by_package[(field, entry[field])].add(flavour)
 
         if isinstance(entry.get("srcpkg"), str) and isinstance(
             entry.get("debian_revision"), str
         ):
             by_package_version[(entry["srcpkg"], entry["debian_revision"])].append(entry)
 
+    # kernel_variant plus suite is what names a build leg in the Actions UI and
+    # scopes its artifacts, workspace and S3 path, so a repeat would have two
+    # legs writing to one another's outputs.
     for (variant, delivery_type, suite), entries in sorted(
         by_leg.items(), key=lambda item: str(item[0])
     ):
@@ -330,50 +345,51 @@ def check_consistency(deliveries, errors):
                 f"entries for suite {suite}; one entry is one generated package"
             )
 
-    for variant, entries in sorted(by_variant.items()):
-        for field in VARIANT_IDENTITY_FIELDS:
+    for flavour, entries in sorted(by_flavour.items()):
+        for field in FLAVOUR_IDENTITY_FIELDS:
             values = {json.dumps(entry.get(field), sort_keys=True) for entry in entries}
             if len(values) > 1:
                 errors.append(
-                    f"kernel_variant {variant} must use one {field} across all its "
+                    f"flavour {flavour} must use one {field} across all its "
                     "entries (got " + ", ".join(sorted(values)) + ")"
                 )
         types = {entry.get("type") for entry in entries}
         for delivery_type in DELIVERY_TYPES:
             if delivery_type not in types:
                 errors.append(
-                    f"kernel_variant {variant} has no {delivery_type} entry; "
-                    "every variant must define at least one of each"
+                    f"flavour {flavour} has no {delivery_type} entry; "
+                    "every flavour must define at least one of each"
                 )
 
-    for (variant, suite), entries in sorted(
-        by_variant_suite.items(), key=lambda item: str(item[0])
+    for (flavour, suite), entries in sorted(
+        by_flavour_suite.items(), key=lambda item: str(item[0])
     ):
         for field in SUITE_IDENTITY_FIELDS:
             values = {json.dumps(entry.get(field), sort_keys=True) for entry in entries}
             if len(values) > 1:
                 errors.append(
-                    f"kernel_variant {variant} must use one {field} across its "
+                    f"flavour {flavour} must use one {field} across its "
                     f"{suite} entries (got " + ", ".join(sorted(values)) + ")"
                 )
 
-    for (variant, delivery_type), entries in sorted(
-        by_variant_type.items(), key=lambda item: str(item[0])
+    for (flavour, delivery_type), entries in sorted(
+        by_flavour_type.items(), key=lambda item: str(item[0])
     ):
         for field in REF_FIELDS:
             values = {entry.get(field) for entry in entries}
             if len(values) > 1:
                 rendered = ", ".join(sorted(str(v) for v in values))
                 errors.append(
-                    f"kernel_variant {variant} must build one {field} across its "
+                    f"flavour {flavour} must build one {field} across its "
                     f"{delivery_type} entries (got {rendered})"
                 )
 
-    for (field, package), variants in sorted(variants_by_package.items()):
-        if len(variants) > 1:
+    # Two flavours sharing a package name would overwrite each other in the
+    # archive; the whole point of a second flavour is a second package.
+    for (field, package), flavours in sorted(flavours_by_package.items()):
+        if len(flavours) > 1:
             errors.append(
-                f"{field} {package} is shared by kernel variants "
-                + ", ".join(sorted(variants))
+                f"{field} {package} is shared by flavours " + ", ".join(sorted(flavours))
             )
 
     for (srcpkg, revision), entries in sorted(
@@ -388,7 +404,7 @@ def check_consistency(deliveries, errors):
 
     # A suite's Daily and Release differ only by the Daily's trailing ~, so the
     # Daily reliably sorts below the Release that supersedes it.
-    for variant, entries in sorted(by_variant.items()):
+    for flavour, entries in sorted(by_flavour.items()):
         revisions = {
             (entry.get("type"), entry.get("suite")): entry.get("debian_revision")
             for entry in entries
@@ -401,7 +417,7 @@ def check_consistency(deliveries, errors):
             release = revisions.get(("Release", suite))
             if isinstance(release, str) and revision != release + "~":
                 errors.append(
-                    f"kernel_variant {variant} suite {suite}: Daily "
+                    f"flavour {flavour} suite {suite}: Daily "
                     f'debian_revision "{revision}" must be the Release revision '
                     f'"{release}" with a trailing ~'
                 )
