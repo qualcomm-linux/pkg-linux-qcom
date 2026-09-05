@@ -37,6 +37,18 @@ OPTIONS:
     -l, --latest-tag        Select the latest qcom-next-* tag automatically
     -b, --branch BRANCH     Branch to use (default: $DEFAULT_BRANCH)
     -r, --repo URL          Kernel repository URL (default: $DEFAULT_REPO)
+    --dsc FILE              Build from an existing Debian source package
+                            instead of a kernel tree: no clone, no prepare.
+                            The .orig.tar.gz and .debian.tar.xz the .dsc
+                            names must sit beside it, as build-source-package.sh
+                            and CI leave them.
+
+  What to build:
+    --source-package        Stop after building the Debian source package
+                            (.orig.tar.gz, .dsc, .changes) into the output
+                            directory, with build-source-package.sh. The orig
+                            tarball is reproducible: see that script. Build
+                            binaries from it later with --dsc.
 
   Version control:
     --flavour NAME          Kernel flavour carried in LOCALVERSION
@@ -86,6 +98,8 @@ EXAMPLES:
     $0 --local-source /path/to/kernel --kver-extra -mybuild
     $0 --latest-tag --kernel-config docker,systemd-boot
     $0 --latest-tag --dkms kgsl
+    $0 --latest-tag --source-package
+    $0 --dsc kernel-build/trixie/linux-qcom-next_*.dsc
 
 DISTRIBUTIONS:
     noble     Ubuntu 24.04 LTS
@@ -102,7 +116,7 @@ TAG=""; LATEST_TAG=false; BRANCH="$DEFAULT_BRANCH"; REPO="$DEFAULT_REPO"
 DISTRO="$DEFAULT_DISTRO"; BUILD_MODE="$DEFAULT_BUILD_MODE"; FLAVOUR="$DEFAULT_FLAVOUR"
 LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
 LOCAL_SOURCE=""; ENABLE_CONFIGS="squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can"; SKIP_PREPARE=false
-DKMS_MODULES=""
+DKMS_MODULES=""; DSC=""; SOURCE_PACKAGE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -115,6 +129,8 @@ while [[ $# -gt 0 ]]; do
         --debian-dir)       DEBIAN_DIR="$2";    shift 2 ;;
         -d|--distro)        DISTRO="$2";        shift 2 ;;
         --local-source)     LOCAL_SOURCE="$2";  shift 2 ;;
+        --dsc)              DSC="$2";           shift 2 ;;
+        --source-package)   SOURCE_PACKAGE=true; shift  ;;
         --docker-build)     DOCKER_PKG_BUILD="$2"; shift 2 ;;
         --flavour)          FLAVOUR="$2";       shift 2 ;;
         --localversion)     LOCALVERSION="$2";  shift 2 ;;
@@ -147,6 +163,17 @@ VALID_MODES=(docker native sbuild)
     exit 1
 }
 
+# --dsc replaces the tree: everything that selects or prepares one is
+# meaningless beside it, and so is asking for the source package it already is.
+if [[ -n "$DSC" ]]; then
+    [[ -z "$LOCAL_SOURCE$TAG" && "$LATEST_TAG" == false && "$SKIP_PREPARE" == false && "$SOURCE_PACKAGE" == false ]] || {
+        log_error "--dsc cannot be combined with --local-source, --tag, --latest-tag, --skip-prepare or --source-package"
+        exit 1
+    }
+    [[ -f "$DSC" ]] || { log_error "Source package not found: $DSC"; exit 1; }
+    DSC="$(cd "$(dirname "$DSC")" && pwd)/$(basename "$DSC")"
+fi
+
 # Locate docker_deb_build.py (docker mode)
 if [[ "$BUILD_MODE" == "docker" && -z "$DOCKER_PKG_BUILD" ]]; then
     for p in "$HOME/docker-pkg-build/docker_deb_build.py" \
@@ -170,9 +197,15 @@ if [[ -n "$LOCAL_SOURCE" ]]; then
 fi
 
 log_step "Configuration:"
-[[ -n "$LOCAL_SOURCE" ]] && log_info "  Source:       local ($KERNEL_DIR)" \
-                          || log_info "  Repo:         $REPO  branch: $BRANCH"
+if [[ -n "$DSC" ]]; then
+    log_info "  Source:       $DSC"
+elif [[ -n "$LOCAL_SOURCE" ]]; then
+    log_info "  Source:       local ($KERNEL_DIR)"
+else
+    log_info "  Repo:         $REPO  branch: $BRANCH"
+fi
 log_info "  Output:       $OUTPUT_DIR"
+[[ "$SOURCE_PACKAGE" == true ]] && log_info "  Building:     source package only"
 log_info "  Distro:       $DISTRO   mode: $BUILD_MODE"
 [[ "$BUILD_MODE" == "docker" ]] && log_info "  Docker build: $DOCKER_PKG_BUILD"
 [[ -n "$LOCALVERSION" ]]  && log_info "  LOCALVERSION: $LOCALVERSION" \
@@ -185,7 +218,9 @@ log_info "  Distro:       $DISTRO   mode: $BUILD_MODE"
 echo
 
 # ── Git operations: resolve ref → sync → checkout ────────────────────────────
-if [[ -z "$LOCAL_SOURCE" ]]; then
+if [[ -n "$DSC" ]]; then
+    : # No tree: the source package is the source.
+elif [[ -z "$LOCAL_SOURCE" ]]; then
     # Resolve the latest tag remotely before any network I/O (avoids fetching
     # all tags). The same script CI uses, so "latest" means the same thing
     # here: the newest trailing date, not the highest kernel version.
@@ -227,7 +262,7 @@ else
     log_info "Using local source as-is (skipping git checkout)"
 fi
 
-cd "$KERNEL_DIR"
+[[ -n "$DSC" ]] || cd "$KERNEL_DIR"
 
 # ── Source preparation ────────────────────────────────────────────────────────
 # Delegates to prepare-source.sh, which is the single source of truth for
@@ -236,8 +271,10 @@ cd "$KERNEL_DIR"
 # --localversion is passed through, and otherwise prepare-source.sh derives
 # it from the checkout the way CI does.
 # Skipped when --skip-prepare is set (CI mode: prepare-source.sh already ran
-# as a dedicated prior step).
-if [[ "$SKIP_PREPARE" != true ]]; then
+# as a dedicated prior step), and when there is no tree to prepare.
+if [[ -n "$DSC" ]]; then
+    :
+elif [[ "$SKIP_PREPARE" != true ]]; then
     PREPARE_ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO" --debian-dir "$DEBIAN_DIR"
                   --flavour "$FLAVOUR")
     [[ -n "$LOCALVERSION" ]]   && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
@@ -257,12 +294,26 @@ else
     }
 fi
 
-# ── Build ────────────────────────────────────────────────────────────────────
+# ── Source package ───────────────────────────────────────────────────────────
 mkdir -p "$OUTPUT_DIR"
+if [[ "$SOURCE_PACKAGE" == true ]]; then
+    log_step "Building the source package into $OUTPUT_DIR..."
+    "$SCRIPT_DIR/build-source-package.sh" --source-dir "$KERNEL_DIR" --output-dir "$OUTPUT_DIR"
+    echo
+    log_info "Build binaries from it with:"
+    log_info "  $0 --dsc $OUTPUT_DIR/$(cd "$OUTPUT_DIR" && ls -- *.dsc | tail -1) --distro $DISTRO"
+    exit 0
+fi
+
+# ── Build ────────────────────────────────────────────────────────────────────
 log_step "Building kernel package (mode: $BUILD_MODE)..."
 [[ -n "$PROFILES" ]] && log_info "Build profiles: $PROFILES"
 echo
 
+# Every mode builds either the prepared tree or the source package. The
+# source-package path is the one CI takes for every suite, so it is the one to
+# use when a local build must produce what CI produced: same .dsc in, same
+# binaries out.
 case "$BUILD_MODE" in
     docker)
         USE_SUDO=""
@@ -272,26 +323,65 @@ case "$BUILD_MODE" in
             [[ $REPLY =~ ^[Yy]$ ]] || { log_error "Aborted."; exit 1; }
             USE_SUDO="sudo"
         }
-        BUILD_CMD=("$DOCKER_PKG_BUILD"
-            --skip-gbp
-            --no-update-check
-            --source-dir "$KERNEL_DIR"
-            --output-dir "$OUTPUT_DIR"
-            --distro "$DISTRO")
-        [[ -n "$PROFILES" ]] && BUILD_CMD+=(--profiles "$PROFILES")
-        ${USE_SUDO:+sudo} "${BUILD_CMD[@]}"
+        if [[ -n "$DSC" ]]; then
+            # docker_deb_build.py builds from a tree only, so the .dsc is
+            # handed to sbuild inside the same builder image directly, with
+            # the same sbuild flags docker_deb_build.py uses. The image is
+            # named as docker-pkg-build names it; when it is missing,
+            # docker_deb_build.py --rebuild builds it from its Dockerfile.
+            DOCKER_IMAGE="ghcr.io/qualcomm-linux/pkg-builder:$DISTRO"
+            ${USE_SUDO:+sudo} docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1 || {
+                log_info "Builder image $DOCKER_IMAGE not present; building it with docker-pkg-build..."
+                ${USE_SUDO:+sudo} "$DOCKER_PKG_BUILD" --no-update-check --rebuild -d "$DISTRO"
+            }
+            # The .dsc's directory is mounted read-only so sbuild can read the
+            # tarballs it names; results go to the output mount.
+            SBUILD_CMD="sbuild --chroot-mode=unshare --build-dep-resolver=aptitude"
+            SBUILD_CMD+=" --no-clean-source --build-dir=/workspace/output"
+            SBUILD_CMD+=" --host=arm64 --build=arm64 --dist=$DISTRO --no-run-lintian"
+            [[ -n "$PROFILES" ]] && SBUILD_CMD+=" --profiles=$PROFILES"
+            SBUILD_CMD+=" /workspace/source/$(basename "$DSC")"
+            ${USE_SUDO:+sudo} docker run --rm --privileged \
+                -v "$(dirname "$DSC"):/workspace/source:ro" \
+                -v "$OUTPUT_DIR:/workspace/output:Z" \
+                -w /workspace/output \
+                "$DOCKER_IMAGE" bash -c "$SBUILD_CMD"
+        else
+            BUILD_CMD=("$DOCKER_PKG_BUILD"
+                --skip-gbp
+                --no-update-check
+                --source-dir "$KERNEL_DIR"
+                --output-dir "$OUTPUT_DIR"
+                --distro "$DISTRO")
+            [[ -n "$PROFILES" ]] && BUILD_CMD+=(--profiles "$PROFILES")
+            ${USE_SUDO:+sudo} "${BUILD_CMD[@]}"
+        fi
         ;;
     native)
         log_info "Running dpkg-buildpackage on host..."
         [[ -n "$PROFILES" ]] && export DEB_BUILD_PROFILES="$PROFILES"
-        dpkg-buildpackage -us -uc -b
-        find "$(dirname "$KERNEL_DIR")" -maxdepth 1 -name "*.deb" -exec mv -v {} "$OUTPUT_DIR/" \;
+        if [[ -n "$DSC" ]]; then
+            # Unpack into the output directory, so dpkg-buildpackage's ../
+            # is the output directory and the .deb files land there.
+            BUILD_TREE="$OUTPUT_DIR/$(basename "$DSC" .dsc)"
+            rm -rf "$BUILD_TREE"
+            dpkg-source -x "$DSC" "$BUILD_TREE"
+            (cd "$BUILD_TREE" && dpkg-buildpackage -us -uc -b)
+        else
+            dpkg-buildpackage -us -uc -b
+            find "$(dirname "$KERNEL_DIR")" -maxdepth 1 -name "*.deb" -exec mv -v {} "$OUTPUT_DIR/" \;
+        fi
         ;;
     sbuild)
         log_info "Running sbuild for $DISTRO..."
-        SBUILD_CMD=(sbuild --dist "$DISTRO" --arch arm64 --no-source)
+        SBUILD_CMD=(sbuild --dist "$DISTRO" --arch arm64)
         [[ -n "$PROFILES" ]] && SBUILD_CMD+=(--profiles "$PROFILES")
-        "${SBUILD_CMD[@]}"
+        if [[ -n "$DSC" ]]; then
+            # sbuild takes a .dsc directly and writes beside its cwd.
+            (cd "$OUTPUT_DIR" && "${SBUILD_CMD[@]}" "$DSC")
+        else
+            "${SBUILD_CMD[@]}" --no-source
+        fi
         ;;
 esac
 
