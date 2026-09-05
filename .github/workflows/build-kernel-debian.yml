@@ -1,12 +1,13 @@
 name: build-kernel-debian
 
-# Build a kernel package for a Debian-family suite and publish it to S3.
+# Build a kernel package for a Debian-family suite, publish it to S3, and
+# promote it into a Debusine workspace when the caller names one.
 #
 # Called per matrix entry by daily.yml and pr-build.yml, which select the
 # Debian entries with resolve-matrix.py --family debian and call only this
 # workflow for them. Nothing here is conditional on the suite: a caller that
 # reaches this file has already decided the build belongs on the Debusine
-# path, so every job in it runs.
+# path.
 #
 # workflow_call only. One run of this workflow is one matrix entry, and a
 # reusable workflow cannot fan itself out over several, so manual builds are
@@ -14,13 +15,18 @@ name: build-kernel-debian
 # per Debian entry it selected. That also keeps every value describing a build
 # in ci/build-matrix.yaml, rather than in a dispatch form that drifts from it.
 #
-# release-kernel-debian.yml is the same build with the release tail: it
-# promotes to a target Debusine workspace instead of publishing to S3.
+# There is no separate release build. An entry that names a target-workspace is
+# promoted into it by this workflow, and release.yml promotes onward from that
+# workspace without building anything, so what is released is the artifact this
+# build produced and tested rather than a second build of the same ref.
 #
 # Jobs:
-#   prepare (self-hosted): clone, patch, inject debian/, generate the source.
+#   prepare (self-hosted): clone, patch, inject debian/, generate the source,
+#           and decide whether the version it produces is already published.
 #   build   (debusine-pkg-builder container): submit to Debusine.
 #   publish (self-hosted): download the .deb files and upload them to S3.
+#   promote (debusine-pkg-builder container): copy the result into
+#           target-workspace. Skipped entirely when no workspace was named.
 
 on:
   workflow_call:
@@ -89,6 +95,14 @@ on:
         description: 'Parent Debusine workspace for CI child workspace creation'
         type: string
         default: ''
+      target-workspace:
+        description: >
+          Debusine workspace to promote the built package into, empty to
+          promote nowhere. Set from the matrix entry's target_workspace by the
+          nightly build; left empty by pr-build.yml, whose builds must not
+          reach an archive.
+        type: string
+        default: ''
       qcom-next-pr:
         description: 'qcom-next PR numbers to merge (e.g. "42 43")'
         type: string
@@ -111,7 +125,15 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # prepare: clone kernel source, inject packaging, run prepare-source.sh.
+  # prepare: clone kernel source, inject packaging, run prepare-source.sh, and
+  # report the version that produces.
+  #
+  # The version is decided here, by the ref this run resolved and the revision
+  # it was given, so this is the first point at which the run can tell whether
+  # there is anything new to build. When the caller named a target workspace
+  # and that version is already in it, every later job is skipped: the nightly
+  # build of a tag that has not moved would otherwise rebuild the same version
+  # and then fail promoting it as a duplicate.
   # ---------------------------------------------------------------------------
   prepare:
     name: Generate source package
@@ -119,6 +141,9 @@ jobs:
     permissions:
       contents: read  # actions/checkout
       packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
+    outputs:
+      srcpkg_version: ${{ steps.prepare.outputs.srcpkg_version }}
+      already_published: ${{ steps.published.outputs.already_published }}
     steps:
       # debian/ and ci/ live on the same branch, so one checkout supplies both
       # the packaging and the scripts, the delivery matrix they read, and the
@@ -132,6 +157,7 @@ jobs:
           persist-credentials: false
 
       - name: Prepare kernel source
+        id: prepare
         uses: ./.github/actions/prepare-kernel-source
         with:
           build: ${{ inputs.build }}
@@ -153,12 +179,91 @@ jobs:
           qcom-next-pr: ${{ inputs.qcom-next-pr }}
           kernel-topics-pr: ${{ inputs.kernel-topics-pr }}
 
+      # Only needed to ask the target workspace what it already has, so it is
+      # checked out only when there is a target workspace to ask.
+      - name: Checkout debusine-action helpers
+        if: ${{ inputs.target-workspace != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: qualcomm-linux/debusine-action
+          ref: main
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
+
+      # The archive is the authority on whether there is anything to do. A
+      # rerun, a retry, and a night on which the tracked tag did not move all
+      # generate the version that is already published, because the version is
+      # a function of the resolved ref and the revision -- so asking here is
+      # what turns "nothing new upstream" into a skipped run rather than a
+      # rebuild that fails promoting a duplicate.
+      #
+      # Two ways of not getting an answer, deliberately treated differently.
+      # A workspace whose signing key cannot be fetched is a configuration
+      # problem -- it does not exist, or this token cannot see it -- and fails
+      # the run, because every later night would fail the same way and silence
+      # would hide it. An index that cannot be read once the workspace is
+      # reachable is reported as not having the version, which builds and lets
+      # the promotion fail loudly. Neither is allowed to look like a
+      # successful night on which nothing needed doing.
+      - name: Check the target workspace for this version
+        id: published
+        if: ${{ inputs.target-workspace != '' }}
+        env:
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          DEBUSINE_WORKSPACE: ${{ inputs.target-workspace }}
+          SUITE: ${{ inputs.suite }}
+          SRCPKG: ${{ inputs.srcpkg }}
+          SRCPKG_VERSION: ${{ steps.prepare.outputs.srcpkg_version }}
+        run: |
+          # No -x: DEBUSINE_TOKEN is in env, keep xtrace off.
+          set -euo pipefail
+          debusine-action/lib/generate-apt-config || {
+            echo "::error::Cannot read $DEBUSINE_WORKSPACE. Check that the workspace exists and that DEBUSINE_TOKEN may read it."
+            exit 1
+          }
+          sudo apt-get install -y --no-install-recommends devscripts
+          chdist create target-workspace
+          rm -f ~/.chdist/target-workspace/etc/apt/sources.list
+          install -d ~/.chdist/target-workspace/etc/apt/sources.list.d
+          install -d ~/.chdist/target-workspace/etc/apt/auth.conf.d
+          install -m 0644 debusine-ci.sources \
+            ~/.chdist/target-workspace/etc/apt/sources.list.d/
+          install -m 0600 debusine-ci-auth.conf \
+            ~/.chdist/target-workspace/etc/apt/auth.conf.d/
+
+          if ! chdist apt-get target-workspace update; then
+            echo "::warning::Could not read $DEBUSINE_WORKSPACE; treating $SRCPKG $SRCPKG_VERSION as unpublished."
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if chdist apt-cache target-workspace showsrc "$SRCPKG" 2>/dev/null \
+               | grep -qxF "Version: $SRCPKG_VERSION"; then
+            echo "$SRCPKG $SRCPKG_VERSION is already in $DEBUSINE_WORKSPACE."
+            echo "Nothing new to build; the rest of this run is skipped." \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$SRCPKG $SRCPKG_VERSION is not in $DEBUSINE_WORKSPACE yet."
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # ---------------------------------------------------------------------------
   # build: generate the Debian source package and submit it to Debusine.
+  #
+  # Skipped, with everything after it, when prepare found this version already
+  # published in the target workspace.
   # ---------------------------------------------------------------------------
   build:
     name: Build package (Debusine)
     needs: prepare
+    if: ${{ needs.prepare.outputs.already_published != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read  # actions/checkout
@@ -172,6 +277,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       workspace: ${{ steps.debusine.outputs.workspace }}
+      srcpkg_version: ${{ steps.debusine.outputs.srcpkg_version }}
     steps:
       # Only for the debusine-build action itself: the package being built
       # comes from the prepared-source artifact, not from this checkout.
@@ -261,3 +367,78 @@ jobs:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
           path: deb-artifacts
           destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
+
+  # ---------------------------------------------------------------------------
+  # promote: copy the built package from the ephemeral CI workspace into the
+  # workspace the caller named, making it installable from that archive.
+  #
+  # This is what replaces a separate release build. The artifact promoted here
+  # is the one the build above produced, so an archive never carries a version
+  # that was not built and published by this run.
+  #
+  # The if: is the whole of the decision. A caller that named no workspace
+  # promotes nowhere, and a run carrying any of the validation overrides
+  # promotes nowhere either: those builds are deliberately not the kernel the
+  # matrix describes, and an archive must only ever receive that one. Guarding
+  # it here rather than in the caller means it holds for every caller,
+  # including a future one that forwards target-workspace without thinking
+  # about the overrides.
+  # ---------------------------------------------------------------------------
+  promote:
+    name: Promote to ${{ inputs.target-workspace }}
+    # build alone: it already needs prepare, so a run prepare skipped as
+    # already published skips the build and this job with it.
+    needs: build
+    if: >-
+      ${{ inputs.target-workspace != ''
+      && !inputs.debug-build
+      && inputs.qcom-next-pr == ''
+      && inputs.kernel-topics-pr == '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
+    environment: Staging
+    container:
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
+      options: --user 0:0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout debusine-action helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: qualcomm-linux/debusine-action
+          ref: main
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
+
+      - name: Promote packages to the target workspace
+        env:
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          DEBUSINE_CI_WORKSPACE: ${{ needs.build.outputs.workspace }}
+          DEBUSINE_TARGET_WORKSPACE: ${{ inputs.target-workspace }}
+          SRCPKG_NAME: ${{ inputs.srcpkg }}
+          SRCPKG_VERSION: ${{ needs.build.outputs.srcpkg_version }}
+          SUITE: ${{ inputs.suite }}
+        run: |
+          set -eu
+          debusine-action/lib/release
+
+      - name: Note the promoted version
+        env:
+          SRCPKG_NAME: ${{ inputs.srcpkg }}
+          SRCPKG_VERSION: ${{ needs.build.outputs.srcpkg_version }}
+          TARGET_WORKSPACE: ${{ inputs.target-workspace }}
+        run: |
+          echo "Promoted $SRCPKG_NAME $SRCPKG_VERSION to $TARGET_WORKSPACE" \
+            >> "$GITHUB_STEP_SUMMARY"
