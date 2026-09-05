@@ -167,37 +167,6 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # resolve: classify the target suite as 'debian' or 'ubuntu'.
-  # ---------------------------------------------------------------------------
-  resolve:
-    name: Resolve suite family
-    runs-on: ubuntu-latest
-    outputs:
-      family: ${{ steps.classify.outputs.family }}
-    steps:
-      - name: Classify suite
-        id: classify
-        shell: bash
-        env:
-          SUITE_INPUT: ${{ inputs.suite || 'trixie' }}
-          BUILD_INPUT: ${{ inputs.build || 'qcom-next-trixie' }}
-        run: |
-          suite="$SUITE_INPUT"
-          build_name="$BUILD_INPUT"
-          [[ "$build_name" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
-            echo "ERROR: build name must use lowercase letters, digits, and internal hyphens" >&2
-            exit 1
-          }
-          case "$suite" in
-            trixie|forky|sid|unstable|bookworm)
-              family=debian ;;
-            *)
-              family=ubuntu ;;
-          esac
-          echo "family=$family" >> "$GITHUB_OUTPUT"
-          echo "Suite '$suite' classified as family=$family"
-
-  # ---------------------------------------------------------------------------
   # prepare: clone kernel source, inject packaging, run prepare-source.sh.
   # ---------------------------------------------------------------------------
   prepare:
@@ -315,6 +284,10 @@ jobs:
           BUILD_INPUT: ${{ inputs.build || 'qcom-next-trixie' }}
         run: |
           set -euo pipefail
+          [[ "$BUILD_INPUT" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
+            echo "::error::build name must use lowercase letters, digits, and internal hyphens"
+            exit 1
+          }
           INPUT_REVISION="$DEBIAN_REVISION_INPUT"
           if [[ -n "$INPUT_REVISION" ]]; then
             DEBIAN_REVISION="$INPUT_REVISION"
@@ -431,8 +404,8 @@ jobs:
   # ---------------------------------------------------------------------------
   debusine-build:
     name: Build in Debusine
-    needs: [resolve, prepare]
-    if: ${{ needs.resolve.outputs.family == 'debian' }}
+    needs: [prepare]
+    if: ${{ contains(fromJSON('["trixie", "forky", "sid", "unstable", "bookworm"]'), inputs.suite || 'trixie') }}
     uses: ./.github/workflows/build-kernel-debusine.yml
     with:
       suite: ${{ inputs.suite || 'trixie' }}
@@ -450,8 +423,8 @@ jobs:
   # ---------------------------------------------------------------------------
   ubuntu-build:
     name: Build (Ubuntu, docker)
-    needs: [resolve, prepare]
-    if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+    needs: [prepare]
+    if: ${{ !contains(fromJSON('["trixie", "forky", "sid", "unstable", "bookworm"]'), inputs.suite || 'trixie') }}
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
       distro: ${{ inputs.suite || 'resolute' }}
