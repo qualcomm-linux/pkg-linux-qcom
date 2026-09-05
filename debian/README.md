@@ -242,7 +242,7 @@ clone → prepare → build. Run it from the repo root.
 
 ```bash
 # 1. Set up kernel source
-git clone git@github.com:qualcomm-linux/kernel.git kernel-source
+git clone https://github.com/qualcomm-linux/kernel kernel-source
 cd kernel-source
 git checkout qcom-next
 
