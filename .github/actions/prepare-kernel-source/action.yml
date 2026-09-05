@@ -1,0 +1,318 @@
+name: Prepare kernel source
+description: >
+  Resolve the kernel ref, clone it, apply any PR patches, inject debian/ and
+  generate the source package, then upload the prepared tree as an artifact.
+
+# Every build takes this path, whichever family it belongs to, so it lives in a
+# composite action rather than a reusable workflow: the two family workflows
+# call it as a step of their own prepare job, which keeps one copy of these
+# steps without adding a nesting level to every job name in the checks list.
+#
+# The caller must have checked out pkg-linux-qcom into the workspace first:
+# debian/ and ci/ come from that checkout, and so does this action.
+#
+# Runs on the self-hosted arm64 runner. Leaves KERNEL_DIR, KERNEL_REF,
+# KERNEL_SHA, LOCALVERSION and DEBIAN_REVISION in the job environment.
+
+inputs:
+  build:
+    description: 'Name of this build, as listed in ci/build-matrix.yaml'
+    required: true
+  suite:
+    description: 'Target suite'
+    required: true
+  expect-family:
+    description: >
+      Build family the calling workflow builds, debian or ubuntu. The suite is
+      a free-text matrix value, so this catches one handed to the workflow for
+      the other family before anything is cloned or built.
+    required: true
+  flavour:
+    description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
+    required: true
+  kernel-url:
+    description: 'Kernel repository URL'
+    default: 'https://github.com/qualcomm-linux/kernel'
+  ref-strategy:
+    description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
+    default: 'latest_tag'
+  kernel-branch:
+    description: 'Branch for branch_tip or immutable ref for pinned_ref (ignored for latest_tag)'
+    default: 'qcom-next'
+  tag-pattern:
+    description: 'Tag glob used only by latest_tag'
+    default: 'qcom-next-*'
+  srcpkg:
+    description: 'Debian source package name'
+    default: 'linux-qcom-next'
+  binpkg:
+    description: 'Kernel image metapackage name'
+    default: 'linux-image-qcom-next'
+  kernel-config:
+    description: 'Extra config fragments applied on top of all of debian/config-available/'
+    default: ''
+  dkms:
+    description: 'Out-of-tree DKMS modules to bundle, comma-separated and without the -dkms suffix'
+    default: ''
+  debian-revision:
+    description: 'Debian revision override (empty takes the Daily revision the matrix gives this build)'
+    default: ''
+  localversion:
+    description: 'LOCALVERSION override (auto-derived from the resolved ref if empty)'
+    default: ''
+  kver-extra:
+    description: 'Extra package-version suffix (e.g. -ci42)'
+    default: ''
+  debug-build:
+    description: 'Enable the debug build configuration'
+    default: 'false'
+  qcom-next-pr:
+    description: 'qcom-next PR numbers to merge, space-separated'
+    default: ''
+  kernel-topics-pr:
+    description: 'kernel-topics PR numbers to apply as patches, space-separated'
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve build environment
+      shell: bash
+      env:
+        SUITE_INPUT: ${{ inputs.suite }}
+        EXPECT_FAMILY: ${{ inputs.expect-family }}
+      run: |
+        set -euo pipefail
+        # Family and docker image in one place, because they answer the same
+        # question about a suite. Debian-family suites build in the trixie
+        # image: docker-pkg-build and pkg-builder only support trixie for
+        # Debian, and Debusine handles the actual suite-specific build
+        # internally. Ubuntu-family suites build in an image of their own
+        # suite. The family list here is the one in
+        # ci/scripts/resolve-matrix.py, which routes an entry to the workflow
+        # that calls this action.
+        case "$SUITE_INPUT" in
+          trixie|bookworm)    FAMILY=debian; DOCKER_DISTRO="$SUITE_INPUT" ;;
+          forky|sid|unstable) FAMILY=debian; DOCKER_DISTRO=trixie ;;
+          *)                  FAMILY=ubuntu; DOCKER_DISTRO="$SUITE_INPUT" ;;
+        esac
+
+        if [[ "$FAMILY" != "$EXPECT_FAMILY" ]]; then
+          echo "::error::Suite $SUITE_INPUT is $FAMILY-family, but this workflow builds the $EXPECT_FAMILY family."
+          echo "::error::Dispatch the $FAMILY build workflow for it instead."
+          exit 1
+        fi
+
+        echo "DISTRO=$SUITE_INPUT" >> "$GITHUB_ENV"
+        echo "DOCKER_DISTRO=$DOCKER_DISTRO" >> "$GITHUB_ENV"
+        echo "Suite $SUITE_INPUT is $FAMILY-family and builds in the $DOCKER_DISTRO image"
+
+    - name: Checkout docker-pkg-build
+      uses: actions/checkout@v4
+      with:
+        repository: qualcomm-linux/docker-pkg-build
+        ref: main
+        path: docker-pkg-build
+
+    - name: Build docker image
+      shell: bash
+      run: |
+        ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DOCKER_DISTRO"
+        docker image ls
+
+    - name: Resolve kernel ref
+      shell: bash
+      env:
+        KERNEL_URL_INPUT: ${{ inputs.kernel-url }}
+        BRANCH_INPUT: ${{ inputs.kernel-branch }}
+        REF_STRATEGY_INPUT: ${{ inputs.ref-strategy }}
+        TAG_PATTERN_INPUT: ${{ inputs.tag-pattern }}
+        BUILD_INPUT: ${{ inputs.build }}
+      run: |
+        set -euo pipefail
+        [[ "$BUILD_INPUT" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
+          echo "::error::build name must use lowercase letters, digits, and internal hyphens"
+          exit 1
+        }
+        echo "KERNEL_URL=$KERNEL_URL_INPUT" >> "$GITHUB_ENV"
+
+        case "$REF_STRATEGY_INPUT" in
+          latest_tag)
+            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh \
+              --url "$KERNEL_URL_INPUT" \
+              --latest-tag "$TAG_PATTERN_INPUT")
+            ;;
+          branch_tip|pinned_ref)
+            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh \
+              --url "$KERNEL_URL_INPUT" --ref "$BRANCH_INPUT")
+            ;;
+          *)
+            echo "::error::unsupported ref strategy: $REF_STRATEGY_INPUT"
+            exit 1
+            ;;
+        esac
+
+        echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
+        echo "Build: $BUILD_INPUT"
+        echo "Ref strategy: $REF_STRATEGY_INPUT"
+        echo "Resolved kernel ref: $KERNEL_REF"
+
+    - name: Clone kernel source
+      shell: bash
+      run: |
+        set -euo pipefail
+        KERNEL_DIR="$GITHUB_WORKSPACE/kernel-source"
+        echo "KERNEL_DIR=$KERNEL_DIR" >> "$GITHUB_ENV"
+        echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
+        git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags \
+          "$KERNEL_URL" "$KERNEL_DIR"
+        KERNEL_SHA=$(git -C "$KERNEL_DIR" rev-parse HEAD)
+        echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
+        echo "Kernel HEAD SHA: $KERNEL_SHA"
+
+    - name: Derive LOCALVERSION
+      shell: bash
+      env:
+        LOCALVERSION_INPUT: ${{ inputs.localversion }}
+        FLAVOUR_INPUT: ${{ inputs.flavour }}
+      run: |
+        set -euo pipefail
+        if [[ -n "$LOCALVERSION_INPUT" ]]; then
+          echo "Using explicit LOCALVERSION override: $LOCALVERSION_INPUT"
+          echo "LOCALVERSION=$LOCALVERSION_INPUT" >> "$GITHUB_ENV"
+        else
+          LOCALVERSION=$(ci/scripts/derive-localversion.sh \
+            --flavour "$FLAVOUR_INPUT" \
+            --ref "$KERNEL_REF" \
+            --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
+          echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
+          echo "Derived LOCALVERSION: $LOCALVERSION"
+        fi
+
+    - name: Resolve Debian revision
+      # Callers driven by the matrix pass the entry's own debian-revision
+      # straight through. A direct workflow_dispatch that leaves it empty looks
+      # the same entry up itself, so a manual build of a configured build gets
+      # exactly the revision the daily build would have used. The lookup is
+      # always the Daily entry: direct dispatch is build-only and never
+      # promotes.
+      shell: bash
+      env:
+        DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
+        BUILD_INPUT: ${{ inputs.build }}
+      run: |
+        set -euo pipefail
+        if [[ -n "$DEBIAN_REVISION_INPUT" ]]; then
+          DEBIAN_REVISION="$DEBIAN_REVISION_INPUT"
+          echo "Using supplied Debian revision: $DEBIAN_REVISION"
+        else
+          DEBIAN_REVISION=$(ci/scripts/resolve-matrix.py \
+            --type Daily \
+            --build "$BUILD_INPUT" \
+            --suite "$DISTRO" \
+            --field debian_revision) || {
+            echo "::error::No Daily matrix entry named $BUILD_INPUT for suite $DISTRO."
+            echo "::error::Add one to ci/build-matrix.yaml, or set the debian-revision input to build this combination ad hoc."
+            exit 1
+          }
+          echo "Matrix Debian revision for $BUILD_INPUT/$DISTRO: $DEBIAN_REVISION"
+        fi
+        echo "DEBIAN_REVISION=$DEBIAN_REVISION" >> "$GITHUB_ENV"
+
+    - name: Merge qcom-next PR patches
+      if: ${{ inputs.qcom-next-pr != '' }}
+      shell: bash
+      env:
+        QCOM_NEXT_PR: ${{ inputs.qcom-next-pr }}
+      run: |
+        cd "$KERNEL_DIR"
+        echo "Merging qcom-next PR(s): $QCOM_NEXT_PR"
+        for pr in $QCOM_NEXT_PR; do
+          [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid qcom-next PR number: $pr"; exit 1; }
+          echo "::group::Merging qcom-next PR #$pr"
+          git fetch --no-tags origin "pull/$pr/head:pr-$pr"
+          if ! git merge --no-ff --no-commit "pr-$pr"; then
+            echo "ERROR: Merge conflict while merging PR #$pr. Aborting."
+            git merge --abort || true
+            exit 1
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "Merged qcom-next PR #$pr"
+            echo "PR #$pr merged successfully."
+          else
+            echo "PR #$pr already present; nothing to merge."
+          fi
+          echo "::endgroup::"
+        done
+
+    - name: Apply kernel-topics PR patches
+      if: ${{ inputs.kernel-topics-pr != '' }}
+      shell: bash
+      env:
+        KERNEL_TOPICS_PR: ${{ inputs.kernel-topics-pr }}
+      run: |
+        cd "$KERNEL_DIR"
+        echo "Applying kernel-topics PR patch(es): $KERNEL_TOPICS_PR"
+        for pr in $KERNEL_TOPICS_PR; do
+          [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::invalid kernel-topics PR number: $pr"; exit 1; }
+          echo "::group::Applying kernel-topics PR #$pr"
+          wget -q "https://github.com/qualcomm-linux/kernel-topics/pull/$pr.patch" -O "$pr.patch"
+          if ! git am "$pr.patch"; then
+            echo "ERROR: Patch application failed for PR #$pr. Aborting."
+            git am --abort || true
+            exit 1
+          fi
+          echo "PR #$pr applied successfully."
+          echo "::endgroup::"
+        done
+
+    - name: Prepare source
+      shell: bash
+      env:
+        SRCPKG_INPUT: ${{ inputs.srcpkg }}
+        BINPKG_INPUT: ${{ inputs.binpkg }}
+        KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
+        KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
+        DKMS_INPUT: ${{ inputs.dkms }}
+        DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
+      run: |
+        # No -x here: keep xtrace off for this step as it assembles the
+        # prepare-source.sh argument list which may include sensitive paths.
+        set -euo pipefail
+
+        ARGS=(
+          --source-dir "$KERNEL_DIR"
+          --distro "$DISTRO"
+          --srcpkg "$SRCPKG_INPUT"
+          --binpkg "$BINPKG_INPUT"
+          --debian-revision "$DEBIAN_REVISION"
+        )
+
+        [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
+        [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
+        [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
+        # Always passed, unlike the optional inputs above: an empty list is a
+        # genuine "bundle nothing" rather than a request for some default.
+        ARGS+=(--dkms "$DKMS_INPUT")
+        [[ "$DEBUG_BUILD_INPUT" == "true" ]] && ARGS+=(--debug)
+
+        docker run -i --rm \
+          -v "$PWD:$PWD" --workdir="$PWD" \
+          "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
+          ./prepare-source.sh "${ARGS[@]}"
+
+    - name: Pack prepared source tree
+      shell: bash
+      run: |
+        set -euo pipefail
+        tar czf /tmp/kernel-srcpkg.tar.gz \
+          -C "$(dirname "$KERNEL_DIR")" \
+          "$(basename "$KERNEL_DIR")"
+
+    - name: Upload prepared source tree artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-srcpkg-${{ inputs.flavour }}-${{ inputs.suite }}
+        path: /tmp/kernel-srcpkg.tar.gz
+        if-no-files-found: error
+        retention-days: 7

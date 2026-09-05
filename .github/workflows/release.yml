@@ -71,7 +71,7 @@ jobs:
               echo "Source: ci/build-matrix.yaml (flavour: $INPUT_FLAVOUR, all suites)"
               args=(--type Release --flavour "$INPUT_FLAVOUR")
               ;;
-            "Selected variants")
+            "Selected builds")
               echo "Source: ci/build-matrix.yaml (builds: $INPUT_BUILDS)"
               args=(--type Release --build "$INPUT_BUILDS")
               ;;
@@ -89,8 +89,14 @@ jobs:
   # build: one parallel job per Release matrix entry.
   #
   # Uses the ref strategy and branch_or_tag selected by the matrix.
-  # Passes target_workspace so build-kernel-debusine.yml triggers the Debusine
-  # release path (lib/release) instead of the S3 publish path.
+  # release-kernel-debian.yml builds exactly as the daily workflow does and
+  # then promotes to target_workspace, rather than publishing to the daily S3
+  # path. Choosing the workflow here is what makes that the whole of the run:
+  # no job in it exists to publish the other way and be skipped.
+  #
+  # There is no Ubuntu counterpart. Promotion runs through Debusine, which
+  # builds only the Debian family, so resolve-matrix.py rejects a Release entry
+  # for any other suite and this matrix is Debian by construction.
   # ---------------------------------------------------------------------------
   build:
     name: ${{ matrix.name }}
@@ -99,7 +105,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/build-kernel-deb.yml
+    uses: ./.github/workflows/release-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
       build: ${{ matrix.name }}

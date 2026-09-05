@@ -1,20 +1,20 @@
-name: build-kernel-ubuntu
+name: build-kernel-debian
 
-# Build a kernel package for an Ubuntu-family suite and publish it to S3.
+# Build a kernel package for a Debian-family suite and publish it to S3.
 #
 # Called per matrix entry by daily.yml and pr-build.yml, which select the
-# Ubuntu entries with resolve-matrix.py --family ubuntu and call only this
-# workflow for them. The package is built in a suite-matched pkg-builder
-# container on the self-hosted runner rather than in Debusine, which builds
-# only the Debian family.
+# Debian entries with resolve-matrix.py --family debian and call only this
+# workflow for them. Nothing here is conditional on the suite: a caller that
+# reaches this file has already decided the build belongs on the Debusine
+# path, so every job in it runs.
 #
-# Ubuntu has no release path: promotion runs through Debusine, so a Release
-# entry for an Ubuntu suite is rejected by resolve-matrix.py rather than built
-# here and quietly not promoted.
+# release-kernel-debian.yml is the same build with the release tail: it
+# promotes to a target Debusine workspace instead of publishing to S3.
 #
 # Jobs:
 #   prepare (self-hosted): clone, patch, inject debian/, generate the source.
-#   build   (self-hosted): build the .deb files and upload them to S3.
+#   build   (debusine-pkg-builder container): submit to Debusine.
+#   publish (self-hosted): download the .deb files and upload them to S3.
 
 on:
   workflow_call:
@@ -22,15 +22,15 @@ on:
       build:
         description: 'Name of this build, as listed in ci/build-matrix.yaml'
         type: string
-        default: 'qcom-next-resolute'
+        default: 'qcom-next-trixie'
       flavour:
         description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
         type: string
         default: 'qcom-next'
       suite:
-        description: 'Target Ubuntu suite (noble, questing, resolute)'
+        description: 'Target Debian suite (trixie, forky, sid)'
         type: string
-        default: 'resolute'
+        default: 'trixie'
       kernel-branch:
         description: 'Source branch or pinned tag used by branch_tip or pinned_ref'
         type: string
@@ -79,6 +79,10 @@ on:
         description: 'Enable the debug build configuration'
         type: boolean
         default: false
+      debusine-parent-workspace:
+        description: 'Parent Debusine workspace for CI child workspace creation'
+        type: string
+        default: ''
       qcom-next-pr:
         description: 'qcom-next PR numbers to merge (e.g. "42 43")'
         type: string
@@ -87,14 +91,22 @@ on:
         description: 'kernel-topics PR numbers to apply as patches'
         type: string
         default: ''
+    secrets:
+      DEBUSINE_USER:
+        description: 'Debusine account used to submit CI builds'
+        required: false
+      DEBUSINE_TOKEN:
+        description: 'Debusine token for the CI child workspace'
+        required: false
 
-  # Ad-hoc build of one Ubuntu suite.
+  # Ad-hoc build of one Debian suite. Release promotion is not offered here:
+  # a manual build never promotes, so it always takes the S3 publish path.
   workflow_dispatch:
     inputs:
       build:
         description: 'Name of this build, as listed in ci/build-matrix.yaml'
         required: true
-        default: 'qcom-next-resolute'
+        default: 'qcom-next-trixie'
         type: string
       flavour:
         description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
@@ -102,9 +114,9 @@ on:
         default: 'qcom-next'
         type: string
       suite:
-        description: 'Target Ubuntu suite (noble, questing, resolute). A Debian suite here is rejected before anything is built; dispatch build-kernel-debian for those.'
+        description: 'Target Debian suite (trixie, forky, sid). An Ubuntu suite here is rejected before anything is built; dispatch build-kernel-ubuntu for those.'
         required: true
-        default: 'resolute'
+        default: 'trixie'
         type: string
       ref-strategy:
         description: 'Kernel ref strategy'
@@ -183,6 +195,12 @@ jobs:
     name: Prepare kernel source
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     steps:
+      # debian/ and ci/ live on the same branch, so one checkout supplies both
+      # the packaging and the scripts, the delivery matrix they read, and the
+      # prepare-kernel-source action below.
+      #
+      # An empty ref leaves actions/checkout on github.sha, the commit this run
+      # was dispatched from or the one the calling workflow runs at.
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
 
@@ -191,7 +209,7 @@ jobs:
         with:
           build: ${{ inputs.build }}
           suite: ${{ inputs.suite }}
-          expect-family: ubuntu
+          expect-family: debian
           flavour: ${{ inputs.flavour }}
           kernel-url: ${{ inputs.git-clone }}
           ref-strategy: ${{ inputs.ref-strategy }}
@@ -209,73 +227,102 @@ jobs:
           kernel-topics-pr: ${{ inputs.kernel-topics-pr }}
 
   # ---------------------------------------------------------------------------
-  # build: build the prepared source in a suite-matched container, then publish.
+  # build: generate the Debian source package and submit it to Debusine.
   # ---------------------------------------------------------------------------
   build:
-    name: Build kernel package
+    name: Build (Debusine)
     needs: prepare
+    runs-on: ubuntu-latest
+    environment: Staging
+    container:
+      image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
+      options: --user 0:0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      workspace: ${{ steps.debusine.outputs.workspace }}
+    steps:
+      # Only for the debusine-build action itself: the package being built
+      # comes from the prepared-source artifact, not from this checkout.
+      - name: Checkout pkg-linux-qcom
+        uses: actions/checkout@v4
+
+      - name: Build in Debusine
+        id: debusine
+        uses: ./.github/actions/debusine-build
+        with:
+          suite: ${{ inputs.suite }}
+          flavour: ${{ inputs.flavour }}
+          debusine-host: ${{ vars.DEBUSINE_HOST }}
+          debusine-scope: ${{ vars.DEBUSINE_SCOPE }}
+          debusine-user: ${{ secrets.DEBUSINE_USER }}
+          debusine-token: ${{ secrets.DEBUSINE_TOKEN }}
+          debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
+          # A staging build: also reads qli-staging, which carries package
+          # versions that have not been released to qli yet.
+          extra-build-dep-workspaces: qli qli-staging
+
+  # ---------------------------------------------------------------------------
+  # publish: download the .deb files from Debusine and upload them to S3.
+  # Runs on the self-hosted runner, which has direct IAM access.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish to S3
+    needs: build
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
-    env:
-      DISTRO: ${{ inputs.suite }}
     defaults:
       run:
         shell: bash
     steps:
-      - name: Checkout pkg-linux-qcom
-        uses: actions/checkout@v4
-
-      # Pinned to @main while native kernel-build support is still landing
-      # upstream in qualcomm-linux/docker-pkg-build.
-      - name: Checkout docker-pkg-build
-        uses: actions/checkout@v4
+      - name: Checkout debusine-action helpers
+        uses: actions/checkout@v5
         with:
-          repository: qualcomm-linux/docker-pkg-build
+          repository: qualcomm-linux/debusine-action
           ref: main
-          path: docker-pkg-build
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
 
-      - name: Build docker image
+      - name: Generate Debusine apt configuration
+        env:
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          DEBUSINE_WORKSPACE: ${{ needs.build.outputs.workspace }}
+          SUITE: ${{ inputs.suite }}
         run: |
-          # --rebuild forces a fresh suite-matched pkg-builder image.
-          ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
-          docker image ls
+          debusine-action/lib/generate-apt-config
 
-      - name: Download prepared source tree
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-srcpkg-${{ inputs.flavour }}-${{ inputs.suite }}
-          path: /tmp/srcpkg-artifact
-
-      - name: Extract prepared source tree
+      - name: Download .deb packages from Debusine workspace
         run: |
-          # tar.gz preserves the execute bits that upload-artifact's zip would
-          # strip (see README); --strip-components=1 drops the archive's top dir.
-          mkdir -p kernel-source
-          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
-            -C kernel-source --strip-components=1
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel-source" >> "$GITHUB_ENV"
-
-      - name: Build kernel package
-        run: |
-          # Kernel source was cloned, patched, and prepared by the prepare job.
-          # Pass --local-source and --skip-prepare so build-kernel.sh goes
-          # directly to the build step. debian/control, debian/changelog, and
-          # all config fragments are already baked into the extracted source
-          # tree; no re-derivation of LOCALVERSION, kver-extra, or debug config
-          # is needed here.
-          ./build-kernel.sh \
-            --build-mode docker \
-            --distro "$DISTRO" \
-            --local-source "$KERNEL_DIR" \
-            --skip-prepare \
-            --docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py"
+          set -euxo pipefail
+          sudo apt-get install -y --no-install-recommends devscripts
+          mkdir -p "$GITHUB_WORKSPACE/deb-artifacts"
+          chdist create debusine-workspace
+          rm -f ~/.chdist/debusine-workspace/etc/apt/sources.list
+          install -d ~/.chdist/debusine-workspace/etc/apt/sources.list.d
+          install -d ~/.chdist/debusine-workspace/etc/apt/auth.conf.d
+          install -m 0644 debusine-ci.sources \
+            ~/.chdist/debusine-workspace/etc/apt/sources.list.d/
+          install -m 0600 debusine-ci-auth.conf \
+            ~/.chdist/debusine-workspace/etc/apt/auth.conf.d/
+          chdist apt-get debusine-workspace update
+          packages=$(chdist apt-cache debusine-workspace search . | awk '{print $1}' | tr '\n' ' ')
+          [[ -n "$packages" ]] || { echo "ERROR: no packages found in Debusine workspace"; exit 1; }
+          echo "Packages to download: $packages"
+          cd "$GITHUB_WORKSPACE/deb-artifacts"
+          # shellcheck disable=SC2086
+          chdist apt-get debusine-workspace download $packages
 
       - name: Upload .deb packages to S3
-        # build-kernel.sh outputs to kernel-build/<distro>/ by default.
         # Keep flavour and suite in the destination so concurrent matrix legs
         # cannot overwrite or mix package outputs. Consumers must select the
         # flavour and suite they intend to install.
         uses: qualcomm-linux/upload-private-artifact-action@aws-v4
         with:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
-          path: kernel-build/${{ inputs.suite }}
-          destination: ${{ github.repository_owner }}/pkg/temp/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/
+          path: deb-artifacts
+          destination: ${{ github.repository_owner }}/pkg/debusine/${{ github.event.repository.name }}/${{ inputs.flavour }}/${{ inputs.suite }}/${{ github.run_id }}-${{ github.run_attempt }}/

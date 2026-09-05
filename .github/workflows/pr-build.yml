@@ -30,7 +30,8 @@ jobs:
     name: Configure build matrix
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      debian: ${{ steps.set-matrix.outputs.debian }}
+      ubuntu: ${{ steps.set-matrix.outputs.ubuntu }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,24 +42,39 @@ jobs:
         id: set-matrix
         run: |
           set -euo pipefail
-          MATRIX=$(ci/scripts/resolve-matrix.py --type Daily)
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+          # Split by build path: the families are built by different workflows,
+          # so a PR gets one job per leg it actually builds and no skipped job
+          # for the path that leg does not take.
+          for family in debian ubuntu; do
+            MATRIX=$(ci/scripts/resolve-matrix.py --type Daily \
+              --family "$family" --allow-empty)
+            echo "$family=$MATRIX" >> "$GITHUB_OUTPUT"
+            echo "$family entries: $(echo "$MATRIX" | jq length)"
+          done
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per matrix entry, mirroring daily.yml.
+  # build-debian / build-ubuntu: one parallel job per matrix entry, mirroring
+  # daily.yml.
+  #
+  # A PR gets one check per build leg and nothing else: neither workflow has a
+  # branch to skip, and a PR builds the whole Daily matrix, so both families
+  # have entries and neither guard fires.
   #
   # fail-fast is disabled so a broken trixie leg still leaves forky and
   # resolute results on the PR.
+  #
+  # Neither takes DEBUSINE_RELEASE_TOKEN: a PR build never promotes, so it
+  # calls the S3-publishing workflow and not release-kernel-debian.yml.
   # ---------------------------------------------------------------------------
-  build:
+  build-debian:
     name: ${{ matrix.name }}
     needs: configure-matrix
+    if: ${{ needs.configure-matrix.outputs.debian != '[]' }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/build-kernel-deb.yml
+        include: ${{ fromJson(needs.configure-matrix.outputs.debian) }}
+    uses: ./.github/workflows/build-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
       build: ${{ matrix.name }}
@@ -77,7 +93,30 @@ jobs:
       # in the shared Debusine workspace.
       kver-extra: -pr${{ github.event.number }}
     secrets:
-      # No DEBUSINE_RELEASE_TOKEN: PR builds never promote to a release
-      # workspace, so they leave target-workspace empty.
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+
+  build-ubuntu:
+    name: ${{ matrix.name }}
+    needs: configure-matrix
+    if: ${{ needs.configure-matrix.outputs.ubuntu != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.ubuntu) }}
+    uses: ./.github/workflows/build-kernel-ubuntu.yml
+    with:
+      suite: ${{ matrix.suite }}
+      build: ${{ matrix.name }}
+      flavour: ${{ matrix.flavour }}
+      git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      dkms: ${{ matrix.dkms }}
+      debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: -pr${{ github.event.number }}
