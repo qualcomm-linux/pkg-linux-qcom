@@ -292,12 +292,12 @@ runs:
         fi
 
     - name: Resolve Debian revision
-      # Callers driven by the matrix pass the entry's own debian-revision
-      # straight through. A direct workflow_dispatch that leaves it empty looks
-      # the same entry up itself, so a manual build of a configured build gets
-      # exactly the revision the daily build would have used. The lookup is
-      # always the Daily entry: direct dispatch is build-only and never
-      # promotes.
+      # The build workflows pass the matrix entry's own debian-revision
+      # straight through, so this lookup is the fallback for a caller that has
+      # no entry in hand and leaves the input empty: it looks up the Daily
+      # entry for the build name and suite it was given, and builds at the
+      # revision the daily build would have used. Always the Daily entry --
+      # a release is driven by release.yml, which passes its own revision.
       id: revision
       shell: bash
       env:
