@@ -3,10 +3,9 @@ name: release
 # Promote already-built kernel packages into the release workspace.
 #
 # This workflow builds nothing. Every package it can release was built, tested
-# and published by daily.yml, which promotes each entry carrying a
-# target_workspace into that workspace as part of the nightly run. A release
-# copies one of those versions onward into the release workspace, so what ships
-# is the artifact that was tested rather than a second build of the same ref.
+# and promoted into the staging workspace by daily.yml. A release copies one of
+# those versions onward into the release workspace, so what ships is the
+# artifact that was tested rather than a second build of the same ref.
 #
 # That is why there is no release ref anywhere in ci/build-matrix.yaml, and why
 # releasing needs no change to it: a release names a version that already
@@ -35,7 +34,12 @@ on:
         description: 'Version to release, without the Debian revision (e.g. 7.2.0~rc7+20260821)'
         required: true
         type: string
-      release-workspace:
+      from-workspace:
+        description: 'Debusine workspace to release out of, where the nightly build put the packages'
+        required: true
+        default: 'qli-staging'
+        type: string
+      to-workspace:
         description: 'Debusine workspace to release into'
         required: true
         default: 'qli'
@@ -49,11 +53,9 @@ jobs:
   # ---------------------------------------------------------------------------
   # configure-matrix: select the entries that can be released.
   #
-  # An entry is releasable when it names a target_workspace, because that is
-  # the workspace holding the nightly artifacts to promote from. The entries
-  # without one -- mainline, next, the topic branches -- are built for early
-  # warning and published to S3, so there is nothing to release and asking for
-  # one by name is a mistake worth reporting.
+  # The Debian entries, because promotion runs through Debusine and only they
+  # are built there. Naming an Ubuntu build fails the run with the entries that
+  # can be released, rather than promoting nothing and reporting success.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure release matrix
@@ -76,9 +78,12 @@ jobs:
 
           BUILDS="${INPUT_BUILDS:-all}"
 
-          args=()
+          # --family debian and no --allow-empty: a selection that resolves
+          # to nothing releasable fails here with the names that do, rather
+          # than starting a run with an empty matrix.
+          args=(--family debian)
           if [[ "$BUILDS" == "all" ]]; then
-            echo "Source: ci/build-matrix.yaml (every releasable entry)"
+            echo "Source: ci/build-matrix.yaml (every Debian entry)"
           else
             echo "Source: ci/build-matrix.yaml (builds: $BUILDS)"
             # A name matching no entry fails here, so a typo stops the run
@@ -86,27 +91,17 @@ jobs:
             args+=(--build "$BUILDS")
           fi
 
-          # An entry with no target_workspace has no workspace to promote out
-          # of, so it is not releasable however it was selected.
-          releasable='[.[] | select(.target_workspace != "" and .target_workspace != null)]'
-          MATRIX=$(ci/scripts/resolve-matrix.py "${args[@]}" | jq -c "$releasable")
-
-          if [[ "$(echo "$MATRIX" | jq length)" -eq 0 ]]; then
-            # Listed from the whole matrix, not from the failed selection,
-            # which by definition contains none of them.
-            ALL=$(ci/scripts/resolve-matrix.py \
-              | jq -r "$releasable"' | map(.name) | join(", ")')
-            echo "::error::None of the selected builds names a target_workspace, so none of them has anything to release."
-            echo "::error::Releasable builds: $ALL"
+          MATRIX=$(ci/scripts/resolve-matrix.py "${args[@]}") || {
+            echo "::error::Releasable builds: $(ci/scripts/resolve-matrix.py --family debian | jq -r 'map(.name) | join(", ")')"
             exit 1
-          fi
+          }
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
 
   # ---------------------------------------------------------------------------
-  # promote: one parallel job per entry, copying its version from the workspace
-  # the nightly build put it in into the release workspace.
+  # promote: one parallel job per entry, copying its version from the staging
+  # workspace the nightly build put it in into the release workspace.
   #
   # Nothing is built, so there is no prepare job and no self-hosted runner:
   # lib/release asks Debusine to publish an artifact it already holds. Both
@@ -154,10 +149,11 @@ jobs:
           DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
           DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
-          # The entry's own target_workspace is the source: it is where the
-          # nightly build of this entry put the artifact being released.
-          DEBUSINE_CI_WORKSPACE: ${{ matrix.target_workspace }}
-          DEBUSINE_TARGET_WORKSPACE: ${{ inputs.release-workspace }}
+          # Named by the dispatch, not by the entry: the staging workspace is
+          # where the nightly build puts every Debian entry, so it is a
+          # property of the pipeline rather than of the kernel being released.
+          DEBUSINE_CI_WORKSPACE: ${{ inputs.from-workspace }}
+          DEBUSINE_TARGET_WORKSPACE: ${{ inputs.to-workspace }}
           SRCPKG_NAME: ${{ matrix.srcpkg }}
           UPSTREAM_VERSION: ${{ inputs.upstream-version }}
           DEBIAN_REVISION: ${{ matrix.debian_revision }}
