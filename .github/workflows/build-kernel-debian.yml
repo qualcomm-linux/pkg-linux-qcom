@@ -194,6 +194,9 @@ jobs:
   prepare:
     name: Generate source package
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
     steps:
       # debian/ and ci/ live on the same branch, so one checkout supplies both
       # the packaging and the scripts, the delivery matrix they read, and the
@@ -235,6 +238,9 @@ jobs:
     name: Build package (Debusine)
     needs: prepare
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
     environment: Staging
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
@@ -275,6 +281,8 @@ jobs:
     name: Publish to S3
     needs: build
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
     defaults:
       run:
         shell: bash
