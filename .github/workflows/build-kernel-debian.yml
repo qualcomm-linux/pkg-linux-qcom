@@ -251,15 +251,29 @@ jobs:
 
           SOURCES=$(chdist apt-cache target-workspace showsrc "$SRCPKG" 2>/dev/null || true)
 
-          # The orig this run wrote is a function of the kernel commit, and
-          # the archive may hold it already: under this version on a rerun,
-          # or under another Debian revision of the same upstream version --
-          # a packaging rebuild, which is exactly the case where the archive
-          # requires the two revisions to share one file. Every stanza that
-          # names this orig must therefore carry this checksum. One that does
-          # not is a build that would be rejected at promotion for a file
-          # conflict, or worse, accepted somewhere that does not check; so it
-          # fails here, with both checksums, before anything is built.
+          # Whether there is anything to do at all, before anything is
+          # inspected about what would be built: a run that publishes nothing
+          # uploads no files, so nothing it holds can conflict with the
+          # archive.
+          if grep -qxF "Version: $SRCPKG_VERSION" <<<"$SOURCES"; then
+            echo "$SRCPKG $SRCPKG_VERSION is already in $DEBUSINE_WORKSPACE."
+            echo "Nothing new to build; the rest of this run is skipped." \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$SRCPKG $SRCPKG_VERSION is not in $DEBUSINE_WORKSPACE yet."
+          echo "already_published=false" >> "$GITHUB_OUTPUT"
+
+          # This version is going to be built and promoted, so the orig it
+          # carries has to agree with any the archive already holds under that
+          # name. It can hold one: a packaging rebuild publishes a second
+          # Debian revision of one upstream version, and the archive requires
+          # the two revisions to share the file. The orig is a function of the
+          # kernel commit, so a stanza naming it with another checksum means
+          # two builds of one commit disagreed. That is rejected at promotion
+          # as a file conflict, or worse accepted somewhere that does not
+          # check, so it fails here with both checksums instead.
           #
           # This suite only: apt indexes are per suite, so an orig published
           # under another suite of the workspace is not seen here. The
@@ -273,16 +287,6 @@ jobs:
           fi
           [[ -z "$ARCHIVE_SHA256" ]] \
             || echo "$ORIG_FILE in $DEBUSINE_WORKSPACE $SUITE matches this build ($ORIG_SHA256)."
-
-          if grep -qxF "Version: $SRCPKG_VERSION" <<<"$SOURCES"; then
-            echo "$SRCPKG $SRCPKG_VERSION is already in $DEBUSINE_WORKSPACE."
-            echo "Nothing new to build; the rest of this run is skipped." \
-              >> "$GITHUB_STEP_SUMMARY"
-            echo "already_published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "$SRCPKG $SRCPKG_VERSION is not in $DEBUSINE_WORKSPACE yet."
-            echo "already_published=false" >> "$GITHUB_OUTPUT"
-          fi
 
   # ---------------------------------------------------------------------------
   # build: generate the Debian source package and submit it to Debusine.
