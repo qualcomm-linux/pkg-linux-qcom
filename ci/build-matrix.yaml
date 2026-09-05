@@ -48,22 +48,22 @@ builds:
   # ---------------------------------------------------------------------------
   # qcom-next — the standard kernel.
   # ---------------------------------------------------------------------------
-  - name: qcom-next-trixie
-    suite: trixie
-    flavour: qcom-next
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next
-    ref_strategy: latest_tag
-    tag_pattern: 'qcom-next-*'
-    srcpkg: linux-qcom-next
-    binpkg: linux-image-qcom-next
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1~bpo13+1'
+  # - name: qcom-next-trixie
+  #   suite: trixie
+  #   flavour: qcom-next
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next
+  #   ref_strategy: latest_tag
+  #   tag_pattern: 'qcom-next-*'
+  #   srcpkg: linux-qcom-next
+  #   binpkg: linux-image-qcom-next
+  #   kernel_config: []
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #     - audioreach
+  #   debian_revision: '0qli1~bpo13+1'
 
   - name: qcom-next-forky
     suite: forky
@@ -82,156 +82,156 @@ builds:
       - audioreach
     debian_revision: '0qli1'
 
-  - name: qcom-next-resolute
-    suite: resolute
-    flavour: qcom-next
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next
-    ref_strategy: latest_tag
-    tag_pattern: 'qcom-next-*'
-    srcpkg: linux-qcom-next
-    binpkg: linux-image-qcom-next
-    kernel_config: []
-    # kgsl alone: camx-dkms and iris-vpu-dkms are not packaged for Ubuntu.
-    dkms:
-      - kgsl
-    debian_revision: '0qli1~26.04.1'
+  # - name: qcom-next-resolute
+  #   suite: resolute
+  #   flavour: qcom-next
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next
+  #   ref_strategy: latest_tag
+  #   tag_pattern: 'qcom-next-*'
+  #   srcpkg: linux-qcom-next
+  #   binpkg: linux-image-qcom-next
+  #   kernel_config: []
+  #   # kgsl alone: camx-dkms and iris-vpu-dkms are not packaged for Ubuntu.
+  #   dkms:
+  #     - kgsl
+  #   debian_revision: '0qli1~26.04.1'
 
-  # ---------------------------------------------------------------------------
-  # qcom-next-debug — the same kernel ref built with the in-tree debug
-  # fragments, packaged separately so it installs alongside qcom-next.
-  # ---------------------------------------------------------------------------
-  - name: qcom-next-debug-trixie
-    suite: trixie
-    flavour: qcom-next-debug
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next
-    ref_strategy: latest_tag
-    tag_pattern: 'qcom-next-*'
-    srcpkg: linux-qcom-next-debug
-    binpkg: linux-image-qcom-next-debug
-    kernel_config:
-      - intree:arch/arm64/configs/qcom_debug.config
-      - intree:kernel/configs/debug.config
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1~bpo13+1'
+  # # ---------------------------------------------------------------------------
+  # # qcom-next-debug — the same kernel ref built with the in-tree debug
+  # # fragments, packaged separately so it installs alongside qcom-next.
+  # # ---------------------------------------------------------------------------
+  # - name: qcom-next-debug-trixie
+  #   suite: trixie
+  #   flavour: qcom-next-debug
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next
+  #   ref_strategy: latest_tag
+  #   tag_pattern: 'qcom-next-*'
+  #   srcpkg: linux-qcom-next-debug
+  #   binpkg: linux-image-qcom-next-debug
+  #   kernel_config:
+  #     - intree:arch/arm64/configs/qcom_debug.config
+  #     - intree:kernel/configs/debug.config
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #     - audioreach
+  #   debian_revision: '0qli1~bpo13+1'
 
-  - name: qcom-next-debug-forky
-    suite: forky
-    flavour: qcom-next-debug
-    git_clone: https://github.com/qualcomm-linux/kernel
-    branch_or_tag: qcom-next
-    ref_strategy: latest_tag
-    tag_pattern: 'qcom-next-*'
-    srcpkg: linux-qcom-next-debug
-    binpkg: linux-image-qcom-next-debug
-    kernel_config:
-      - intree:arch/arm64/configs/qcom_debug.config
-      - intree:kernel/configs/debug.config
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-      - audioreach
-    debian_revision: '0qli1'
+  # - name: qcom-next-debug-forky
+  #   suite: forky
+  #   flavour: qcom-next-debug
+  #   git_clone: https://github.com/qualcomm-linux/kernel
+  #   branch_or_tag: qcom-next
+  #   ref_strategy: latest_tag
+  #   tag_pattern: 'qcom-next-*'
+  #   srcpkg: linux-qcom-next-debug
+  #   binpkg: linux-image-qcom-next-debug
+  #   kernel_config:
+  #     - intree:arch/arm64/configs/qcom_debug.config
+  #     - intree:kernel/configs/debug.config
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #     - audioreach
+  #   debian_revision: '0qli1'
 
-  # ---------------------------------------------------------------------------
-  # qcom-arduino — the Arduino hardware-enablement topic branch.
-  #
-  # A topic branch, built for early warning of what it will take to carry.
-  # ---------------------------------------------------------------------------
-  - name: qcom-arduino-trixie
-    suite: trixie
-    flavour: qcom-arduino
-    git_clone: https://github.com/qualcomm-linux/kernel-topics
-    branch_or_tag: early/hwe/arduino
-    ref_strategy: branch_tip
-    srcpkg: linux-qcom-arduino
-    binpkg: linux-image-qcom-arduino
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-    debian_revision: '0qli1~bpo13+1'
+  # # ---------------------------------------------------------------------------
+  # # qcom-arduino — the Arduino hardware-enablement topic branch.
+  # #
+  # # A topic branch, built for early warning of what it will take to carry.
+  # # ---------------------------------------------------------------------------
+  # - name: qcom-arduino-trixie
+  #   suite: trixie
+  #   flavour: qcom-arduino
+  #   git_clone: https://github.com/qualcomm-linux/kernel-topics
+  #   branch_or_tag: early/hwe/arduino
+  #   ref_strategy: branch_tip
+  #   srcpkg: linux-qcom-arduino
+  #   binpkg: linux-image-qcom-arduino
+  #   kernel_config: []
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #   debian_revision: '0qli1~bpo13+1'
 
-  - name: qcom-arduino-forky
-    suite: forky
-    flavour: qcom-arduino
-    git_clone: https://github.com/qualcomm-linux/kernel-topics
-    branch_or_tag: early/hwe/arduino
-    ref_strategy: branch_tip
-    srcpkg: linux-qcom-arduino
-    binpkg: linux-image-qcom-arduino
-    kernel_config: []
-    dkms:
-      - kgsl
-      - camx
-      - iris-vpu
-    debian_revision: '0qli1'
+  # - name: qcom-arduino-forky
+  #   suite: forky
+  #   flavour: qcom-arduino
+  #   git_clone: https://github.com/qualcomm-linux/kernel-topics
+  #   branch_or_tag: early/hwe/arduino
+  #   ref_strategy: branch_tip
+  #   srcpkg: linux-qcom-arduino
+  #   binpkg: linux-image-qcom-arduino
+  #   kernel_config: []
+  #   dkms:
+  #     - kgsl
+  #     - camx
+  #     - iris-vpu
+  #   debian_revision: '0qli1'
 
-  # ---------------------------------------------------------------------------
-  # mainline — Linus's tree, tracked for early warning of upstream breakage.
-  #
-  # No DKMS: the out-of-tree modules target the Qualcomm tree, and a listed
-  # module is a presence contract that would fail the build here.
-  # ---------------------------------------------------------------------------
-  - name: mainline-trixie
-    suite: trixie
-    flavour: mainline
-    git_clone: https://github.com/torvalds/linux
-    branch_or_tag: master
-    ref_strategy: branch_tip
-    srcpkg: linux-mainline
-    binpkg: linux-image-mainline
-    kernel_config: []
-    dkms: []
-    debian_revision: '0qli1~bpo13+1'
+  # # ---------------------------------------------------------------------------
+  # # mainline — Linus's tree, tracked for early warning of upstream breakage.
+  # #
+  # # No DKMS: the out-of-tree modules target the Qualcomm tree, and a listed
+  # # module is a presence contract that would fail the build here.
+  # # ---------------------------------------------------------------------------
+  # - name: mainline-trixie
+  #   suite: trixie
+  #   flavour: mainline
+  #   git_clone: https://github.com/torvalds/linux
+  #   branch_or_tag: master
+  #   ref_strategy: branch_tip
+  #   srcpkg: linux-mainline
+  #   binpkg: linux-image-mainline
+  #   kernel_config: []
+  #   dkms: []
+  #   debian_revision: '0qli1~bpo13+1'
 
-  - name: mainline-forky
-    suite: forky
-    flavour: mainline
-    git_clone: https://github.com/torvalds/linux
-    branch_or_tag: master
-    ref_strategy: branch_tip
-    srcpkg: linux-mainline
-    binpkg: linux-image-mainline
-    kernel_config: []
-    dkms: []
-    debian_revision: '0qli1'
+  # - name: mainline-forky
+  #   suite: forky
+  #   flavour: mainline
+  #   git_clone: https://github.com/torvalds/linux
+  #   branch_or_tag: master
+  #   ref_strategy: branch_tip
+  #   srcpkg: linux-mainline
+  #   binpkg: linux-image-mainline
+  #   kernel_config: []
+  #   dkms: []
+  #   debian_revision: '0qli1'
 
-  # ---------------------------------------------------------------------------
-  # next — linux-next, the integration tree, one step ahead of mainline.
-  #
-  # next-YYYYMMDD tags are cut daily, so latest_tag resolves the newest of
-  # them the same way qcom-next-* does. No DKMS, as above.
-  # ---------------------------------------------------------------------------
-  - name: next-trixie
-    suite: trixie
-    flavour: next
-    git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
-    branch_or_tag: master
-    ref_strategy: latest_tag
-    tag_pattern: 'next-*'
-    srcpkg: linux-next
-    binpkg: linux-image-next
-    kernel_config: []
-    dkms: []
-    debian_revision: '0qli1~bpo13+1'
+  # # ---------------------------------------------------------------------------
+  # # next — linux-next, the integration tree, one step ahead of mainline.
+  # #
+  # # next-YYYYMMDD tags are cut daily, so latest_tag resolves the newest of
+  # # them the same way qcom-next-* does. No DKMS, as above.
+  # # ---------------------------------------------------------------------------
+  # - name: next-trixie
+  #   suite: trixie
+  #   flavour: next
+  #   git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+  #   branch_or_tag: master
+  #   ref_strategy: latest_tag
+  #   tag_pattern: 'next-*'
+  #   srcpkg: linux-next
+  #   binpkg: linux-image-next
+  #   kernel_config: []
+  #   dkms: []
+  #   debian_revision: '0qli1~bpo13+1'
 
-  - name: next-forky
-    suite: forky
-    flavour: next
-    git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
-    branch_or_tag: master
-    ref_strategy: latest_tag
-    tag_pattern: 'next-*'
-    srcpkg: linux-next
-    binpkg: linux-image-next
-    kernel_config: []
-    dkms: []
-    debian_revision: '0qli1'
+  # - name: next-forky
+  #   suite: forky
+  #   flavour: next
+  #   git_clone: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+  #   branch_or_tag: master
+  #   ref_strategy: latest_tag
+  #   tag_pattern: 'next-*'
+  #   srcpkg: linux-next
+  #   binpkg: linux-image-next
+  #   kernel_config: []
+  #   dkms: []
+  #   debian_revision: '0qli1'
