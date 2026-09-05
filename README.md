@@ -15,9 +15,8 @@ kernel variants, each with independent source/package identity, kernel source
 and ref strategy, configuration fragments, Debian revision, target suites, and
 release destination.
 
-Every kernel variant owns exactly two complete matrix rows: one `Daily` row and
-one `Release` row. The resolver expands every suite in those rows into an
-isolated `kernel_variant + suite` build leg.
+Every entry in the matrix is one isolated build leg producing one package. A
+kernel flavour owns as many entries as it has suites and delivery types.
 
 ### Configured variants
 
@@ -26,11 +25,13 @@ isolated `kernel_variant + suite` build leg.
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
 
-Both build the same kernel ref. `derive-localversion.sh` folds the variant name
+Both build the same kernel ref. `derive-localversion.sh` folds the *flavour*
 into LOCALVERSION, so each produces a distinct kernel release
 (`+qcom-next-<date>-g<sha>` and `+qcom-next-debug-<date>-g<sha>`) and therefore a
 distinct versioned image package that can be installed alongside the other. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
+The flavour is what the kernel is; `kernel_variant` is only what CI calls the
+build.
 
 `ci/build-matrix.yaml` is the source of truth; this table is a summary.
 
@@ -50,6 +51,7 @@ deliveries:
   - kernel_variant: qcom-next
     type: Daily
     suite: trixie
+    flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next
     ref_strategy: latest_tag
@@ -67,6 +69,7 @@ deliveries:
   - kernel_variant: qcom-next
     type: Release
     suite: trixie
+    flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: <pinned-qcom-next-tag>
     ref_strategy: pinned_ref
@@ -172,9 +175,10 @@ them to the workflow matrix as they stand. Each entry carries:
 
 | Field | Purpose |
 | --- | --- |
-| `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
+| `kernel_variant` | CI identifier for this build: its Actions job name, prepared-source artifact, Debusine child workspace and S3 path. Never reaches a package name or version. Lowercase letters, digits, and internal hyphens only. |
 | `type` | `Daily` or `Release`. |
 | `suite` | The one suite this entry builds for. |
+| `flavour` | The kernel's own identity, and the only matrix field that reaches the built kernel. `derive-localversion.sh` makes it the LOCALVERSION suffix, so two flavours built from one ref get distinct kernel releases and their `linux-image` packages coexist. All entries sharing a flavour build the same package for different suites. |
 | `git_clone` | Kernel source repository. |
 | `branch_or_tag` | Source branch or pinned tag, according to `ref_strategy`. |
 | `ref_strategy` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
@@ -204,17 +208,17 @@ face value:
 
 - No two entries share a `kernel_variant`, `type` and `suite` — one entry is
   one generated package.
-- A variant's entries agree on `srcpkg`, `binpkg` and `kernel_config`; those
+- A flavour's entries agree on `srcpkg`, `binpkg` and `kernel_config`; those
   decide what the package *is*, and the entries differ only in where it goes.
-- A variant's entries for one suite agree on `dkms`. The module set depends on
+- A flavour's entries for one suite agree on `dkms`. The module set depends on
   which `<name>-dkms` packages the target archive carries, so it varies between
   suites — but a suite's Daily and Release must match, or the Daily is not
   testing the module set the Release will ship.
-- A variant's entries of one `type` agree on `git_clone`, `branch_or_tag`,
+- A flavour's entries of one `type` agree on `git_clone`, `branch_or_tag`,
   `ref_strategy` and `tag_pattern`, so a forgotten suite cannot quietly ship a
   different kernel from its siblings after a release ref bump.
-- Every variant defines at least one `Daily` and one `Release` entry.
-- No `srcpkg` or `binpkg` is shared between variants, and no two entries build
+- Every flavour defines at least one `Daily` and one `Release` entry.
+- No `srcpkg` or `binpkg` is shared between flavours, and no two entries build
   the same `srcpkg` at the same `debian_revision`.
 - Where a suite has both, its `Daily` revision is its `Release` revision plus a
   trailing `~`.
@@ -246,7 +250,7 @@ Supporting scripts keep workflow YAML small and testable:
 | --- | --- |
 | `ci/scripts/resolve-matrix.py` | Validates the delivery matrix and selects the entries to build. Needs PyYAML (`python3-yaml`). |
 | `ci/scripts/resolve-kernel-ref.sh` | Resolves a matrix-selected dated tag or validates a direct ref. |
-| `ci/scripts/derive-localversion.sh` | Derives the version fields from the variant, resolved kernel ref and HEAD, printing `LOCALVERSION=`, `SNAPSHOT=` and `GITSHA=` lines. `SNAPSHOT` is the dated component of the Debian version: the tag's date, or the HEAD commit date for a branch-tip build. Scheme and rationale: [docs/version.md](docs/version.md). |
+| `ci/scripts/derive-localversion.sh` | Derives the version fields from the flavour, resolved kernel ref and HEAD, printing `LOCALVERSION=`, `SNAPSHOT=` and `GITSHA=` lines. `SNAPSHOT` is the dated component of the Debian version: the tag's date, or the HEAD commit date for a branch-tip build. Scheme and rationale: [docs/version.md](docs/version.md). |
 
 ## Architecture
 
@@ -448,7 +452,8 @@ The available inputs are:
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `kernel-variant` | `qcom-next` | Stable variant identifier used in artifact and workspace identity. |
+| `kernel-variant` | `qcom-next` | CI identifier used for artifact and workspace identity only. |
+| `flavour` | `qcom-next` | Kernel flavour: the LOCALVERSION suffix, and so the kernel release identity. |
 | `suite` | `trixie` | Target suite. |
 | `ref-strategy` | `latest_tag` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
 | `kernel-branch` | `qcom-next` | Branch for `branch_tip`, or immutable ref for `pinned_ref`; ignored by `latest_tag`. |
@@ -497,9 +502,12 @@ To add a kernel variant:
 1. Add one entry to `deliveries` per package the variant should produce: one
    per Daily suite and one per Release suite, each spelling out all of its own
    fields. Do not rely on another variant's values.
-2. Keep `srcpkg`, `binpkg` and `kernel_config` identical across every entry for
-   the variant, and the ref fields identical across its entries of one `type`.
-   `resolve-matrix.py` rejects the matrix if they drift apart.
+2. Give them all the same `flavour`, distinct from every other flavour's — it
+   becomes the LOCALVERSION suffix, so this is what lets the new kernel install
+   alongside the existing ones. Keep `srcpkg`, `binpkg` and `kernel_config`
+   identical across every entry for the flavour, and the ref fields identical
+   across its entries of one `type`. `resolve-matrix.py` rejects the matrix if
+   they drift apart.
 3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
    `pinned_ref` for Release, and update that ref through a reviewed PR.
 4. Give the variant distinct `srcpkg` and `binpkg` values. Set

@@ -103,6 +103,7 @@ jobs:
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}
+      flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
       ref-strategy: ${{ matrix.ref_strategy }}

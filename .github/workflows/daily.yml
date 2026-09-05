@@ -9,9 +9,10 @@ name: daily
 # Matrix schema: ci/build-matrix.yaml
 #   One entry is one generated package, so ci/scripts/resolve-matrix.py selects
 #   the entries with type: Daily and passes them through as they stand. Every
-#   field (kernel_variant, suite, srcpkg, binpkg, kernel_config, dkms,
+#   field (kernel_variant, suite, flavour, srcpkg, binpkg, kernel_config, dkms,
 #   debian_revision, git_clone, branch_or_tag, ref_strategy) becomes a
-#   build-kernel-deb.yml input.
+#   build-kernel-deb.yml input. kernel_variant names the job and scopes its
+#   artifacts; flavour is what reaches the built kernel's version.
 #
 # To add a daily build target: add an entry to ci/build-matrix.yaml with
 # type: Daily. No workflow changes needed.
@@ -119,6 +120,7 @@ jobs:
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}
+      flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
       ref-strategy: ${{ matrix.ref_strategy }}

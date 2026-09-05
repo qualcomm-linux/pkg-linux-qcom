@@ -12,10 +12,18 @@
 #
 # Entries are written out in full rather than sharing YAML anchors, so each one
 # can be read, grepped, and changed on its own. resolve-matrix.py enforces the
-# consistency that duplication would otherwise put at risk: a variant's entries
+# consistency that duplication would otherwise put at risk: a flavour's entries
 # must agree on srcpkg, binpkg and kernel_config, its entries of one delivery
 # type must agree on the kernel ref they build, and its entries for one suite
 # must agree on dkms.
+#
+# The two identifiers are not the same thing. flavour is the kernel's own
+# identity: it becomes the LOCALVERSION suffix, so qcom-next and
+# qcom-next-debug produce distinct kernel releases that install alongside each
+# other, and every suite building one flavour produces the same kernel release.
+# kernel_variant names the build in CI - the Actions job, the prepared-source
+# artifact, the Debusine workspace, the S3 path - and never reaches a package
+# name or version.
 #
 # dkms varies by suite because it depends on which <name>-dkms packages the
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
@@ -34,6 +42,7 @@ deliveries:
   - kernel_variant: qcom-next
     type: Daily
     suite: trixie
+    flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next
     ref_strategy: latest_tag
@@ -51,6 +60,7 @@ deliveries:
   - kernel_variant: qcom-next
     type: Daily
     suite: forky
+    flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next
     ref_strategy: latest_tag
@@ -68,6 +78,7 @@ deliveries:
   - kernel_variant: qcom-next
     type: Daily
     suite: resolute
+    flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next
     ref_strategy: latest_tag
@@ -83,6 +94,7 @@ deliveries:
   - kernel_variant: qcom-next
     type: Release
     suite: trixie
+    flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next-7.2-rc7-20260821
     ref_strategy: pinned_ref
@@ -100,6 +112,7 @@ deliveries:
   - kernel_variant: qcom-next
     type: Release
     suite: forky
+    flavour: qcom-next
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next-7.2-rc7-20260821
     ref_strategy: pinned_ref
@@ -121,6 +134,7 @@ deliveries:
   - kernel_variant: qcom-next-debug
     type: Daily
     suite: trixie
+    flavour: qcom-next-debug
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next
     ref_strategy: latest_tag
@@ -140,6 +154,7 @@ deliveries:
   - kernel_variant: qcom-next-debug
     type: Daily
     suite: forky
+    flavour: qcom-next-debug
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next
     ref_strategy: latest_tag
@@ -159,6 +174,7 @@ deliveries:
   - kernel_variant: qcom-next-debug
     type: Release
     suite: trixie
+    flavour: qcom-next-debug
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next-7.2-rc7-20260821
     ref_strategy: pinned_ref
@@ -178,6 +194,7 @@ deliveries:
   - kernel_variant: qcom-next-debug
     type: Release
     suite: forky
+    flavour: qcom-next-debug
     git_clone: https://github.com/qualcomm-linux/kernel
     branch_or_tag: qcom-next-7.2-rc7-20260821
     ref_strategy: pinned_ref
