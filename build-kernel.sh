@@ -186,13 +186,12 @@ echo
 
 # ── Git operations: resolve ref → sync → checkout ────────────────────────────
 if [[ -z "$LOCAL_SOURCE" ]]; then
-    # Resolve the latest tag remotely before any network I/O (avoids fetching all tags)
+    # Resolve the latest tag remotely before any network I/O (avoids fetching
+    # all tags). The same script CI uses, so "latest" means the same thing
+    # here: the newest trailing date, not the highest kernel version.
     if [[ "$LATEST_TAG" == true ]]; then
         log_step "Finding latest qcom-next-* tag from remote..."
-        TAG=$(git ls-remote --tags "$REPO" 'refs/tags/qcom-next-*' \
-              | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' \
-              | sort -V | tail -1)
-        [[ -n "$TAG" ]] || { log_error "No qcom-next-* tags found in $REPO"; exit 1; }
+        TAG=$("$SCRIPT_DIR/ci/scripts/resolve-kernel-ref.sh" --url "$REPO" --latest-tag 'qcom-next-*')
         log_info "Latest tag: $TAG"
     fi
 
