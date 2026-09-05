@@ -93,7 +93,7 @@ jobs:
   # release path (lib/release) instead of the S3 publish path.
   # ---------------------------------------------------------------------------
   build:
-    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
+    name: ${{ matrix.kernel_variant }} (${{ matrix.suite }})
     needs: configure-matrix
     strategy:
       fail-fast: false
