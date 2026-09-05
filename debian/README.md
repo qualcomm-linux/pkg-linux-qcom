@@ -49,6 +49,8 @@ for dependency resolution.
 ```
 pkg-linux-qcom/
 ├── build-kernel.sh             ← Build orchestrator (clone → prepare → build)
+├── prepare-source.sh           ← Inject debian/, derive the version, run 'prepare'
+├── build-source-package.sh     ← Prepared tree → reproducible .orig.tar.gz, .dsc, .changes
 ├── debian/
 │   ├── control.in              ← Source-of-truth template (version-controlled)
 │   ├── changelog.in            ← Source-of-truth template (version-controlled)
@@ -184,17 +186,14 @@ KVER = <base-version> + LOCALVERSION
    passed via `--localversion`)
 3. Optionally appending `KVER_EXTRA` (passed via `--kver-extra`)
 
-The LOCALVERSION suffix encodes the branch name and snapshot/ABI date. For
-tagged builds, `build-kernel.sh` auto-extracts this from the tag name.
+The LOCALVERSION suffix encodes the flavour, the snapshot date and the
+commit. `prepare-source.sh` derives it from the checked-out tag or branch
+with `ci/scripts/derive-localversion.sh`, the same script CI uses, so a local
+build of a commit gets the version CI would give it. See
+[docs/version.md](../docs/version.md) for the format.
 
-`debian/rules` recovers LOCALVERSION from the package name at build time by
-stripping the `linux-image-` prefix and the trailing `-qcom` flavour suffix:
-
-```
-linux-image-7.2.0-qcom-next-20260826
-→ strip "linux-image-7.0.0-rc2" → -qcom-next-20260826-qcom
-→ strip "-qcom" suffix          → -qcom-next-20260826   (= LOCALVERSION)
-```
+`debian/rules` reads LOCALVERSION back at build time from `debian/localversion`,
+which `prepare` writes, rather than recovering it from a package name.
 
 ---
 
@@ -273,6 +272,50 @@ python3 docker_deb_build.py \
 ```
 
 `build-kernel.sh` calls this automatically after running `prepare`.
+
+### Building a source package
+
+CI does not build binaries from a tree. It builds a Debian source package
+first and hands that to the builder — Debusine for the Debian suites, sbuild
+in the builder container for Ubuntu — so the thing that gets built is a
+`.dsc` whose checksums are recorded in a `.changes`. The same is available
+locally:
+
+```bash
+# Clone, prepare, and stop after the source package (no kernel build)
+./build-kernel.sh --latest-tag --source-package
+#   -> kernel-build/trixie/linux-qcom-next_<version>.orig.tar.gz
+#      kernel-build/trixie/linux-qcom-next_<version>-<revision>.dsc
+#      kernel-build/trixie/linux-qcom-next_<version>-<revision>_source.changes
+
+# Build binaries from it, in any mode
+./build-kernel.sh --dsc kernel-build/trixie/linux-qcom-next_*.dsc
+./build-kernel.sh --dsc kernel-build/trixie/linux-qcom-next_*.dsc --build-mode native
+
+# Or step by step, from a prepared tree
+./prepare-source.sh --source-dir kernel-source --distro trixie
+./build-source-package.sh --source-dir kernel-source --output-dir kernel-build/trixie
+```
+
+The `.orig.tar.gz` is a function of the kernel commit and nothing else. It
+is written with `git archive`, which gives every entry the commit's timestamp
+and root ownership, and compressed with `gzip -n`, which writes no timestamp,
+so two builds of one commit produce one tarball byte for byte — and so do
+two suites that differ only in Debian revision, which share the tarball an
+archive requires them to share. `build-source-package.sh` checks that the
+commit it archives is the one the version names (`~g<sha>`), and refuses a
+tree that differs from that commit outside `debian/`, since `dpkg-source`
+would otherwise fold the difference into an automatic patch. An in-tree
+build leaves such differences; clean them with
+
+```bash
+git -C kernel-source checkout -- . && git -C kernel-source clean -xdf -- . ':(exclude)debian'
+```
+
+The debian tarball and `.dsc` are reproducible too: the changelog is dated
+from the commit, and `dpkg-source` takes the tarball's timestamps from it.
+Only the `gzip` implementation is outside the commit's control, which is why
+CI writes every orig in one builder image.
 
 ---
 
