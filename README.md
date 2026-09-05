@@ -147,6 +147,12 @@ archive comes from a run of it.
   uploaded to the configured S3 bucket.
 - Debian entries are then promoted into the staging workspace with Debusine's
   `package-publish` workflow, making them installable from that archive.
+- Debian builds resolve their Build-Depends against `qli` alone. The nightly is
+  the build a release promotes, so anything it builds against is something the
+  released kernel will depend on; reading `qli-staging` here would let a kernel
+  reach `qli` depending on a `-dkms` package that has not. A PR build resolves
+  against `qli qli-staging`, because nothing it produces is promoted and a
+  kernel and the module it needs should be reviewable together.
 - `resolute` stays on the Docker-based Ubuntu path and uploads its package
   outputs to the existing temporary-package S3 location.
 

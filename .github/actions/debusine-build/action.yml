@@ -4,7 +4,7 @@ description: >
   Debusine, returning the CI workspace it was built in.
 
 # Called by build-kernel-debian.yml, which decides what becomes of the result:
-# every build is downloaded and uploaded to S3, and one whose entry names a
+# every build is downloaded and uploaded to S3, and one whose caller named a
 # target workspace is also promoted into it. Holding these steps in a composite
 # action keeps the submission itself in one place, separate from the job that
 # declares the runner, container and environment it happens in.
@@ -41,9 +41,8 @@ inputs:
   extra-build-dep-workspaces:
     description: >
       Workspaces the build resolves its build-dependencies from, space
-      separated. The nightly build reads qli-staging as well as qli, because a
-      kernel may need a -dkms package version that has reached staging and not
-      yet been released.
+      separated. Set by the calling workflow, which knows whether this build is
+      one a release may promote.
     default: 'qli'
   debusine-action-ref:
     description: 'Ref of qualcomm-linux/debusine-action to use'

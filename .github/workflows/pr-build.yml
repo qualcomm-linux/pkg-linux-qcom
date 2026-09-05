@@ -99,6 +99,11 @@ jobs:
       # Mark the version so PR artifacts never collide with the daily build's
       # in the shared Debusine workspace.
       kver-extra: -pr${{ github.event.number }}
+      # Staging as well as released: nothing here is promoted anywhere, so a
+      # pull request may depend on a -dkms package that has reached qli-staging
+      # and not yet qli -- which is how a kernel and the module it needs get
+      # reviewed together.
+      extra-build-dep-workspaces: qli qli-staging
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}

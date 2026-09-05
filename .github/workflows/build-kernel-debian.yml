@@ -91,6 +91,15 @@ on:
         description: 'Parent Debusine workspace for CI child workspace creation'
         type: string
         default: ''
+      extra-build-dep-workspaces:
+        description: >
+          Workspaces the build resolves its Build-Depends from, space
+          separated. The caller decides, because it follows from what becomes
+          of the result: the nightly is what a release promotes, so it reads
+          released archives only, and a PR build may legitimately need a
+          package that has reached staging and no further.
+        type: string
+        default: 'qli'
       target-workspace:
         description: >
           Debusine workspace to promote the built package into, empty to
@@ -282,9 +291,7 @@ jobs:
           debusine-user: ${{ secrets.DEBUSINE_USER }}
           debusine-token: ${{ secrets.DEBUSINE_TOKEN }}
           debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
-          # A staging build: also reads qli-staging, which carries package
-          # versions that have not been released to qli yet.
-          extra-build-dep-workspaces: qli qli-staging
+          extra-build-dep-workspaces: ${{ inputs.extra-build-dep-workspaces }}
 
   # ---------------------------------------------------------------------------
   # publish: download the .deb files from Debusine and upload them to S3.
