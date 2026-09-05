@@ -9,14 +9,18 @@ matrix is already flat, and each entry states its own debian_revision. This
 script validates the whole document, selects the entries a caller asked for,
 and prints them.
 
-There is one kind of entry, and it describes a kernel rather than a
-destination. Where a build is published is decided by the workflow running it,
-not stated here: the nightly promotes its Debian entries into the archive, and
-a PR build promotes nowhere.
+The document has two lists of entries, both of the same shape. "builds" is what
+is built nightly, and describes a kernel rather than a destination: where such
+a build is published is decided by the workflow running it, not stated here --
+the nightly promotes its Debian entries into the archive, and a PR build
+promotes nowhere. "releases" is the exception, selected with --releases, and
+each of its entries names the workspace it publishes into and pins the exact
+ref that ships.
 
-The document is validated in full on every invocation, not just the selected
+Both lists are validated in full on every invocation, not just the selected
 entries, so a typo in an entry nobody selected fails the run that would have
-built its siblings rather than lying in wait.
+built its siblings rather than lying in wait. They are validated separately and
+never mix: a name may appear in both, and means the same build in each.
 
 Usage:
   ci/scripts/resolve-matrix.py
@@ -25,8 +29,14 @@ Usage:
   ci/scripts/resolve-matrix.py --flavour qcom-next
   ci/scripts/resolve-matrix.py --family ubuntu --allow-empty
   ci/scripts/resolve-matrix.py --build qcom-next-trixie --field debian_revision
+  ci/scripts/resolve-matrix.py --releases
+  ci/scripts/resolve-matrix.py --releases --build qcom-next-trixie
 
 Options:
+  --releases                 Select from the releases list rather than from
+                               builds. Release entries carry a
+                               target_workspace and pin their ref, so this is
+                               how release.yml asks what may be released.
   --build NAMES              Select only these builds by name, comma-separated.
                                A name identifies one build, so this is the way
                                to ask for a specific set of them.
@@ -122,9 +132,17 @@ OPTIONAL_STRING_FIELDS = (
     "debusine_parent_workspace",
 )
 
+# A release entry states its destination, and a build entry may not. This is
+# the whole difference between the two lists: where a nightly build is
+# published follows from why it is running, so its entry says nothing about it,
+# while a release exists precisely to put one ref into one archive.
+RELEASE_REQUIRED_STRING_FIELDS = ("target_workspace",)
+
 KNOWN_FIELDS = frozenset(
     REQUIRED_STRING_FIELDS + OPTIONAL_STRING_FIELDS + ("kernel_config", "dkms")
 )
+
+RELEASE_KNOWN_FIELDS = KNOWN_FIELDS | frozenset(RELEASE_REQUIRED_STRING_FIELDS)
 
 # Everything about what is built is anchored on flavour, not on the build's
 # name. The flavour is the kernel's own identity: it becomes the LOCALVERSION
@@ -150,9 +168,10 @@ REF_FIELDS = ("git_clone", "branch_or_tag", "ref_strategy", "tag_pattern")
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$")
 
-# The dispatch form of daily.yml takes one builds field, where "all" means
-# every entry and anything else is a list of names. A build actually called all
-# would be unreachable through it, so the matrix may not define one.
+# The dispatch forms of daily.yml and release.yml take one builds field, where
+# "all" means every entry and anything else is a list of names. A build
+# actually called all would be unreachable through them, so the matrix may not
+# define one.
 RESERVED_NAMES = ("all",)
 
 # A Debian revision: no hyphen (that would start a new revision component) and
@@ -247,9 +266,15 @@ def check_dkms(entry, report):
             report(f"dkms entry '{module}' must be a package name stem, e.g. kgsl")
 
 
-def check_entry(entry, report):
+def check_entry(entry, report, release=False):
     """Validate one delivery entry in isolation."""
-    for field in REQUIRED_STRING_FIELDS:
+    required = REQUIRED_STRING_FIELDS
+    known = KNOWN_FIELDS
+    if release:
+        required += RELEASE_REQUIRED_STRING_FIELDS
+        known = RELEASE_KNOWN_FIELDS
+
+    for field in required:
         value = entry.get(field)
         if not isinstance(value, str) or not value:
             report(f"missing or invalid {field}")
@@ -258,7 +283,10 @@ def check_entry(entry, report):
         if field in entry and not isinstance(entry[field], str):
             report(f"invalid {field}")
 
-    for field in sorted(set(entry) - KNOWN_FIELDS):
+    for field in sorted(set(entry) - known):
+        # target_workspace on a build entry is the likely version of this, and
+        # says something the nightly would silently ignore: a build entry can
+        # no more choose an archive than it can choose to run.
         report(f"unknown field {field}")
 
     for field in ("name", "suite", "flavour"):
@@ -290,6 +318,28 @@ def check_entry(entry, report):
         report(
             f'debian_revision "{revision}" is not a valid Debian revision '
             "(letters, digits, and . + ~ only, starting with a letter or digit)"
+        )
+
+    if not release:
+        return
+
+    # A release names the exact source that ships. latest_tag would make two
+    # dispatches of one entry release different kernels, and branch_tip would
+    # make them release whatever the branch had reached by then.
+    if ref_strategy in REF_STRATEGIES and ref_strategy != "pinned_ref":
+        report(
+            f"ref_strategy must be pinned_ref for a release (got {ref_strategy}); "
+            "a release names one immutable ref"
+        )
+
+    # Promotion runs through Debusine, which is the Debian path. The Ubuntu
+    # path publishes to S3 and has no workspace to promote into, so an entry
+    # here would name a destination nothing could deliver it to.
+    suite = entry.get("suite")
+    if isinstance(suite, str) and suite and family_for(suite) != "debian":
+        report(
+            f"suite {suite} is not a Debian suite; only the Debian path can "
+            "promote into a workspace, so only its builds can be released"
         )
 
 
@@ -403,21 +453,33 @@ def check_consistency(builds, errors):
             )
 
 
-def validate(builds):
-    """Return every problem found in the matrix, as a list of messages."""
+def validate(builds, release=False):
+    """Return every problem found in one list of entries, as messages."""
     errors = []
     for index, entry in enumerate(builds):
         if not isinstance(entry, dict):
             errors.append(f"{describe(entry, index)}: delivery entries must be mappings")
             continue
         label = describe(entry, index)
-        check_entry(entry, lambda message, label=label: errors.append(f"{label}: {message}"))
+        check_entry(
+            entry,
+            lambda message, label=label: errors.append(f"{label}: {message}"),
+            release=release,
+        )
     check_consistency(builds, errors)
     return errors
 
 
-def load_matrix(path):
-    """Read, parse, and validate the matrix, returning its builds."""
+ROOT_KEYS = ("builds", "releases")
+
+
+def load_matrix(path, section="builds"):
+    """Read and validate the whole matrix, returning one section's entries.
+
+    Both sections are validated however few of them the caller wants, so a
+    broken release entry fails a nightly run too -- rather than waiting to be
+    found by whoever next tries to release.
+    """
     try:
         with open(path, encoding="utf-8") as handle:
             document = yaml.safe_load(handle)
@@ -431,36 +493,56 @@ def load_matrix(path):
     if not isinstance(document, dict):
         sys.exit(f"ERROR: {path}: matrix root must be a mapping with a builds key")
 
-    # builds is the whole schema. Anything else at the root is a leftover from
-    # an older matrix (suite_suffix_mapping, say) that would otherwise sit
-    # there looking authoritative while nothing read it.
-    unknown_root = sorted(set(document) - {"builds"})
+    # builds and releases are the whole schema. Anything else at the root is a
+    # leftover from an older matrix (suite_suffix_mapping, say) that would
+    # otherwise sit there looking authoritative while nothing read it.
+    unknown_root = sorted(set(document) - set(ROOT_KEYS))
     if unknown_root:
         sys.exit(
             f"ERROR: {path}: unknown top-level key(s) {', '.join(unknown_root)}; "
-            "builds is the only one"
+            + " and ".join(ROOT_KEYS) + " are the only ones"
         )
 
-    builds = document.get("builds")
-    if not isinstance(builds, list):
-        sys.exit(f"ERROR: {path}: builds must be a list")
-    if not builds:
-        sys.exit(f"ERROR: {path}: builds must contain at least one entry")
+    sections = {}
+    for key in ROOT_KEYS:
+        entries = document.get(key)
+        # releases is optional, and a matrix with none is a matrix nothing has
+        # blessed yet rather than a broken one. builds is not: a matrix that
+        # builds nothing is a mistake in every case.
+        if entries is None and key != "builds":
+            sections[key] = []
+            continue
+        if not isinstance(entries, list):
+            sys.exit(f"ERROR: {path}: {key} must be a list")
+        if not entries and key == "builds":
+            sys.exit(f"ERROR: {path}: builds must contain at least one entry")
+        sections[key] = entries
 
-    errors = validate(builds)
+    errors = []
+    for key, entries in sections.items():
+        errors += [
+            f"{key}: {error}" for error in validate(entries, release=key == "releases")
+        ]
     if errors:
         sys.exit(
             f"ERROR: Invalid kernel delivery matrix in {path}:\n"
             + "\n".join(f"  - {error}" for error in errors)
         )
 
+    selected = sections[section]
+    if not selected:
+        sys.exit(
+            f"ERROR: {path}: no {section} are defined, so there is nothing to "
+            "select from"
+        )
+
     # Derived, never written: family follows from suite, so the matrix cannot
     # state one that disagrees with the suite it is built for. Attached after
     # validation, which rejects family as an unknown field on an entry.
-    for entry in builds:
+    for entry in selected:
         entry["family"] = family_for(entry["suite"])
 
-    return builds
+    return selected
 
 
 def parse_filter(value):
@@ -533,6 +615,11 @@ def main():
         epilog="See the module docstring in this file for full documentation.",
     )
     parser.add_argument(
+        "--releases",
+        action="store_true",
+        help="select from the releases list rather than from builds",
+    )
+    parser.add_argument(
         "--build",
         default="",
         help="select only these builds by name, comma-separated",
@@ -564,7 +651,9 @@ def main():
     )
     args = parser.parse_args()
 
-    builds = load_matrix(args.matrix_file)
+    builds = load_matrix(
+        args.matrix_file, section="releases" if args.releases else "builds"
+    )
     filters = {
         "name": parse_filter(args.build),
         "flavour": parse_filter(args.flavour),
