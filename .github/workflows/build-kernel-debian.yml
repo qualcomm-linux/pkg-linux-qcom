@@ -88,10 +88,6 @@ on:
         description: 'Extra suffix appended to the package version'
         type: string
         default: ''
-      debug-build:
-        description: 'Enable the debug build configuration'
-        type: boolean
-        default: false
       debusine-parent-workspace:
         description: 'Parent Debusine workspace for CI child workspace creation'
         type: string
@@ -185,7 +181,6 @@ jobs:
           debian-revision: ${{ inputs.debian-revision }}
           localversion: ${{ inputs.localversion }}
           kver-extra: ${{ inputs.kver-extra }}
-          debug-build: ${{ inputs.debug-build }}
           qcom-next-pr: ${{ inputs.qcom-next-pr }}
           kernel-topics-pr: ${{ inputs.kernel-topics-pr }}
 
@@ -413,7 +408,6 @@ jobs:
     needs: build
     if: >-
       ${{ inputs.target-workspace != ''
-      && !inputs.debug-build
       && inputs.qcom-next-pr == ''
       && inputs.kernel-topics-pr == '' }}
     runs-on: ubuntu-latest
