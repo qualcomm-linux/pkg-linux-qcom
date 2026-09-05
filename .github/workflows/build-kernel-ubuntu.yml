@@ -242,10 +242,26 @@ jobs:
           ref: main
           path: docker-pkg-build
 
-      - name: Build docker image
+      - name: Fetch builder image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # --rebuild forces a fresh suite-matched pkg-builder image.
-          ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DISTRO"
+          # No -x: REGISTRY_TOKEN is in env.
+          set -euo pipefail
+          # Same split as prepare-kernel-source: pull what docker-pkg-build
+          # publishes, build what it does not. Nothing is forced here, because
+          # docker_deb_build.py builds the image itself when the build below
+          # finds it missing -- so an unpublished suite needs no step of its
+          # own, only the absence of a pull.
+          case "$DISTRO" in
+            resolute)
+              echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+              docker pull "ghcr.io/qualcomm-linux/pkg-builder:$DISTRO"
+              ;;
+            *)
+              echo "No published pkg-builder image for $DISTRO; it will be built on demand."
+              ;;
+          esac
           docker image ls
 
       - name: Download prepared source tree
