@@ -67,6 +67,11 @@ KREL_FILE := debian/kernel.release
 #                    nothing. Each name must have a <name>-dkms package available
 #                    in the build environment; the Build-Depends entry for it is
 #                    generated from this list, so nothing else declares it.
+#   GIT_CLONE        Kernel repository URL, recorded in debian/changelog.
+#   GIT_REF          Resolved kernel ref (tag or branch), recorded in the changelog.
+#   GIT_SHA          Full kernel HEAD commit SHA, recorded in the changelog.
+#                    GITSHA above is the same commit at 12 characters, for the
+#                    version strings; this is the unabbreviated value.
 #
 # Outputs (generated files, all listed in debian/clean):
 #   debian/control       Substituted from debian/control.in
@@ -90,6 +95,12 @@ SRCPKG           ?= linux-qcom-next
 BINPKG           ?= linux-image-qcom-next
 DEBIAN_REVISION  ?= 0qcom1
 DKMS_MODULES     ?=
+# Source provenance recorded in debian/changelog. The version strings name the
+# commit but not the repository it came from, so without these a build cannot be
+# traced back to its source tree.
+GIT_CLONE        ?= unknown
+GIT_REF          ?= unknown
+GIT_SHA          ?= unknown
 
 .PHONY: prepare
 prepare:
@@ -227,8 +238,9 @@ prepare:
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
 		-e "s|@DISTRO@|$(DISTRO)|g" \
 		-e "s|@KVER@|$$KVER_RESOLVED|g" \
-		-e "s|@GITCLONE@||g" \
-		-e "s|@BRANCH@||g" \
+		-e "s|@GITCLONE@|$(GIT_CLONE)|g" \
+		-e "s|@BRANCH@|$(GIT_REF)|g" \
+		-e "s|@GITSHA@|$(GIT_SHA)|g" \
 		debian/changelog.in > debian/changelog; \
 	\
 	# ── Write runtime state files ─────────────────────────────────────────────

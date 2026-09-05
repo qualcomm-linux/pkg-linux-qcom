@@ -59,12 +59,16 @@ OPTIONS:
                               20260722 or 20260722.1). Auto-detected from git
                               tag alongside --localversion; pass it explicitly
                               whenever --localversion is passed explicitly.
-    --git-sha SHA             Commit the build was cut from, truncated to 12
-                              hex characters. Discriminates two builds of one
-                              snapshot (a moved tag). Auto-detected from HEAD
-                              alongside --localversion.
+    --git-sha SHA             Full commit SHA the build was cut from. Its
+                              first 12 characters discriminate two builds of
+                              one snapshot (a moved tag) in the version
+                              strings; the full value is recorded in the
+                              changelog. Auto-detected from HEAD.
     --kver-extra SUFFIX       Extra suffix appended to the final KVER
                               (e.g. -ci42).
+    --git-clone URL           Kernel repository URL, recorded in the changelog.
+    --git-ref REF             Resolved kernel ref (tag or branch), recorded in
+                              the changelog.
 
   Package naming:
     --srcpkg NAME             Source package name (default: $DEFAULT_SRCPKG)
@@ -125,13 +129,15 @@ SOURCE_DIR=""
 DISTRO="$DEFAULT_DISTRO"
 LOCALVERSION=""
 SNAPSHOT=""
-GITSHA=""
 KVER_EXTRA=""
 SRCPKG="$DEFAULT_SRCPKG"
 BINPKG="$DEFAULT_BINPKG"
 DEBIAN_REVISION="$DEFAULT_DEBIAN_REVISION"
 KERNEL_CONFIG=""
 DKMS_MODULES=""
+GIT_CLONE=""
+GIT_REF=""
+GIT_SHA=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -139,8 +145,10 @@ while [[ $# -gt 0 ]]; do
         -d|--distro)          DISTRO="$2";            shift 2 ;;
         --localversion)       LOCALVERSION="$2";      shift 2 ;;
         --snapshot)           SNAPSHOT="$2";          shift 2 ;;
-        --git-sha)            GITSHA="$2";            shift 2 ;;
+        --git-sha)            GIT_SHA="$2";           shift 2 ;;
         --kver-extra)         KVER_EXTRA="$2";        shift 2 ;;
+        --git-clone)          GIT_CLONE="$2";         shift 2 ;;
+        --git-ref)            GIT_REF="$2";           shift 2 ;;
         --srcpkg)             SRCPKG="$2";            shift 2 ;;
         --binpkg)             BINPKG="$2";            shift 2 ;;
         --debian-revision)    DEBIAN_REVISION="$2";   shift 2 ;;
@@ -164,6 +172,13 @@ VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
 }
 
 [[ -d "$DEBIAN_DIR" ]] || { log_error "Debian dir not found: $DEBIAN_DIR"; exit 1; }
+
+# ── Resolve the commit, once ─────────────────────────────────────────────────
+# One SHA, used at two widths: the first 12 characters go in the version strings
+# (short enough to keep a boot menu readable), the full value goes in the
+# changelog. Deriving one from the other is what keeps them the same commit.
+[[ -n "$GIT_SHA" ]] || GIT_SHA=$(git -C "$SOURCE_DIR" rev-parse HEAD 2>/dev/null || true)
+GITSHA="${GIT_SHA:0:12}"
 
 # ── Helper: derive LOCALVERSION, SNAPSHOT and GITSHA from a tag name ─────────
 # qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722-g<sha>   / 20260722
@@ -191,8 +206,6 @@ _auto_version_fields() {
 if [[ -z "$LOCALVERSION" ]]; then
     GIT_TAG=$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)
     if [[ -n "$GIT_TAG" ]]; then
-        [[ -n "$GITSHA" ]] || \
-            GITSHA=$(git -C "$SOURCE_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)
         _auto_version_fields "$GIT_TAG"
         log_info "Auto-detected LOCALVERSION='$LOCALVERSION' SNAPSHOT='$SNAPSHOT' GITSHA='$GITSHA' from tag '$GIT_TAG'"
     else
@@ -332,6 +345,12 @@ PREPARE_ARGS="DISTRO=$DISTRO SRCPKG=$SRCPKG BINPKG=$BINPKG DEBIAN_REVISION=$DEBI
 [[ -n "$SNAPSHOT" ]]     && PREPARE_ARGS="$PREPARE_ARGS SNAPSHOT=$SNAPSHOT"
 [[ -n "$GITSHA" ]]       && PREPARE_ARGS="$PREPARE_ARGS GITSHA=$GITSHA"
 [[ -n "$KVER_EXTRA" ]]   && PREPARE_ARGS="$PREPARE_ARGS KVER_EXTRA=$KVER_EXTRA"
+# Source provenance for debian/changelog. LOCALVERSION identifies a build by
+# date, not by commit, so the SHA recorded here is what makes a build traceable
+# back to exact source -- particularly for branch-tip builds.
+[[ -n "$GIT_CLONE" ]]    && PREPARE_ARGS="$PREPARE_ARGS GIT_CLONE=$GIT_CLONE"
+[[ -n "$GIT_REF" ]]      && PREPARE_ARGS="$PREPARE_ARGS GIT_REF=$GIT_REF"
+[[ -n "$GIT_SHA" ]]      && PREPARE_ARGS="$PREPARE_ARGS GIT_SHA=$GIT_SHA"
 # Spaces are stripped so a list written as "kgsl, camx" stays a single make
 # argument; debian/rules validates the names it is given.
 [[ -n "$DKMS_MODULES" ]] && PREPARE_ARGS="$PREPARE_ARGS DKMS_MODULES=$(tr -d ' ' <<< "$DKMS_MODULES")"
