@@ -161,10 +161,10 @@ promotion when it does. A run that skips this way is green: nothing was wrong,
 there was simply nothing new upstream.
 
 Three kinds of run deliberately promote nowhere: a PR build, which never
-forwards a `target_workspace`; a dispatch setting any of the advanced
-validation overrides (`debug-build`, `qcom-next-pr`, `kernel-topics-pr`),
-whose kernel is by definition not the one the matrix describes; and any entry
-that names no workspace.
+forwards a `target_workspace`; a dispatch setting either of the advanced
+validation overrides (`qcom-next-pr`, `kernel-topics-pr`), whose kernel is by
+definition not the one the matrix describes; and any entry that names no
+workspace.
 
 ### Release
 
@@ -510,14 +510,13 @@ promoting:
 | `upstream-version` | None, required | The version to release without its Debian revision, e.g. `7.2.0~rc7+20260821`. Each selected entry promotes this plus its own `debian_revision`. |
 | `release-workspace` | `qli` | The Debusine workspace to promote into. |
 
-`daily` carries three further inputs, which the matrix deliberately says
-nothing about because they belong to a one-off validation run rather than to a
-delivery target. They apply to every selected build, and a scheduled run leaves
-them at their defaults:
+`daily` carries two further inputs, which the matrix deliberately says nothing
+about because they belong to a one-off validation run rather than to a delivery
+target. They apply to every selected build, and a scheduled run leaves them at
+their defaults:
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `debug-build` | `false` | Advanced debug configuration toggle. For a lasting debug kernel, use the `qcom-next-debug` flavour instead. |
 | `qcom-next-pr` | Empty | Advanced Qualcomm-only override: `qcom-next` PR numbers to merge before building. |
 | `kernel-topics-pr` | Empty | Advanced Qualcomm-only override: `kernel-topics` PR numbers to apply as patches. |
 
