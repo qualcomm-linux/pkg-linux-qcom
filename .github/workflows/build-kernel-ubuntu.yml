@@ -185,6 +185,8 @@ jobs:
     steps:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Prepare kernel source
         uses: ./.github/actions/prepare-kernel-source
@@ -223,12 +225,15 @@ jobs:
     steps:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Pinned to @main while native kernel-build support is still landing
       # upstream in qualcomm-linux/docker-pkg-build.
       - name: Checkout docker-pkg-build
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           repository: qualcomm-linux/docker-pkg-build
           ref: main
           path: docker-pkg-build

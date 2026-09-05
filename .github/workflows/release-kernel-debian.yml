@@ -110,6 +110,8 @@ jobs:
     steps:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Prepare kernel source
         uses: ./.github/actions/prepare-kernel-source
@@ -150,6 +152,8 @@ jobs:
     steps:
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Build in Debusine
         id: debusine
