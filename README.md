@@ -375,9 +375,9 @@ flowchart TD
     end
 
     subgraph build[One build workflow per leg]
-        C2["prepare\nprepare-kernel-source action\nClone ref, run prepare-source.sh\nSkip the run if the version is published"]
+        C2["prepare\nprepare-kernel-source action\nClone ref, build the source package\nSkip the run if the version is published"]
         C3["build\ndebusine-build action"]
-        C4["build\nbuild-kernel.sh in Docker"]
+        C4["build\nprepare-kernel-source action, then\nbuild-kernel.sh --dsc in Docker"]
         C5["publish\nDownload .deb files, upload to S3"]
         C6["promote\nlib/release into the caller's workspace"]
     end
@@ -394,8 +394,8 @@ flowchart TD
     A5 --> B1
     B1 --> B2 & B5
     B2 --> C2
-    B5 --> C2
-    C2 --> C3 & C4
+    B5 --> C4
+    C2 --> C3
     C3 --> C5 & C6
     C4 --> D1
     C5 --> D1
