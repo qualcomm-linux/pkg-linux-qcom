@@ -100,7 +100,14 @@ KNOWN_FIELDS = frozenset(
 # Fields that identify the variant itself rather than one of its build legs.
 # Every entry for a variant must agree on them, because they decide what the
 # package is; the entries only differ in where it is delivered.
-VARIANT_IDENTITY_FIELDS = ("srcpkg", "binpkg", "kernel_config", "dkms")
+VARIANT_IDENTITY_FIELDS = ("srcpkg", "binpkg", "kernel_config")
+
+# Fields a variant may vary between suites but not within one. The out-of-tree
+# module set depends on which <name>-dkms packages the target archive has, so
+# it is a property of the variant in a suite rather than of the variant. A
+# suite's Daily and Release must still agree: a Daily that bundles a different
+# module set from the Release it precedes is not testing what will ship.
+SUITE_IDENTITY_FIELDS = ("dkms",)
 
 # Fields deciding which kernel tree is built. All entries for one variant and
 # delivery type build the same source, so a stale suite cannot quietly ship a
@@ -289,6 +296,7 @@ def check_consistency(deliveries, errors):
     by_variant_type = defaultdict(list)
     by_package_version = defaultdict(list)
     variants_by_package = defaultdict(set)
+    by_variant_suite = defaultdict(list)
 
     for entry in deliveries:
         if not isinstance(entry, dict):
@@ -301,6 +309,7 @@ def check_consistency(deliveries, errors):
 
         by_variant[variant].append(entry)
         by_variant_type[(variant, delivery_type)].append(entry)
+        by_variant_suite[(variant, suite)].append(entry)
         by_leg[(variant, delivery_type, suite)].append(entry)
 
         for field in ("srcpkg", "binpkg"):
@@ -335,6 +344,17 @@ def check_consistency(deliveries, errors):
                 errors.append(
                     f"kernel_variant {variant} has no {delivery_type} entry; "
                     "every variant must define at least one of each"
+                )
+
+    for (variant, suite), entries in sorted(
+        by_variant_suite.items(), key=lambda item: str(item[0])
+    ):
+        for field in SUITE_IDENTITY_FIELDS:
+            values = {json.dumps(entry.get(field), sort_keys=True) for entry in entries}
+            if len(values) > 1:
+                errors.append(
+                    f"kernel_variant {variant} must use one {field} across its "
+                    f"{suite} entries (got " + ", ".join(sorted(values)) + ")"
                 )
 
     for (variant, delivery_type), entries in sorted(
