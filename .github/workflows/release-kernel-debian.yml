@@ -105,7 +105,7 @@ jobs:
   # prepare: clone kernel source, inject packaging, run prepare-source.sh.
   # ---------------------------------------------------------------------------
   prepare:
-    name: Prepare kernel source
+    name: Generate source package
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     steps:
       - name: Checkout pkg-linux-qcom
@@ -136,7 +136,7 @@ jobs:
   # build: generate the Debian source package and submit it to Debusine.
   # ---------------------------------------------------------------------------
   build:
-    name: Build (Debusine)
+    name: Build package (Debusine)
     needs: prepare
     runs-on: ubuntu-latest
     environment: Production
