@@ -91,8 +91,13 @@ jobs:
       dkms: ${{ matrix.dkms }}
       debian-revision: ${{ matrix.debian_revision }}
       localversion: ${{ matrix.localversion || '' }}
-      # Mark the version so PR artifacts never collide with the daily build's
-      # in the shared Debusine workspace.
+      # Marks the kernel release, not the package version: debian/rules
+      # appends KVER_EXTRA to KVER and then derives the version separately, so
+      # this changes uname -r and the versioned linux-image name while the
+      # source version stays the one the nightly would build. That is enough
+      # here -- a PR build has its own throwaway workspace and promotes
+      # nowhere -- but it is not a version stamp, and nothing should start
+      # relying on it as one.
       kver-extra: -pr${{ github.event.number }}
       # Staging as well as released: nothing here is promoted anywhere, so a
       # pull request may depend on a -dkms package that has reached qli-staging
