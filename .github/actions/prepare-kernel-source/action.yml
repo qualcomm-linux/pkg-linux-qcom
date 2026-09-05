@@ -102,17 +102,17 @@ runs:
         # ci/scripts/resolve-matrix.py, which routes an entry to the workflow
         # that calls this action.
         #
-        # Ubuntu-family suites use an image of their own suite. Debian-family
-        # suites all use the trixie image: the registry publishes no forky
-        # image, and docker-pkg-build has no Dockerfile to build one from
-        # either, so forky borrows trixie's until one exists. That costs
-        # nothing today because Debusine performs the actual suite-specific
-        # build; this container only has to run prepare-source.sh, which
-        # generates packaging rather than compiling anything.
+        # Ubuntu-family suites use an image of their own suite. Every
+        # Debian-family suite uses the trixie image, forky and sid included:
+        # the registry publishes no image for either, and docker-pkg-build has
+        # no Dockerfile to build one from, so they borrow trixie's until one
+        # exists. That costs nothing today because Debusine performs the actual
+        # suite-specific build; this container only has to run
+        # prepare-source.sh, which generates packaging rather than compiling
+        # anything.
         case "$SUITE_INPUT" in
-          trixie|bookworm)    FAMILY=debian; DOCKER_DISTRO="$SUITE_INPUT" ;;
-          forky|sid|unstable) FAMILY=debian; DOCKER_DISTRO=trixie ;;
-          *)                  FAMILY=ubuntu; DOCKER_DISTRO="$SUITE_INPUT" ;;
+          trixie|forky|sid|unstable) FAMILY=debian; DOCKER_DISTRO=trixie ;;
+          *)                         FAMILY=ubuntu; DOCKER_DISTRO="$SUITE_INPUT" ;;
         esac
 
         if [[ "$FAMILY" != "$EXPECT_FAMILY" ]]; then
