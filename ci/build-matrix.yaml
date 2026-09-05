@@ -3,8 +3,8 @@
 #
 # Kernel delivery matrix.
 #
-# One entry in "deliveries" is one generated package: a single kernel_variant,
-# a single delivery type, and a single suite. The only list-valued fields are
+# One entry in "builds" is one generated package: a single name, a single
+# delivery type, and a single suite. The only list-valued fields are
 # kernel_config and dkms, which name the fragments and the out-of-tree modules
 # that go into that one package, so an entry needs no expansion — ci/scripts/
 # resolve-matrix.py validates the document, filters it, and hands the matching
@@ -21,9 +21,10 @@
 # identity: it becomes the LOCALVERSION suffix, so qcom-next and
 # qcom-next-debug produce distinct kernel releases that install alongside each
 # other, and every suite building one flavour produces the same kernel release.
-# kernel_variant names the build in CI - the Actions job, the prepared-source
-# artifact, the Debusine workspace, the S3 path - and never reaches a package
-# name or version.
+# A build's name is what CI calls it: the Actions job name, and what a manual
+# dispatch asks for by name. It never reaches a package name or version, and
+# never a published path. It must be unique within a delivery type, so a Daily
+# and the Release that supersedes it share one.
 #
 # dkms varies by suite because it depends on which <name>-dkms packages the
 # target archive carries: the Debian suites bundle camx and iris-vpu, which
@@ -35,11 +36,11 @@
 # the ordering discussion in README.md). No two entries may produce the same
 # srcpkg at the same debian_revision.
 
-deliveries:
+builds:
   # ---------------------------------------------------------------------------
   # qcom-next — the standard kernel.
   # ---------------------------------------------------------------------------
-  - kernel_variant: qcom-next-trixie
+  - name: qcom-next-trixie
     type: Daily
     suite: trixie
     flavour: qcom-next
@@ -57,7 +58,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
 
-  - kernel_variant: qcom-next-forky
+  - name: qcom-next-forky
     type: Daily
     suite: forky
     flavour: qcom-next
@@ -75,7 +76,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~'
 
-  - kernel_variant: qcom-next-resolute
+  - name: qcom-next-resolute
     type: Daily
     suite: resolute
     flavour: qcom-next
@@ -91,7 +92,7 @@ deliveries:
       - kgsl
     debian_revision: '0qli1~26.04.1~'
 
-  - kernel_variant: qcom-next-trixie
+  - name: qcom-next-trixie
     type: Release
     suite: trixie
     flavour: qcom-next
@@ -109,7 +110,7 @@ deliveries:
     debian_revision: '0qli1~bpo13+1'
     target_workspace: qli
 
-  - kernel_variant: qcom-next-forky
+  - name: qcom-next-forky
     type: Release
     suite: forky
     flavour: qcom-next
@@ -131,7 +132,7 @@ deliveries:
   # qcom-next-debug — the same kernel ref built with the in-tree debug
   # fragments, packaged separately so it installs alongside qcom-next.
   # ---------------------------------------------------------------------------
-  - kernel_variant: qcom-next-debug-trixie
+  - name: qcom-next-debug-trixie
     type: Daily
     suite: trixie
     flavour: qcom-next-debug
@@ -151,7 +152,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~bpo13+1~'
 
-  - kernel_variant: qcom-next-debug-forky
+  - name: qcom-next-debug-forky
     type: Daily
     suite: forky
     flavour: qcom-next-debug
@@ -171,7 +172,7 @@ deliveries:
       - audioreach
     debian_revision: '0qli1~'
 
-  - kernel_variant: qcom-next-debug-trixie
+  - name: qcom-next-debug-trixie
     type: Release
     suite: trixie
     flavour: qcom-next-debug
@@ -191,7 +192,7 @@ deliveries:
     debian_revision: '0qli1~bpo13+1'
     target_workspace: qli
 
-  - kernel_variant: qcom-next-debug-forky
+  - name: qcom-next-debug-forky
     type: Release
     suite: forky
     flavour: qcom-next-debug
