@@ -289,7 +289,11 @@ jobs:
             || echo "$ORIG_FILE in $DEBUSINE_WORKSPACE $SUITE matches this build ($ORIG_SHA256)."
 
   # ---------------------------------------------------------------------------
-  # build: generate the Debian source package and submit it to Debusine.
+  # build: submit the source package prepare built to Debusine, and wait.
+  #
+  # Nothing of this repository is needed here: the package comes from the
+  # source-package artifact and the tooling from debusine-action, so this job
+  # checks out neither pkg-linux-qcom nor anything else of ours.
   #
   # Skipped, with everything after it, when prepare found this version already
   # published in the target workspace.
@@ -311,27 +315,72 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       workspace: ${{ steps.debusine.outputs.workspace }}
-      srcpkg_version: ${{ steps.debusine.outputs.srcpkg_version }}
+      srcpkg_version: ${{ steps.srcpkg.outputs.srcpkg_version }}
+    defaults:
+      run:
+        shell: bash
     steps:
-      # Only for the debusine-build action itself: the package being built
-      # comes from the source-package artifact, not from this checkout.
-      - name: Checkout pkg-linux-qcom
+      - name: Checkout debusine-action helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          repository: qualcomm-linux/debusine-action
+          ref: main
+          path: debusine-action
+          fetch-depth: 1
+          sparse-checkout: |
+            lib
+
+      # Into the workspace root: lib/build takes the .dsc from its working
+      # directory, and reaches its own helpers by a path relative to it, so the
+      # two have to be the same directory.
+      - name: Download source package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: source-package-${{ inputs.flavour }}-${{ inputs.suite }}
+
+      - name: Read the source package version
+        # From the .dsc as downloaded, which is what Debusine will be given;
+        # the prepare job reported the same value from the same file.
+        id: srcpkg
+        run: |
+          set -euo pipefail
+          DSC=$(ls -- *.dsc)
+          [[ $(wc -l <<<"$DSC") -eq 1 ]] || {
+            echo "::error::Expected exactly one .dsc in the source package artifact, found: $DSC"
+            exit 1
+          }
+          SRCPKG_VERSION=$(sed -n 's/^Version: //p' "$DSC")
+          [[ "$SRCPKG_VERSION" =~ ^[A-Za-z0-9.+~:-]+$ ]] || {
+            echo "::error::Could not read a version from $DSC (got '$SRCPKG_VERSION')"
+            exit 1
+          }
+          echo "Submitting $DSC ($SRCPKG_VERSION)"
+          echo "srcpkg_version=$SRCPKG_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build in Debusine
         id: debusine
-        uses: ./.github/actions/debusine-build
-        with:
-          suite: ${{ inputs.suite }}
-          flavour: ${{ inputs.flavour }}
-          debusine-host: ${{ vars.DEBUSINE_HOST }}
-          debusine-scope: ${{ vars.DEBUSINE_SCOPE }}
-          debusine-user: ${{ secrets.DEBUSINE_USER }}
-          debusine-token: ${{ secrets.DEBUSINE_TOKEN }}
-          debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
-          extra-build-dep-workspaces: ${{ inputs.extra-build-dep-workspaces }}
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          JOB_INDEX: ${{ inputs.flavour }}-${{ inputs.suite }}
+          DEBUSINE_HOST: ${{ vars.DEBUSINE_HOST }}
+          DEBUSINE_SCOPE: ${{ vars.DEBUSINE_SCOPE }}
+          DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+          DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+          DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
+          SUITE: ${{ inputs.suite }}
+          EXTRA_BUILD_DEP_WORKSPACES: ${{ inputs.extra-build-dep-workspaces }}
+        run: |
+          # No -x here: DEBUSINE_TOKEN is in env, keep xtrace off.
+          set -euo pipefail
+          debusine-action/lib/build
+          # lib/build names the workspace it created and writes it out; read it
+          # back to report where the build can be watched.
+          workspace=$(sed -n 's/^workspace=//p' "$GITHUB_OUTPUT")
+          echo "Debusine Workspace URL: https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" \
+            >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
   # publish: download the .deb files from Debusine and upload them to S3.
