@@ -15,21 +15,31 @@ lying in wait until someone runs a release.
 
 Usage:
   ci/scripts/resolve-matrix.py --type Daily
-  ci/scripts/resolve-matrix.py --type Release --kernel-variant qcom-next
-  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next --suite trixie
-  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next \\
-      --suite trixie --field debian_revision
+  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next-trixie
+  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next-trixie,qcom-next-forky
+  ci/scripts/resolve-matrix.py --type Release --flavour qcom-next
+  ci/scripts/resolve-matrix.py --type Daily --kernel-variant qcom-next-trixie \\
+      --field debian_revision
 
 Options:
   --type TYPE                Delivery type to select (Daily or Release).
                                Required.
-  --kernel-variant VARIANT   Select only this kernel variant.
-  --suite SUITE              Select only this suite.
+  --kernel-variant VARIANTS  Select only these kernel variants, comma-separated.
+                               A variant names one leg, so this is the way to
+                               ask for a specific set of builds.
+  --flavour FLAVOURS         Select only these flavours, comma-separated. A
+                               flavour spans its suites, so this asks for one
+                               kernel everywhere it is built.
+  --suite SUITES             Select only these suites, comma-separated.
   --field NAME               Print just this field of the single selected
                                entry, unquoted. Errors unless exactly one
                                entry matches.
   --matrix-file FILE         Matrix path (default: ci/build-matrix.yaml
                                relative to CWD).
+
+  Filters combine: an entry must match every filter given. Every name in a
+  filter must match at least one entry of the selected type, so a typo or a
+  stale variant fails instead of quietly narrowing the build set.
 
 Output:
   Without --field, a compact JSON array of the selected entries, ready for a
@@ -322,7 +332,7 @@ def check_consistency(deliveries, errors):
         by_flavour[flavour].append(entry)
         by_flavour_type[(flavour, delivery_type)].append(entry)
         by_flavour_suite[(flavour, suite)].append(entry)
-        by_leg[(entry.get("kernel_variant"), delivery_type, suite)].append(entry)
+        by_leg[(delivery_type, entry.get("kernel_variant"))].append(entry)
 
         for field in ("srcpkg", "binpkg"):
             if isinstance(entry.get(field), str) and entry[field]:
@@ -333,16 +343,19 @@ def check_consistency(deliveries, errors):
         ):
             by_package_version[(entry["srcpkg"], entry["debian_revision"])].append(entry)
 
-    # kernel_variant plus suite is what names a build leg in the Actions UI and
-    # scopes its artifacts, workspace and S3 path, so a repeat would have two
-    # legs writing to one another's outputs.
-    for (variant, delivery_type, suite), entries in sorted(
+    # kernel_variant names one build leg: it is the Actions job name and what a
+    # workflow dispatch asks for by name. It only has to be unique within a
+    # delivery type, because a run only ever resolves one type, and that lets a
+    # Daily and its Release share a name. Two entries sharing both would give a
+    # run two identically named jobs and make the dispatch filter ambiguous.
+    for (delivery_type, variant), entries in sorted(
         by_leg.items(), key=lambda item: str(item[0])
     ):
         if len(entries) > 1:
+            suites = ", ".join(sorted(str(e.get("suite")) for e in entries))
             errors.append(
-                f"kernel_variant {variant} defines {len(entries)} {delivery_type} "
-                f"entries for suite {suite}; one entry is one generated package"
+                f"kernel_variant {variant} is used by {len(entries)} {delivery_type} "
+                f"entries (suites {suites}); a variant names exactly one build"
             )
 
     for flavour, entries in sorted(by_flavour.items()):
@@ -477,24 +490,56 @@ def load_matrix(path):
     return deliveries
 
 
-def select(deliveries, delivery_type, kernel_variant, suite):
-    """Return the entries matching the requested filters, in matrix order."""
+def parse_filter(value):
+    """Split a comma-separated filter into names, or None when unset."""
+    if not value:
+        return None
+    return [name.strip() for name in value.split(",") if name.strip()]
+
+
+def select(deliveries, delivery_type, filters):
+    """Return the entries matching the requested filters, in matrix order.
+
+    filters maps a field name to the list of values allowed for it, or to
+    None when that filter was not given.
+    """
     return [
         entry
         for entry in deliveries
         if entry["type"] == delivery_type
-        and kernel_variant in ("", entry["kernel_variant"])
-        and suite in ("", entry["suite"])
+        and all(
+            wanted is None or entry[field] in wanted
+            for field, wanted in filters.items()
+        )
     ]
 
 
-def describe_selection(delivery_type, kernel_variant, suite):
+def unmatched_filters(deliveries, delivery_type, filters):
+    """Names asked for that no entry of this delivery type offers."""
+    missing = []
+    for field, wanted in filters.items():
+        if wanted is None:
+            continue
+        available = {
+            entry[field] for entry in deliveries if entry["type"] == delivery_type
+        }
+        for name in wanted:
+            if name not in available:
+                missing.append(
+                    f"no {delivery_type} entry has {field} {name} "
+                    f"(available: {', '.join(sorted(available))})"
+                )
+    return missing
+
+
+def describe_selection(delivery_type, filters):
     """Render the active filters for an error message."""
     parts = [f"type={delivery_type}"]
-    if kernel_variant:
-        parts.append(f"kernel_variant={kernel_variant}")
-    if suite:
-        parts.append(f"suite={suite}")
+    parts += [
+        f"{field}={','.join(wanted)}"
+        for field, wanted in filters.items()
+        if wanted is not None
+    ]
     return " ".join(parts)
 
 
@@ -516,9 +561,16 @@ def main():
         "--type", required=True, choices=DELIVERY_TYPES, help="delivery type to select"
     )
     parser.add_argument(
-        "--kernel-variant", default="", help="select only this kernel variant"
+        "--kernel-variant",
+        default="",
+        help="select only these kernel variants, comma-separated",
     )
-    parser.add_argument("--suite", default="", help="select only this suite")
+    parser.add_argument(
+        "--flavour", default="", help="select only these flavours, comma-separated"
+    )
+    parser.add_argument(
+        "--suite", default="", help="select only these suites, comma-separated"
+    )
     parser.add_argument(
         "--field",
         default="",
@@ -530,9 +582,24 @@ def main():
     args = parser.parse_args()
 
     deliveries = load_matrix(args.matrix_file)
-    selected = select(deliveries, args.type, args.kernel_variant, args.suite)
+    filters = {
+        "kernel_variant": parse_filter(args.kernel_variant),
+        "flavour": parse_filter(args.flavour),
+        "suite": parse_filter(args.suite),
+    }
+    what = describe_selection(args.type, filters)
 
-    what = describe_selection(args.type, args.kernel_variant, args.suite)
+    # Report a name that matches nothing before reporting an empty selection:
+    # "no Daily entry has kernel_variant qcom-next" says what to fix, where
+    # "no entries found" leaves the reader to work out which filter was wrong.
+    unmatched = unmatched_filters(deliveries, args.type, filters)
+    if unmatched:
+        sys.exit(
+            f"ERROR: Nothing to build for {what}:\n"
+            + "\n".join(f"  - {problem}" for problem in unmatched)
+        )
+
+    selected = select(deliveries, args.type, filters)
     if not selected:
         sys.exit(f"ERROR: No matrix entries found for {what}")
 

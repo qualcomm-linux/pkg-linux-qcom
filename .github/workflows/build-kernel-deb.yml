@@ -6,7 +6,7 @@ on:
       kernel-variant:
         description: 'Kernel variant identifier, naming this build in CI only'
         required: true
-        default: 'qcom-next'
+        default: 'qcom-next-trixie'
         type: string
       flavour:
         description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
@@ -421,7 +421,7 @@ jobs:
       - name: Upload prepared source tree artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.suite }}
+          name: kernel-srcpkg-${{ inputs.flavour }}-${{ inputs.suite }}
           path: /tmp/kernel-srcpkg.tar.gz
           if-no-files-found: error
           retention-days: 7
@@ -436,7 +436,7 @@ jobs:
     uses: ./.github/workflows/build-kernel-debusine.yml
     with:
       suite: ${{ inputs.suite || 'trixie' }}
-      kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
+      flavour: ${{ inputs.flavour || 'qcom-next' }}
       srcpkg: ${{ inputs.srcpkg || 'linux-qcom-next' }}
       debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
       target-workspace: ${{ inputs.target-workspace || '' }}
@@ -455,4 +455,4 @@ jobs:
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
       distro: ${{ inputs.suite || 'resolute' }}
-      kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
+      flavour: ${{ inputs.flavour || 'qcom-next' }}
