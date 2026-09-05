@@ -4,7 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       kernel-variant:
-        description: 'Kernel variant identifier'
+        description: 'Kernel variant identifier, naming this build in CI only'
+        required: true
+        default: 'qcom-next'
+        type: string
+      flavour:
+        description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
         required: true
         default: 'qcom-next'
         type: string
@@ -82,7 +87,11 @@ on:
   workflow_call:
     inputs:
       kernel-variant:
-        description: 'Kernel variant identifier'
+        description: 'Kernel variant identifier, naming this build in CI only'
+        type: string
+        default: 'qcom-next'
+      flavour:
+        description: 'Kernel flavour: the LOCALVERSION suffix and so the kernel release identity'
         type: string
         default: 'qcom-next'
       suite:
@@ -278,7 +287,7 @@ jobs:
       - name: Derive LOCALVERSION
         env:
           LOCALVERSION_INPUT: ${{ inputs.localversion }}
-          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
+          FLAVOUR_INPUT: ${{ inputs.flavour || 'qcom-next' }}
         run: |
           set -euo pipefail
           OVERRIDE_LV="$LOCALVERSION_INPUT"
@@ -287,7 +296,7 @@ jobs:
             echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
           else
             LOCALVERSION=$(ci/scripts/derive-localversion.sh \
-              --variant "$KERNEL_VARIANT_INPUT" \
+              --flavour "$FLAVOUR_INPUT" \
               --ref "$KERNEL_REF" \
               --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
             echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
