@@ -32,15 +32,13 @@
 # Every entry is built nightly. Where a build is published is not stated here:
 # the workflow that runs the build decides it, because it depends on why the
 # build is running rather than on what is being built. The nightly promotes its
-# Debian entries into the staging workspace; a PR build of the same entry
-# promotes nowhere; and release.yml promotes onward from staging into the
-# release workspace, building nothing. So an entry describes a kernel, and
-# never a destination.
+# Debian entries into the archive; a PR build of the same entry promotes
+# nowhere. So an entry describes a kernel, and never a destination.
 #
 # debian_revision is stated outright, not derived. The trailing "~" marks a
-# version as unreleased, and it is carried into the archive as built: what
-# release.yml promotes is the tested artifact, not a rebuild at a tidier
-# version. The rest of the revision places the suite where it belongs relative
+# version as unreleased, and it is carried into the archive as built: what is
+# published is the tested artifact, never a rebuild at a tidier version. The
+# rest of the revision places the suite where it belongs relative
 # to the other suites (see the ordering discussion in README.md). No two
 # entries may produce the same srcpkg at the same debian_revision.
 
