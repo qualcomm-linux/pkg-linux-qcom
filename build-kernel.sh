@@ -8,7 +8,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DEFAULT_REPO="git@github.com:qualcomm-linux/kernel.git"
+DEFAULT_REPO="https://github.com/qualcomm-linux/kernel"
 DEFAULT_BRANCH="qcom-next"
 DEFAULT_DISTRO="trixie"
 DEFAULT_BUILD_MODE="docker"
