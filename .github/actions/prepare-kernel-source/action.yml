@@ -77,8 +77,8 @@ inputs:
     description: 'Out-of-tree DKMS modules to bundle, comma-separated and without the -dkms suffix'
     default: ''
   debian-revision:
-    description: 'Debian revision override (empty takes the revision the matrix gives this build)'
-    default: ''
+    description: 'Debian revision component of the package version, from the matrix entry'
+    required: true
   localversion:
     description: 'LOCALVERSION override (auto-derived from the resolved ref if empty)'
     default: ''
@@ -291,36 +291,6 @@ runs:
           done >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Resolve Debian revision
-      # The build workflows pass the matrix entry's own debian-revision
-      # straight through, so this lookup is the fallback for a caller that has
-      # no entry in hand and leaves the input empty: it looks up the entry for
-      # the build name and suite it was given, and builds at the revision the
-      # nightly build uses.
-      id: revision
-      shell: bash
-      env:
-        DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
-        BUILD_INPUT: ${{ inputs.build }}
-        DISTRO: ${{ steps.env.outputs.distro }}
-      run: |
-        set -euo pipefail
-        if [[ -n "$DEBIAN_REVISION_INPUT" ]]; then
-          DEBIAN_REVISION="$DEBIAN_REVISION_INPUT"
-          echo "Using supplied Debian revision: $DEBIAN_REVISION"
-        else
-          DEBIAN_REVISION=$(ci/scripts/resolve-matrix.py \
-            --build "$BUILD_INPUT" \
-            --suite "$DISTRO" \
-            --field debian_revision) || {
-            echo "::error::No matrix entry named $BUILD_INPUT for suite $DISTRO."
-            echo "::error::Add one to ci/build-matrix.yaml, or set the debian-revision input to build this combination ad hoc."
-            exit 1
-          }
-          echo "Matrix Debian revision for $BUILD_INPUT/$DISTRO: $DEBIAN_REVISION"
-        fi
-        echo "debian_revision=$DEBIAN_REVISION" >> "$GITHUB_OUTPUT"
-
     - name: Prepare source
       shell: bash
       env:
@@ -334,7 +304,7 @@ runs:
         DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
         LOCALVERSION: ${{ steps.localversion.outputs.localversion }}
         SNAPSHOT: ${{ steps.localversion.outputs.snapshot }}
-        DEBIAN_REVISION: ${{ steps.revision.outputs.debian_revision }}
+        DEBIAN_REVISION: ${{ inputs.debian-revision }}
         KERNEL_URL: ${{ inputs.kernel-url }}
         KERNEL_REF: ${{ steps.ref.outputs.kernel_ref }}
         KERNEL_SHA: ${{ steps.clone.outputs.kernel_sha }}
