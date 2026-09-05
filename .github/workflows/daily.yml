@@ -40,11 +40,6 @@ on:
       # overrides, so they are inputs rather than entry fields. They apply to
       # every selected build, and a scheduled run leaves them at their
       # defaults.
-      debug-build:
-        description: 'Advanced: enable the debug build configuration'
-        required: false
-        default: false
-        type: boolean
       qcom-next-pr:
         description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
         required: false
@@ -167,7 +162,6 @@ jobs:
       target-workspace: ${{ matrix.target_workspace || '' }}
       # Dispatch-only validation overrides. A scheduled run carries no inputs,
       # so each falls back to the off value and builds the matrix as written.
-      debug-build: ${{ inputs.debug-build || false }}
       qcom-next-pr: ${{ inputs.qcom-next-pr || '' }}
       kernel-topics-pr: ${{ inputs.kernel-topics-pr || '' }}
     secrets:
@@ -201,6 +195,5 @@ jobs:
       debian-revision: ${{ matrix.debian_revision }}
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
-      debug-build: ${{ inputs.debug-build || false }}
       qcom-next-pr: ${{ inputs.qcom-next-pr || '' }}
       kernel-topics-pr: ${{ inputs.kernel-topics-pr || '' }}
