@@ -273,6 +273,18 @@ jobs:
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
           echo "Kernel HEAD SHA: $KERNEL_SHA"
 
+          # Committer date of HEAD, normalised to UTC. Committer rather than
+          # author date: an author date can be months old on a backported
+          # patch, which would date the build by when someone first wrote the
+          # code rather than by when this snapshot came to exist.
+          KERNEL_DATE=$(TZ=UTC git -C "$KERNEL_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
+          [[ "$KERNEL_DATE" =~ ^[0-9]{8}$ ]] || {
+            echo "::error::could not read a YYYYMMDD commit date from $KERNEL_REF (got '$KERNEL_DATE')"
+            exit 1
+          }
+          echo "KERNEL_DATE=$KERNEL_DATE" >> "$GITHUB_ENV"
+          echo "Kernel HEAD commit date (UTC): $KERNEL_DATE"
+
       - name: Derive version fields
         env:
           LOCALVERSION_INPUT: ${{ inputs.localversion }}
@@ -291,10 +303,17 @@ jobs:
           else
             # Emits LOCALVERSION=, SNAPSHOT= and GITSHA= lines, already in
             # GITHUB_ENV form.
+            #
+            # --date is only consulted for branch-tip builds, where the ref
+            # carries no snapshot of its own. It comes from the commit rather
+            # than the clock, so rebuilding a commit reproduces its version
+            # instead of inventing a higher one, and it lands in the same space
+            # as upstream's tag dates.
             FIELDS=$(ci/scripts/derive-localversion.sh \
               --variant "$KERNEL_VARIANT_INPUT" \
               --ref "$KERNEL_REF" \
-              --sha "$KERNEL_SHA")
+              --sha "$KERNEL_SHA" \
+              --date "$KERNEL_DATE")
             echo "$FIELDS" >> "$GITHUB_ENV"
             echo "Derived version fields:"
             echo "$FIELDS"
@@ -415,7 +434,10 @@ jobs:
           # it separately for the Debian version, which joins it differently.
           [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
           [[ -n "$SNAPSHOT" ]]            && ARGS+=(--snapshot "$SNAPSHOT")
-          [[ -n "$GITSHA" ]]              && ARGS+=(--git-sha "$GITSHA")
+          # Full SHA: prepare-source.sh takes the first 12 for the version
+          # strings and records the whole thing in the changelog, alongside the
+          # repository and ref that the version strings do not name.
+          ARGS+=(--git-sha "$KERNEL_SHA" --git-clone "$KERNEL_URL" --git-ref "$KERNEL_REF")
           [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
           [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
           # Always passed, unlike the optional inputs above: an empty list is a
