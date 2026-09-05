@@ -2,14 +2,15 @@ name: release
 
 # Release kernel package builds. Triggered manually only.
 #
-# Reads Release rows from ci/build-matrix.json, flattens suites, and builds
-# each entry using the matrix-selected ref strategy and branch_or_tag. After a
-# successful build, packages are promoted from the ephemeral Debusine CI
-# workspace to the stable target workspace (e.g. qli) via debusine-action
-# lib/release.
+# Reads the Release entries from ci/build-matrix.yaml and builds each one using
+# the matrix-selected ref strategy and branch_or_tag. After a successful build,
+# packages are promoted from the ephemeral Debusine CI workspace to the stable
+# target workspace (e.g. qli) via debusine-action lib/release.
 #
-# To update a release ref: open a PR that changes the Release row for that
-# kernel variant in ci/build-matrix.json.
+# To update a release ref: open a PR that changes branch_or_tag on every
+# Release entry for that kernel variant in ci/build-matrix.yaml. A variant's
+# Release entries must agree on the ref, so resolve-matrix.py rejects the
+# matrix if only some of them are updated.
 #
 # This workflow intentionally has no schedule trigger. Releases are always
 # initiated manually after validation.
@@ -42,7 +43,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Release rows from ci/build-matrix.json.
+  # configure-matrix: select the Release entries from ci/build-matrix.yaml.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure release matrix
@@ -67,25 +68,25 @@ jobs:
 
           case "$RELEASE_SCOPE" in
             "Selected variant (all suites)")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
+              echo "Source: ci/build-matrix.yaml (variant: $INPUT_VARIANT, all suites)"
               args=(--type Release --kernel-variant "$INPUT_VARIANT")
               ;;
             "Selected variant and suite")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
-              args=(--type Release --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
+              echo "Source: ci/build-matrix.yaml (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
+              args=(--type Release --kernel-variant "$INPUT_VARIANT" --suite "$INPUT_SUITE")
               ;;
             *)
               echo "ERROR: unsupported release scope: $RELEASE_SCOPE" >&2
               exit 1
               ;;
           esac
-          MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
+          MATRIX=$(ci/scripts/resolve-matrix.py "${args[@]}")
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per flat Release matrix entry.
+  # build: one parallel job per Release matrix entry.
   #
   # Uses the ref strategy and branch_or_tag selected by the matrix.
   # Passes target_workspace so build-kernel-debusine.yml triggers the Debusine

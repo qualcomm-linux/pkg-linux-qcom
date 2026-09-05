@@ -1,6 +1,10 @@
 name: PR Build
 
 # Build-test PRs through the same pipeline the daily builds use.
+#
+# Packaging and CI now live on one branch, so a PR is tested entirely against
+# its own commit: its ci/build-matrix.yaml defines the legs, and its debian/
+# tree and ci/scripts build them. Nothing is read from main.
 
 on:
   pull_request:
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Daily rows from the PR's build-matrix.json.
+  # configure-matrix: select the Daily entries from the PR's build-matrix.yaml.
   #
   # The PR head, not the merge commit: a push mid-run must not change what this
   # run tested. A SHA also resolves for fork PRs, whose head branch does not
@@ -37,12 +41,12 @@ jobs:
         id: set-matrix
         run: |
           set -euo pipefail
-          MATRIX=$(ci/scripts/resolve-matrix.sh --type Daily)
+          MATRIX=$(ci/scripts/resolve-matrix.py --type Daily)
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per flat matrix entry, mirroring daily.yml.
+  # build: one parallel job per matrix entry, mirroring daily.yml.
   #
   # fail-fast is disabled so a broken trixie leg still leaves forky and
   # resolute results on the PR.

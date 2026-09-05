@@ -50,16 +50,16 @@ on:
         description: 'Advanced: out-of-tree DKMS modules to build and bundle into the kernel image, comma-separated and without the -dkms suffix (e.g. kgsl,camx); empty bundles nothing'
         required: false
         default: ''
-      debian-version-stub:
-        description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
+      debian-revision:
+        description: 'Advanced: Debian revision override (empty takes the Daily revision the matrix gives this variant and suite)'
         required: false
-        default: '0qli1'
+        default: ''
       localversion:
         description: 'Advanced: LOCALVERSION override (auto-derived from the resolved ref if empty)'
         required: false
         default: ''
       kver-extra:
-        description: 'Advanced: extra KVER suffix (e.g. -ci42), appended to the kernel release verbatim'
+        description: 'Advanced: extra package-version suffix (e.g. -ci42)'
         required: false
         default: ''
       debug-build:
@@ -124,13 +124,13 @@ on:
       debian-revision:
         description: 'Debian revision component of the package version'
         type: string
-        default: '0qli1~'
+        default: '0qli~'
       localversion:
         description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
         type: string
         default: ''
       kver-extra:
-        description: 'Extra KVER suffix, appended to the kernel release verbatim'
+        description: 'Extra suffix appended to the package version'
         type: string
         default: ''
       debusine-parent-workspace:
@@ -214,7 +214,11 @@ jobs:
       - name: Checkout pkg-linux-qcom
         # debian/ and ci/ live on the same branch, so one checkout supplies
         # both the packaging and resolve-kernel-ref.sh, derive-localversion.sh,
-        # derive-debian-revision.sh and the suite_suffix_mapping.
+        # resolve-matrix.py and the delivery matrix it reads.
+        #
+        # An empty ref leaves actions/checkout on github.sha, the commit this
+        # run was dispatched from or the one the calling workflow runs at.
+        # Credentials are kept: the self-pr step below fetches from origin.
         uses: actions/checkout@v4
 
       - name: Checkout docker-pkg-build
@@ -273,19 +277,7 @@ jobs:
           echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
           echo "Kernel HEAD SHA: $KERNEL_SHA"
 
-          # Committer date of HEAD, normalised to UTC. Committer rather than
-          # author date: an author date can be months old on a backported
-          # patch, which would date the build by when someone first wrote the
-          # code rather than by when this snapshot came to exist.
-          KERNEL_DATE=$(TZ=UTC git -C "$KERNEL_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
-          [[ "$KERNEL_DATE" =~ ^[0-9]{8}$ ]] || {
-            echo "::error::could not read a YYYYMMDD commit date from $KERNEL_REF (got '$KERNEL_DATE')"
-            exit 1
-          }
-          echo "KERNEL_DATE=$KERNEL_DATE" >> "$GITHUB_ENV"
-          echo "Kernel HEAD commit date (UTC): $KERNEL_DATE"
-
-      - name: Derive version fields
+      - name: Derive LOCALVERSION
         env:
           LOCALVERSION_INPUT: ${{ inputs.localversion }}
           KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
@@ -293,55 +285,44 @@ jobs:
           set -euo pipefail
           OVERRIDE_LV="$LOCALVERSION_INPUT"
           if [[ -n "$OVERRIDE_LV" ]]; then
-            # An override supplies no snapshot, and the ref it was chosen to
-            # replace cannot be trusted to describe it. The Debian version then
-            # carries no +git<date>; prepare-source.sh warns about the same.
             echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
             echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
-            echo "SNAPSHOT=" >> "$GITHUB_ENV"
-            echo "GITSHA=" >> "$GITHUB_ENV"
           else
-            # Emits LOCALVERSION=, SNAPSHOT= and GITSHA= lines, already in
-            # GITHUB_ENV form.
-            #
-            # --date is only consulted for branch-tip builds, where the ref
-            # carries no snapshot of its own. It comes from the commit rather
-            # than the clock, so rebuilding a commit reproduces its version
-            # instead of inventing a higher one, and it lands in the same space
-            # as upstream's tag dates.
-            FIELDS=$(ci/scripts/derive-localversion.sh \
+            LOCALVERSION=$(ci/scripts/derive-localversion.sh \
               --variant "$KERNEL_VARIANT_INPUT" \
               --ref "$KERNEL_REF" \
-              --sha "$KERNEL_SHA" \
-              --date "$KERNEL_DATE")
-            echo "$FIELDS" >> "$GITHUB_ENV"
-            echo "Derived version fields:"
-            echo "$FIELDS"
+              --sha "$(echo "$KERNEL_SHA" | cut -c1-12)")
+            echo "LOCALVERSION=$LOCALVERSION" >> "$GITHUB_ENV"
+            echo "Derived LOCALVERSION: $LOCALVERSION"
           fi
 
       - name: Resolve Debian revision
-        # workflow_call callers (daily.yml, release.yml) pass an already
-        # fully-derived debian-revision from resolve-matrix.sh. Direct
-        # workflow_dispatch runs pass only debian-version-stub and get the
-        # selected suite's mapped suffix applied automatically, always using
-        # Daily semantics since direct dispatch is build-only and
-        # non-promoting.
+        # workflow_call callers (daily.yml, release.yml) pass the entry's own
+        # debian-revision straight from the matrix. A direct workflow_dispatch
+        # that leaves it empty looks the same entry up itself, so a manual
+        # build of a configured variant and suite gets exactly the revision the
+        # daily build would have used. The lookup is always the Daily entry:
+        # direct dispatch is build-only and never promotes.
         env:
           DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
-          DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli1' }}
+          KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
         run: |
           set -euo pipefail
           INPUT_REVISION="$DEBIAN_REVISION_INPUT"
           if [[ -n "$INPUT_REVISION" ]]; then
             DEBIAN_REVISION="$INPUT_REVISION"
-            echo "Using matrix-derived Debian revision: $DEBIAN_REVISION"
+            echo "Using supplied Debian revision: $DEBIAN_REVISION"
           else
-            DEBIAN_REVISION=$(ci/scripts/derive-debian-revision.sh \
-              --stub "$DEBIAN_VERSION_STUB_INPUT" \
+            DEBIAN_REVISION=$(ci/scripts/resolve-matrix.py \
+              --type Daily \
+              --kernel-variant "$KERNEL_VARIANT_INPUT" \
               --suite "$DISTRO" \
-              --delivery-type Daily \
-              --matrix-file ci/build-matrix.json)
-            echo "Derived Debian revision for direct dispatch: $DEBIAN_REVISION"
+              --field debian_revision) || {
+              echo "::error::No Daily matrix entry for kernel-variant=$KERNEL_VARIANT_INPUT suite=$DISTRO."
+              echo "::error::Add one to ci/build-matrix.yaml, or set the debian-revision input to build this combination ad hoc."
+              exit 1
+            }
+            echo "Matrix Debian revision for $KERNEL_VARIANT_INPUT/$DISTRO: $DEBIAN_REVISION"
           fi
           echo "DEBIAN_REVISION=$DEBIAN_REVISION" >> "$GITHUB_ENV"
 
@@ -411,10 +392,10 @@ jobs:
           # A listed module is a presence contract, so an Ubuntu leg that asked
           # for them would hard-fail rather than quietly ship without them.
           #
-          # This is delivery policy and belongs in ci/build-matrix.json, which
-          # cannot express a per-suite dkms list yet. Revert this override —
-          # and the "needs: resolve"/SUITE_FAMILY plumbing that feeds it — once
-          # the matrix can.
+          # This is delivery policy and belongs in ci/build-matrix.yaml, whose
+          # entries are now one per suite and can carry it. Revert this
+          # override — and the "needs: resolve"/SUITE_FAMILY plumbing that
+          # feeds it — in the commit that moves the policy there.
           if [[ "$SUITE_FAMILY" == "ubuntu" ]]; then
             DKMS_LIST="kgsl"
             echo "Ubuntu build: DKMS list overridden to '$DKMS_LIST' (was '$DKMS_INPUT')"
@@ -428,16 +409,7 @@ jobs:
             --debian-revision "$DEBIAN_REVISION"
           )
 
-          # All three version fields come from derive-localversion.sh, which
-          # composed them from the ref and HEAD together. Nothing here appends
-          # to them: the SHA is already inside LOCALVERSION, and GITSHA carries
-          # it separately for the Debian version, which joins it differently.
           [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
-          [[ -n "$SNAPSHOT" ]]            && ARGS+=(--snapshot "$SNAPSHOT")
-          # Full SHA: prepare-source.sh takes the first 12 for the version
-          # strings and records the whole thing in the changelog, alongside the
-          # repository and ref that the version strings do not name.
-          ARGS+=(--git-sha "$KERNEL_SHA" --git-clone "$KERNEL_URL" --git-ref "$KERNEL_REF")
           [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
           [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
           # Always passed, unlike the optional inputs above: an empty list is a
