@@ -58,9 +58,10 @@ jobs:
   # build-debian / build-ubuntu: one parallel job per matrix entry, mirroring
   # daily.yml.
   #
-  # A PR gets one check per build leg and nothing else: neither workflow has a
-  # branch to skip, and a PR builds the whole matrix, so both families have
-  # entries and neither guard fires.
+  # A PR builds the whole matrix, so it gets one check per build leg and
+  # nothing else -- unless the matrix has no entries for one family, which
+  # fires that family's guard and leaves a check named "matrix.name".
+  # daily.yml documents why the guard is needed and the name left alone.
   #
   # fail-fast is disabled so a broken trixie leg still leaves forky and
   # resolute results on the PR.
