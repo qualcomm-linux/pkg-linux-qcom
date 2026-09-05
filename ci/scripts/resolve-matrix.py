@@ -93,7 +93,7 @@ REF_STRATEGIES = ("latest_tag", "branch_tip", "pinned_ref")
 # runners, containers and publish steps, so a caller selects entries by family
 # and calls the one workflow that builds them -- rather than every build leg
 # starting both and skipping one.
-DEBIAN_SUITES = ("trixie", "forky", "sid", "unstable", "bookworm")
+DEBIAN_SUITES = ("trixie", "forky", "sid", "unstable")
 FAMILIES = ("debian", "ubuntu")
 
 

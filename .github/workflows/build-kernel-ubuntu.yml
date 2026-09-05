@@ -28,7 +28,7 @@ on:
         type: string
         default: 'qcom-next'
       suite:
-        description: 'Target Ubuntu suite (noble, questing, resolute)'
+        description: 'Target Ubuntu suite (noble, resolute)'
         type: string
         default: 'resolute'
       kernel-branch:
@@ -102,7 +102,7 @@ on:
         default: 'qcom-next'
         type: string
       suite:
-        description: 'Target Ubuntu suite (noble, questing, resolute). A Debian suite here is rejected before anything is built; dispatch build-kernel-debian for those.'
+        description: 'Target Ubuntu suite (noble, resolute). A Debian suite here is rejected before anything is built; dispatch build-kernel-debian for those.'
         required: true
         default: 'resolute'
         type: string
