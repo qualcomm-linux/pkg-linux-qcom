@@ -1,7 +1,7 @@
 name: Prepare kernel source
 description: >
-  Resolve the kernel ref, clone it, inject debian/ and generate the source
-  package, then upload the prepared tree as an artifact.
+  Resolve the kernel ref, clone it, inject debian/, build the Debian source
+  package, and upload it as an artifact alongside the prepared tree.
 
 # Every build takes this path, whichever family it belongs to, so it lives in a
 # composite action rather than a reusable workflow: the two family workflows
@@ -21,13 +21,25 @@ description: >
 # come from the build matrix as the pull request wrote it.
 
 outputs:
+  srcpkg_name:
+    description: 'Name of the source package this build produces'
+    value: ${{ steps.version.outputs.srcpkg_name }}
   srcpkg_version:
     description: >
-      Version of the source package this build will produce, read from the
-      generated debian/changelog. A caller that promotes the result into an
-      archive needs it before the build starts, to see whether that version is
-      already published there.
+      Version of the source package this build produces, read from the .dsc
+      build-source-package.sh wrote. A caller that promotes the result into
+      an archive needs it before the build starts, to see whether that
+      version is already published there.
     value: ${{ steps.version.outputs.srcpkg_version }}
+  orig_file:
+    description: 'Filename of the .orig.tar.gz the source package references'
+    value: ${{ steps.version.outputs.orig_file }}
+  orig_sha256:
+    description: >
+      SHA-256 of that orig tarball. It is a function of the kernel commit, so
+      a caller can compare it with what an archive already holds for this
+      upstream version and fail on a difference.
+    value: ${{ steps.version.outputs.orig_sha256 }}
 
 inputs:
   build:
@@ -352,28 +364,69 @@ runs:
           "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
           ./prepare-source.sh "${ARGS[@]}"
 
-    - name: Read the generated source version
-      # prepare-source.sh has just written debian/changelog, so the version
-      # this build will produce is now decided and can be reported to the
-      # caller. Taken from the changelog rather than recomputed here: that file
-      # is what the source package is built from, so nothing can disagree with
-      # it. Parsed with sed rather than dpkg-parsechangelog because these steps
-      # run on the runner host, which is not required to have dpkg-dev; the
-      # first line of a changelog is "srcpkg (version) suite; urgency=...".
-      id: version
+    - name: Build source package
+      # The .orig.tar.gz, .dsc and .changes the binary build starts from,
+      # whichever family builds it. Built here, in the same container that
+      # ran prepare-source.sh, because the runner host has no dpkg-dev and
+      # because the orig's bytes depend on the gzip that wrote them: every
+      # build that must agree on a checksum writes its orig in this image.
+      #
+      # git is told to trust the checkout, which the runner owns and the
+      # container reads as root; the checkout is this job's own clone. The
+      # fields file lands beside the output directory, outside the artifact.
       shell: bash
       env:
         KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
       run: |
         set -euo pipefail
-        SRCPKG_VERSION=$(sed -n '1s/^[^ ]* (\([^)]*\)).*/\1/p' \
-          "$KERNEL_DIR/debian/changelog")
-        [[ -n "$SRCPKG_VERSION" ]] || {
-          echo "::error::Could not read a version from the generated debian/changelog."
+        docker run -i --rm \
+          -v "$PWD:$PWD" --workdir="$PWD" \
+          -e GIT_CONFIG_COUNT=1 \
+          -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+          "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
+          ./build-source-package.sh \
+            --source-dir "$KERNEL_DIR" \
+            --output-dir "$PWD/source-package" \
+            --write-fields "$PWD/source-package.fields"
+
+    - name: Read the source package fields
+      # build-source-package.sh has decided the version and written it into
+      # the .dsc, so what it reports is what will be built and nothing can
+      # disagree with it. Read from its fields file rather than recomputed:
+      # these steps run on the runner host, which has no dpkg-dev. The values
+      # are the script's own, filtered to the characters Debian allows in a
+      # name and version, so none can carry a newline into GITHUB_OUTPUT.
+      id: version
+      shell: bash
+      run: |
+        set -euo pipefail
+        while IFS='=' read -r key value; do
+          case "$key" in
+            SRCPKG_NAME)    echo "srcpkg_name=$value" ;;
+            SRCPKG_VERSION) echo "srcpkg_version=$value" ;;
+            ORIG)           echo "orig_file=$(basename "$value")" ;;
+            ORIG_SHA256)    echo "orig_sha256=$value" ;;
+            UPSTREAM_VERSION|CHANGES|DSC) ;;
+            *) echo "::error::unexpected field '$key' from build-source-package.sh"; exit 1 ;;
+          esac
+        done < source-package.fields >> "$GITHUB_OUTPUT"
+        grep -q '^SRCPKG_VERSION=.' source-package.fields || {
+          echo "::error::build-source-package.sh reported no version."
           exit 1
         }
-        echo "Source version: $SRCPKG_VERSION"
-        echo "srcpkg_version=$SRCPKG_VERSION" >> "$GITHUB_OUTPUT"
+        echo "Source package:"
+        cat source-package.fields
+
+    - name: Upload source package artifact
+      # The whole .changes set: .changes, .dsc, .debian.tar.xz and the orig.
+      # Plain files with no execute bits to lose, so no tarball around them.
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: source-package-${{ inputs.flavour }}-${{ inputs.suite }}
+        path: source-package/
+        if-no-files-found: error
+        retention-days: 7
 
     - name: Pack prepared source tree
       shell: bash
