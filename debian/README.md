@@ -173,8 +173,8 @@ Debian's official `linux` source package and Ubuntu OEM kernels.
 
 ```
 KVER = <base-version> + LOCALVERSION
-     = 7.0.0-rc2        + -qcom-next-20260826
-     = 7.2.0-qcom-next-20260826
+     = 7.2.0-rc7        + -qcom-next-20260826
+     = 7.2.0-rc7-qcom-next-20260826
 ```
 
 `build-kernel.sh` passes `LOCALVERSION` to `prepare`, which determines KVER by:
