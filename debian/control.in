@@ -29,7 +29,7 @@ Description: Qualcomm ARM64 Linux kernel image @KVER@
 
 Package: @BINPKG@
 Architecture: arm64
-Depends: linux-image-@KVER@, ${misc:Depends}
+Depends: linux-image-@KVER@ (= ${binary:Version}), ${misc:Depends}
 Description: Qualcomm ARM64 Linux kernel image (meta-package)
  This meta-package always depends on the latest @BINPKG@ kernel image
  for ARM64 Qualcomm platforms. Installing this package ensures that
@@ -48,7 +48,7 @@ Description: Qualcomm ARM64 Linux kernel headers @KVER@
 
 Package: @HDRPKG@
 Architecture: arm64
-Depends: linux-headers-@KVER@, ${misc:Depends}
+Depends: linux-headers-@KVER@ (= ${binary:Version}), ${misc:Depends}
 Description: Qualcomm ARM64 Linux kernel headers (meta-package)
  This meta-package always depends on the latest @HDRPKG@ kernel headers
  for ARM64 Qualcomm platforms.
