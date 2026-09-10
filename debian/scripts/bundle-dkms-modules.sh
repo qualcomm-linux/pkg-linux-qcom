@@ -56,10 +56,10 @@ set -euo pipefail
 #
 # USAGE (standalone developer path — after manual staging):
 #   debian/scripts/bundle-dkms-modules.sh \
-#     --kver        6.12.0-qcom-next-20260210 \
-#     --headers-dir /path/to/kernel-source/debian/linux-headers-6.12.0-qcom-next-20260210/usr/src/linux-headers-6.12.0-qcom-next-20260210 \
-#     --image-pkg-dir /path/to/kernel-source/debian/linux-image-6.12.0-qcom-next-20260210 \
-#     --dbg-pkg-dir   /path/to/kernel-source/debian/linux-image-6.12.0-qcom-next-20260210-dbg
+#     --kver        6.12.0+20260210-qcom-next \
+#     --headers-dir /path/to/kernel-source/debian/linux-headers-6.12.0+20260210-qcom-next/usr/src/linux-headers-6.12.0+20260210-qcom-next \
+#     --image-pkg-dir /path/to/kernel-source/debian/linux-image-6.12.0+20260210-qcom-next \
+#     --dbg-pkg-dir   /path/to/kernel-source/debian/linux-image-6.12.0+20260210-qcom-next-dbg
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -105,7 +105,7 @@ invoked directly by a developer who has already staged the kernel trees.
 
 REQUIRED:
   --kver KVER               Kernel release string (uname -r), e.g.:
-                              6.12.0-qcom-next-20260210
+                              6.12.0+20260210-qcom-next
   --headers-dir DIR         Absolute path to the staged kernel headers root.
                             Must contain Makefile, include/, scripts/, arch/.
                             MUST be absolute: dkms invokes make from inside the
@@ -162,22 +162,22 @@ MANIFEST FORMAT (debian/dkms-modules):
 EXAMPLES:
   # CI path (called from debian/rules):
   debian/scripts/bundle-dkms-modules.sh \\
-    --kver 6.12.0-qcom-next-20260210 \\
-    --headers-dir /build/kernel/debian/linux-headers-6.12.0-qcom-next-20260210/usr/src/linux-headers-6.12.0-qcom-next-20260210 \\
-    --image-pkg-dir /build/kernel/debian/linux-image-6.12.0-qcom-next-20260210 \\
-    --dbg-pkg-dir   /build/kernel/debian/linux-image-6.12.0-qcom-next-20260210-dbg
+    --kver 6.12.0+20260210-qcom-next \\
+    --headers-dir /build/kernel/debian/linux-headers-6.12.0+20260210-qcom-next/usr/src/linux-headers-6.12.0+20260210-qcom-next \\
+    --image-pkg-dir /build/kernel/debian/linux-image-6.12.0+20260210-qcom-next \\
+    --dbg-pkg-dir   /build/kernel/debian/linux-image-6.12.0+20260210-qcom-next-dbg
 
   # Developer standalone path:
   debian/scripts/bundle-dkms-modules.sh \\
-    --kver 6.12.0-qcom-next-20260210 \\
-    --headers-dir /path/to/staged/linux-headers-6.12.0-qcom-next-20260210 \\
-    --image-pkg-dir /path/to/staged/linux-image-6.12.0-qcom-next-20260210 \\
-    --dbg-pkg-dir   /path/to/staged/linux-image-6.12.0-qcom-next-20260210-dbg \\
+    --kver 6.12.0+20260210-qcom-next \\
+    --headers-dir /path/to/staged/linux-headers-6.12.0+20260210-qcom-next \\
+    --image-pkg-dir /path/to/staged/linux-image-6.12.0+20260210-qcom-next \\
+    --dbg-pkg-dir   /path/to/staged/linux-image-6.12.0+20260210-qcom-next-dbg \\
     --arch aarch64
 
   # With explicit manifest and objcopy:
   debian/scripts/bundle-dkms-modules.sh \\
-    --kver 6.12.0-qcom-next-20260210 \\
+    --kver 6.12.0+20260210-qcom-next \\
     --headers-dir /path/to/headers \\
     --image-pkg-dir /path/to/image-pkg \\
     --dbg-pkg-dir   /path/to/dbg-pkg \\

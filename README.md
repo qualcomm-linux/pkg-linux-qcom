@@ -29,8 +29,8 @@ kernel flavour owns as many entries as it has suites.
 | `next` | `linux-next` | `linux-image-next` | trixie, forky | Newest `next-YYYYMMDD` tag of linux-next. No DKMS modules |
 
 `derive-localversion.sh` folds the *flavour* into LOCALVERSION, so each
-produces a distinct kernel release (`+qcom-next-<date>-g<sha>`,
-`+qcom-next-debug-<date>-g<sha>`, and so on) and therefore a distinct versioned
+produces a distinct kernel release (`+<date>-g<sha>-qcom-next`,
+`+<date>-g<sha>-qcom-next-debug`, and so on) and therefore a distinct versioned
 image package that can be installed alongside the others. The flavour is what
 the kernel is; a build's `name` is only what CI calls it. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
@@ -497,7 +497,7 @@ Every build names both its snapshot and the commit it was cut from:
 
 | | Format | Example |
 | --- | --- | --- |
-| Kernel release (`uname -r`) | `<base>+<variant>-<date>[.<respin>]-g<sha>` | `7.2.0-rc7+qcom-next-20260826.1-g011a82096bee` |
+| Kernel release (`uname -r`) | `<base>+<date>[.<respin>]-g<sha>-<variant>` | `7.2.0-rc7+20260826.1-g011a82096bee-qcom-next` |
 | Debian version | `<base>+git<date>[.<respin>]~g<sha>-<revision>` | `7.2.0~rc7+git20260826.1~g011a82096bee-0qli1~bpo13+1` |
 
 The two strings spell the same fields differently because they are compared by
