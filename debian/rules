@@ -534,20 +534,18 @@ override_dh_installmodules:
 override_dh_installdeb:
 	# Generate versioned maintainer scripts from templates using BASE (uname -r).
 	# The binary package name is linux-image-<BASE>, derived from kernel.release.
-	# dh_installmodules injects the depmod snippet at #DEBHELPER# in the postinst.
+	# Every maintainer script is a debian/linux-image.<script>.in template with
+	# @KVER@ substituted, so each one can name its own kernel release; scripts
+	# with no template are simply not shipped.
+	# dh_installmodules injects the depmod snippet at #DEBHELPER# in them.
 	@BASE=$$(cat $(KREL_FILE)); \
 	INST_PKG="linux-image-$$BASE"; \
 	\
-	# Generate debian/linux-image-<BASE>.postinst from template.
-	sed "s/@KVER@/$$BASE/g" debian/linux-image.postinst.in > debian/$$INST_PKG.postinst; \
-	chmod 755 debian/$$INST_PKG.postinst; \
-	\
-	# Copy static maintainer scripts to versioned names.
-	for script in preinst postrm prerm; do \
-		if [ -f debian/linux-image.$$script ]; then \
-			cp debian/linux-image.$$script debian/$$INST_PKG.$$script; \
-			chmod 755 debian/$$INST_PKG.$$script; \
-		fi; \
+	for script in preinst postinst prerm postrm; do \
+		template="debian/linux-image.$$script.in"; \
+		[ -f "$$template" ] || continue; \
+		sed "s/@KVER@/$$BASE/g" "$$template" > debian/$$INST_PKG.$$script; \
+		chmod 755 debian/$$INST_PKG.$$script; \
 	done; \
 	\
 	dh_installmodules; \

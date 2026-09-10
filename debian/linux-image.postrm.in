@@ -1,0 +1,26 @@
+#!/bin/sh
+# postrm for linux-image-@KVER@
+#
+# Generated from debian/linux-image.postrm.in by debian/rules at build time;
+# @KVER@ is substituted with the kernel release (uname -r).
+set -e
+
+KVER="@KVER@"
+
+# Auto-generated debhelper code (dh_installmodules' depmod call) is inserted
+# here.
+#DEBHELPER#
+
+# Run kernel postrm.d hooks (includes zz-update-grub). This is the standard
+# Debian way to tidy the bootloader after a kernel is removed.
+#
+# A failing hook must not fail the removal -- dpkg would leave the package
+# half-removed -- so the dispatch is allowed to fail.
+if [ "$1" = "remove" ] && [ -d /etc/kernel/postrm.d ]; then
+    echo "linux-image: running kernel postrm.d hooks for $KVER..."
+    image_path="/boot/vmlinuz-$KVER"
+    DEB_MAINT_PARAMS="$*" run-parts --report --exit-on-error --arg="$KVER" \
+          --arg="$image_path" /etc/kernel/postrm.d || true
+fi
+
+exit 0
