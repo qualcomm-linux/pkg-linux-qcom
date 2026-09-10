@@ -239,6 +239,20 @@ prepare:
 		DKMS_BUILD_DEPENDS=", dkms$$DKMS_BUILD_DEPENDS"; \
 	fi; \
 	\
+	# Provides tail on the image package, appended the same way: the module a
+	# -dkms package would build for this kernel is already in the image, in
+	# /lib/modules/<kver>/extra/, so a dependency on that -dkms package is
+	# satisfied by installing this kernel. The entries are deliberately
+	# unversioned -- the version a dkms source carries is its module version,
+	# not the version of the package that shipped it, so there is nothing
+	# truthful to put in a version clause.
+	DKMS_PROVIDES=""; \
+	if [ -n "$$DKMS_LIST" ]; then \
+		for mod in $$DKMS_LIST; do \
+			DKMS_PROVIDES="$$DKMS_PROVIDES, $$mod-dkms"; \
+		done; \
+	fi; \
+	\
 	# ── Substitute templates ──────────────────────────────────────────────────
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
@@ -247,6 +261,7 @@ prepare:
 		-e "s|@KVER@|$$KVER_RESOLVED|g" \
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
 		-e "s|@DKMS_BUILD_DEPENDS@|$$DKMS_BUILD_DEPENDS|g" \
+		-e "s|@DKMS_PROVIDES@|$$DKMS_PROVIDES|g" \
 		debian/control.in > debian/control; \
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
