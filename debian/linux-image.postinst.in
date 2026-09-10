@@ -1,9 +1,14 @@
 #!/bin/sh
+# postinst for linux-image-@KVER@
+#
+# Generated from debian/linux-image.postinst.in by debian/rules at build time;
+# @KVER@ is substituted with the kernel release (uname -r).
 set -e
 
 KVER="@KVER@"
 
-# Auto-generated code from dh_installmodules (depmod calls) will be inserted here
+# Auto-generated debhelper code (dh_installmodules' depmod call) is inserted
+# here.
 #DEBHELPER#
 
 # Run kernel postinst.d hooks (triggers initramfs generation and bootloader updates)
@@ -15,4 +20,5 @@ if [ "$1" = "configure" ] && [ -d /etc/kernel/postinst.d ]; then
 fi
 
 echo "linux-image: installed kernel $KVER (reboot to use it)."
+
 exit 0
