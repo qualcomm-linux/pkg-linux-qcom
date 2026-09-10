@@ -9,7 +9,7 @@ A build produces two version strings, and they are deliberately not the same
 string:
 
 ```text
-uname -r         7.2.0-rc7+qcom-next-20260821-gabcdef123456
+uname -r         7.2.0-rc7+20260821-gabcdef123456-qcom-next
 Debian version   7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1
 ```
 
@@ -42,7 +42,7 @@ the version stays closer to the tag it came from.
 ## Kernel release
 
 ```text
-<base>+qcom-next-<date>[.<respin>]-g<12 hex>
+<base>+<date>[.<respin>]-g<12 hex>-<variant>
 ```
 
 The full upstream version survives here, `-rc7` included: `uname -r` is the
@@ -52,16 +52,22 @@ release candidate or a stable sublevel.
 The suffix joins with `+`, not `-`. systemd compares the separator before the
 chunk behind it, and `-` sorts below `+`, so `+` puts every release candidate
 below the final release that follows it. Joining with `-` instead falls through
-to a plain comparison of `rc` against `qcom`, where `r` > `q`, and every rc
-outranks its own final release in the boot menu. This is the same trick Debian's
-own kernels use (`linux-image-7.1.10+deb14-amd64`).
+to a plain comparison of `rc` against the digits of the date, where `r` outranks
+any digit, and every rc outranks its own final release in the boot menu. This is
+the same trick Debian's own kernels use (`linux-image-7.1.10+deb14-amd64`).
 
 The variant name is part of the string, so a flavour is a distinct kernel that
 installs alongside the others rather than replacing them:
 
 ```text
-7.2.0-rc7+qcom-next-debug-20260821-gabcdef123456
+7.2.0-rc7+20260821-gabcdef123456-qcom-next-debug
 ```
+
+It goes last because Debian's kernel releases end in the flavour
+(`7.1.12+deb14-amd64`), which makes the metapackage name `linux-image-<variant>`
+exactly what remains of `linux-image-<kernel release>` once the version is
+taken off. The cost is that the boot menu orders by date before variant, so two
+variants on one board interleave rather than grouping.
 
 This string is also the versioned binary package name
 (`linux-image-<kernel release>`), so a new commit means a new package name. That
@@ -151,7 +157,7 @@ the HEAD commit instead. The result has the same shape as a tag build and orders
 in the same sequence:
 
 ```text
-uname -r         7.2.0-rc7+qcom-next-20260904-g07f50dc44edd
+uname -r         7.2.0-rc7+20260904-g07f50dc44edd-qcom-next
 Debian version   7.2.0~rc7+git20260904~g07f50dc44edd-0qli1~bpo13+1
 ```
 
@@ -173,7 +179,7 @@ repository, the resolved ref and the full 40-character SHA are recorded in the
 package changelog instead:
 
 ```text
-  * Kernel version: 7.2.0-rc7+qcom-next-20260904-g07f50dc44edd
+  * Kernel version: 7.2.0-rc7+20260904-g07f50dc44edd-qcom-next
   * Source: https://github.com/qualcomm-linux/kernel qcom-next
   * Commit: 07f50dc44edd…
 ```
