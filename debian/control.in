@@ -1,7 +1,7 @@
 Source: @SRCPKG@
 Section: kernel
 Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
-Standards-Version: 4.6.2
+Standards-Version: 4.7.4
 Build-Depends: debhelper-compat (= 13),
                debhelper (>= 13.11.9~),
                bc, bison, flex, libssl-dev, libelf-dev, dwarves,
