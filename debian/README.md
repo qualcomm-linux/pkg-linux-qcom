@@ -362,10 +362,21 @@ script (`scripts/package/builddeb`). Debug symbols are installed under
 both can be installed simultaneously.
 
 Installed paths:
-- `/usr/lib/debug/lib/modules/<KVER>/` — per-module debug symbols extracted via `objcopy --only-keep-debug`
+- `/usr/lib/debug/lib/modules/<KVER>/kernel/…` — per-module debug symbols extracted via `objcopy --only-keep-debug`, mirroring where each in-tree module installs
+- `/usr/lib/debug/lib/modules/<KVER>/extra/…` — the same for bundled DKMS modules
+- `/usr/lib/debug/.build-id/<xx>/<rest>.debug` → symlink to the module's debug file, one per module
 - `/usr/lib/debug/lib/modules/<KVER>/vmlinux` — unstripped vmlinux (for `perf`, `crash`)
 - `/usr/lib/debug/boot/vmlinux-<KVER>` → symlink to vmlinux (for `systemtap`)
 - `/usr/lib/debug/vmlinux-<KVER>` → symlink to vmlinux (for `kdump-tools`)
+
+A module's debug file is reachable two ways, as in `builddeb`: by the path that
+mirrors the module's own install path, and by build ID. The build-id path is
+what `gdb` and `debuginfod` consult first, and it is the only one that holds
+however the module was addressed — a tool that opens it as
+`/usr/lib/modules/…` rather than `/lib/modules/…` looks under
+`/usr/lib/debug/usr/lib/modules/…`, which the mirrored path does not answer.
+A module built without a build ID is still shipped at the mirrored path; the
+build sends a warning to the log and no symlink is made.
 
 Depends on `linux-image-<KVER>` (same version).
 
