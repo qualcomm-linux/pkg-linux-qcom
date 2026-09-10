@@ -555,11 +555,40 @@ for name in $DKMS_MODULES; do
             exit 1
         fi
 
+        # Stage 2c: link the debug file into /usr/lib/debug/.build-id/, the way
+        # debian/rules does for in-tree modules. gdb and debuginfod look a
+        # debug file up by build ID before they try the path-mirrored copy, and
+        # the build-id path is the only one that does not depend on how the
+        # module was addressed. Read the ID from the module rather than the
+        # extracted file, and before Stage 3 strips it -- --strip-debug keeps
+        # the note, but there is no reason to depend on that.
+        #
+        # readelf parses ELF directly and is not tied to a target, so the host
+        # one reads an arm64 module fine; the assertion above already relies on
+        # that.
+        if ! dbg_notes="$(readelf -n "$dest" 2>&1)"; then
+            log_error "readelf failed reading the build ID of $b"
+            log_error "  module: $dest"
+            printf '%s\n' "$dbg_notes" | sed 's/^/  | /' >&2
+            exit 1
+        fi
+        buildid="$(sed -n 's@^.*Build ID: \(..\)\(.*\)@\1/\2@p' <<< "$dbg_notes")"
+        if [[ -n "$buildid" ]]; then
+            link="$DBG_PKG_DIR/usr/lib/debug/.build-id/$buildid.debug"
+            mkdir -p "${link%/*}"
+            ln -sf --relative "$dbg" "$link"
+        else
+            log_warn "No build ID in $b; skipping its .build-id symlink"
+        fi
+
         # Stage 3: strip the shipped copy in place
         strip --strip-debug "$dest"
 
         log_info "  Installed: $dest (stripped)"
         log_info "  Debug:     $dbg"
+        if [[ -n "$buildid" ]]; then
+            log_info "  Build ID:  ${buildid/\//}"
+        fi
 
     done < <(printf '%s\n' "$kos")
 
