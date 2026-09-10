@@ -2,7 +2,7 @@ Source: @SRCPKG@
 Section: kernel
 Priority: optional
 Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
-Standards-Version: 4.6.2
+Standards-Version: 4.7.4
 Build-Depends: debhelper-compat (= 13),
                bc, bison, flex, libssl-dev, libelf-dev, dwarves,
                python3, kmod, cpio, rsync, pkg-config, gcc, make@DKMS_BUILD_DEPENDS@
