@@ -59,8 +59,8 @@ pkg-linux-qcom/
 │   ├── rules                   ← Build logic + 'prepare' target
 │   ├── clean                   ← Lists generated files for dh_clean
 │   ├── linux-image.preinst.in  ← Pre-install maintainer script template (no-op)
-│   ├── linux-image.postinst.in ← Post-install maintainer script template (depmod, initramfs, GRUB)
-│   ├── linux-image.postrm.in   ← Post-remove maintainer script template (GRUB update)
+│   ├── linux-image.postinst.in ← Post-install maintainer script template (depmod, kernel hooks)
+│   ├── linux-image.postrm.in   ← Post-remove maintainer script template (kernel hooks)
 │   ├── config/                 ← Always-applied config fragments (committed)
 │   │   └── squashfs.config     ← SQUASHFS options for Ubuntu compatibility
 │   ├── config-available/       ← Packaging fragments, all applied to every build
@@ -336,9 +336,39 @@ Virtual packages provided: `linux-image`, `linux-image-arm64`
 Maintainer scripts:
 - `preinst` — no-op; coexistence of multiple kernel versions is handled by
   dpkg automatically (each version has a unique package name)
-- `postinst` — runs `depmod`, then `/etc/kernel/postinst.d/` hooks
-  (triggers `update-initramfs` and `update-grub`)
-- `postrm` — runs `/etc/kernel/postrm.d/` hooks (triggers `update-grub`)
+- `postinst` — runs `depmod`, then the kernel `postinst.d` hooks
+  (triggers `update-initramfs`, `update-grub` and, where systemd-boot is
+  installed, the loader entry and `loader.conf` generation)
+- `postrm` — runs the kernel `postrm.d` hooks (drops the removed kernel's
+  bootloader entries)
+
+Both hook directories are run: `/etc/kernel/{postinst,postrm}.d/` for hooks
+the administrator installs, and `/usr/share/kernel/{postinst,postrm}.d/` for
+hooks a package ships. The second directory is where systemd-boot installs
+`zz-systemd-boot` from forky onwards, so a package that runs only the first
+one produces an unbootable install there. Both scripts dispatch through
+`linux-run-hooks(1)`, which runs the two directories in the documented order
+and sets `DEB_MAINT_PARAMS`.
+
+The image package `Pre-Depends: linux-base (>= 4.12~)`, the release that ships
+that command, as Debian's own `linux-image` packages do — it runs from our
+postinst, so it has to be configured before we are. It is a plain field in
+`control.in`, not generated per suite: every suite in the build matrix carries
+4.12 or later (trixie has 4.12.1, forky and sid are ahead of it, resolute has
+4.15ubuntu5), so there is no suite to make an exception for. A suite whose
+`linux-base` predates 4.12 — noble, say, which the matrix does not build —
+refuses the package outright rather than installing it and silently skipping
+the hooks.
+
+There is no `run-parts` fallback, deliberately. One that ran `/etc/kernel/*.d/`
+alone would reintroduce the silent unbootable install on any system that got
+past the pre-dependency, which is the failure this arrangement exists to
+prevent; the postinst therefore calls the command unguarded, as Debian's does.
+The postrm is the exception and tests for it first: `Pre-Depends` holds while
+the package is installed, not while it is being removed, since dpkg may remove
+`linux-base` in the same run. It warns and carries on there, again as Debian's
+does — the cost of a skipped hook at removal is a stale bootloader entry, not
+an unbootable system, and a kernel must always be removable.
 
 Each script is generated at build time from its `debian/linux-image.<script>.in`
 template, with `@KVER@` substituted for the kernel release, so every script
