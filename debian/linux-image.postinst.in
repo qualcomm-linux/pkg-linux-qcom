@@ -11,12 +11,25 @@ KVER="@KVER@"
 # here.
 #DEBHELPER#
 
-# Run kernel postinst.d hooks (triggers initramfs generation and bootloader updates)
-if [ "$1" = "configure" ] && [ -d /etc/kernel/postinst.d ]; then
-    echo "linux-image: running /etc/kernel/postinst.d hooks for $KVER..."
+# Run the kernel postinst.d hooks: initramfs generation, bootloader entries.
+#
+# Hooks live in two directories: /etc/kernel/postinst.d for the ones the
+# administrator installs, and /usr/share/kernel/postinst.d for the ones a
+# package ships. systemd-boot's zz-systemd-boot moved to the latter in forky,
+# so running only the /etc directory there leaves the loader entry and
+# loader.conf unwritten and the kernel unbootable.
+#
+# linux-run-hooks(1) runs both directories in the right order and sets
+# DEB_MAINT_PARAMS. It ships in linux-base 4.12, which the package
+# pre-depends on, so it is here whenever this script runs: dpkg configures a
+# pre-dependency before it unpacks us. It is called unguarded for that reason,
+# as Debian's own linux-image postinst calls it. A fallback that ran the /etc
+# directory alone would be worse than none, since it would reintroduce exactly
+# the silent unbootable install described above.
+if [ "$1" = "configure" ]; then
+    echo "linux-image: running kernel postinst.d hooks for $KVER..."
     image_path="/boot/vmlinuz-$KVER"
-    DEB_MAINT_PARAMS="$*" run-parts --verbose --exit-on-error \
-          --arg="$KVER" --arg="$image_path" /etc/kernel/postinst.d
+    linux-run-hooks image postinst "$KVER" "$image_path" -- "$@"
 fi
 
 echo "linux-image: installed kernel $KVER (reboot to use it)."
