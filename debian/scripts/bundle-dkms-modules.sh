@@ -32,6 +32,10 @@ set -euo pipefail
 #      - Extracts debug symbols to <stage-root>/<name>-modules-<kver>-dbg/usr/lib/debug/lib/modules/<kver>/updates/qli/<mod>.ko
 #        via objcopy --only-keep-debug (Stage 1, non-destructive).
 #      - Strips the shipped copy with `strip --strip-debug` (Stage 2).
+#   7. Carries the runtime integration the -dkms package ships -- modprobe.d,
+#      udev rules, initramfs hooks and the like -- into the module package at
+#      its original path, classified by longest-matching path prefix, and its
+#      copyright as debian/<pkg>.copyright for dh_installdocs to place.
 #        --strip-debug is required for kernel modules: a full strip drops the
 #        symtab and relocations needed by the module loader.
 #
@@ -90,11 +94,92 @@ DKMS_ARCH="aarch64"
 # objcopy: prefer the aarch64 cross-compiler's objcopy; fall back to host objcopy.
 OBJCOPY="$(which aarch64-linux-gnu-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo objcopy)"
 
+# ---------------------------------------------------------------------------
+# Classification of the paths a -dkms package ships.
+#
+# The generated module package carries the runtime integration its -dkms
+# counterpart provided -- modprobe.d snippets, udev rules, initramfs hooks --
+# but none of the DKMS machinery: no /usr/src, no dkms registration, no
+# dependency on dkms. Rather than knowing what each package installs, classify
+# by path prefix, so a package that grows a udev rule needs no change here.
+#
+# LONGEST MATCHING PREFIX WINS. That is what lets the narrow
+# /usr/share/initramfs-tools/ include sit inside the broad /usr/share/
+# exclude without either list having to be ordered. A prefix appearing in both
+# lists is a configuration error; include wins, arbitrarily.
+#
+# A path matching neither list is fatal. The alternative -- skipping it with a
+# warning -- silently drops runtime integration the module may need, and the
+# failure would show up as a module that loads but misbehaves on a target,
+# which is far more expensive to diagnose than a failed build. This matches
+# how the rest of this script treats a surprise.
+# ---------------------------------------------------------------------------
+INCLUDE_PREFIXES=(
+    /etc/modprobe.d/
+    /lib/modprobe.d/
+    /usr/lib/modprobe.d/
+    /etc/modules-load.d/
+    /usr/lib/modules-load.d/
+    /etc/udev/
+    /lib/udev/
+    /usr/lib/udev/
+    /etc/initramfs-tools/
+    /usr/share/initramfs-tools/
+    /usr/lib/dracut/
+    /lib/systemd/
+    /usr/lib/systemd/
+    /etc/tmpfiles.d/
+    /usr/lib/tmpfiles.d/
+    /etc/sysctl.d/
+    /usr/lib/sysctl.d/
+    /lib/firmware/
+    /usr/lib/firmware/
+)
+EXCLUDE_PREFIXES=(
+    # DKMS's own machinery: the build input and the registration state.
+    /usr/src/
+    /var/lib/dkms/
+    # Any module the -dkms package itself installed. Ours are built here.
+    /lib/modules/
+    /usr/lib/modules/
+    # Documentation. The copyright file is handled separately, as
+    # debian/<pkg>.copyright, so dh_installdocs places it under the generated
+    # package's own name rather than the -dkms package's.
+    /usr/share/doc/
+    /usr/share/lintian/
+    # Backstop under the two trees a -dkms package has any business writing to
+    # beyond the above. Both are beaten by the narrower includes listed above.
+    /usr/share/
+    /usr/include/
+)
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log_info()  { echo -e "${GREEN}[bundle-dkms]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[bundle-dkms]${NC} $*"; }
 log_error() { echo -e "${RED}[bundle-dkms]${NC} $*" >&2; }
 log_step()  { echo -e "${BLUE}[bundle-dkms]${NC} $*"; }
+
+# ---------------------------------------------------------------------------
+# classify_path <absolute path> -> "include" | "exclude" | ""
+#
+# Longest matching prefix across both lists decides. The exclude loop runs
+# second and uses -gt rather than -ge, so an exact tie between the two lists
+# resolves to include.
+# ---------------------------------------------------------------------------
+classify_path() {
+    local path="$1" verdict="" best=0 p
+    for p in "${INCLUDE_PREFIXES[@]}"; do
+        if [[ "$path" == "$p"* && "${#p}" -gt "$best" ]]; then
+            best="${#p}"; verdict="include"
+        fi
+    done
+    for p in "${EXCLUDE_PREFIXES[@]}"; do
+        if [[ "$path" == "$p"* && "${#p}" -gt "$best" ]]; then
+            best="${#p}"; verdict="exclude"
+        fi
+    done
+    printf '%s' "$verdict"
+}
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -144,6 +229,14 @@ OPTIONAL:
                             Default: aarch64
   --objcopy PATH            Path to objcopy binary for debug symbol extraction.
                             Default: aarch64-linux-gnu-objcopy, then objcopy.
+  --include-prefix PREFIX   Additional path prefix whose files are carried from
+                            the -dkms package into the generated module package.
+                            Repeatable; added to the built-in list.
+  --exclude-prefix PREFIX   Additional path prefix whose files are left behind.
+                            Repeatable; added to the built-in list.
+                            Longest matching prefix across both lists wins, so a
+                            narrow include can sit inside a broad exclude. A path
+                            matching neither list is a hard error.
   -h, --help                Show this help and exit.
 
 PREREQUISITES (developer standalone use):
@@ -206,6 +299,8 @@ while [[ $# -gt 0 ]]; do
         --headers-dir)       require_val "$@"; HEADERS_DIR="$2";       shift 2 ;;
         --image-pkg-dir)     require_val "$@"; IMAGE_PKG_DIR="$2";     shift 2 ;;
         --stage-root)        require_val "$@"; STAGE_ROOT="$2";        shift 2 ;;
+        --include-prefix)    require_val "$@"; INCLUDE_PREFIXES+=("$2");  shift 2 ;;
+        --exclude-prefix)    require_val "$@"; EXCLUDE_PREFIXES+=("$2");  shift 2 ;;
         --modules-manifest)  require_val "$@"; MODULES_MANIFEST="$2";  shift 2 ;;
         --arch)              require_val "$@"; DKMS_ARCH="$2";         shift 2 ;;
         --objcopy)           require_val "$@"; OBJCOPY="$2";           shift 2 ;;
@@ -559,7 +654,7 @@ for name in $DKMS_MODULES; do
         intree="$(find "$IMAGE_PKG_DIR/lib/modules/$KVER/kernel" \
                   -name "$b" -print -quit 2>/dev/null || true)"
         if [[ -n "$intree" ]]; then
-            log_error "Bundled module $b collides with in-tree module: $intree"
+            log_error "Bundled module $b collides with an in-tree module"
             log_error "  in-tree:   $intree"
             log_error "  this one:  /lib/modules/$KVER/updates/qli/$b"
             log_error "updates/ outranks kernel/ in depmod's default search order, so"
@@ -662,6 +757,85 @@ for name in $DKMS_MODULES; do
         log_error "The package would ship empty. Check --stage-root ($STAGE_ROOT)."
         exit 1
     fi
+
+    # ── Carry the runtime integration from the -dkms package ─────────────────
+    # Everything the -dkms package ships that is neither its source nor DKMS
+    # bookkeeping is configuration the module needs in order to work, and it
+    # belongs with the module rather than being restated in the kernel
+    # packaging. Copied at its original path: a udev rule or modprobe.d snippet
+    # is found by its location, so rewriting it would break it.
+    integ_copied=0
+    hook_copied=0
+    dkms_copyright=""
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        # dpkg -L lists the directories too; only files and symlinks are content.
+        [[ -f "$path" || -L "$path" ]] || continue
+
+        # Note the copyright on the way past. Taken from the file list rather
+        # than assembled from a known path, for the same reason the dkms.conf
+        # is: the package says where its files are, and a package built with
+        # dh_installdocs --link-doc does not have one where the obvious guess
+        # would put it. It is excluded from the copy below and installed by
+        # dh_installdocs instead, under the generated package's own name.
+        case "$path" in
+            */doc/"${name}-dkms"/copyright) dkms_copyright="$path" ;;
+        esac
+
+        case "$(classify_path "$path")" in
+            exclude) continue ;;
+            include) ;;
+            *)
+                log_error "Unclassified path in ${name}-dkms: $path"
+                log_error "It matches no --include-prefix and no --exclude-prefix, so this"
+                log_error "script cannot tell whether $name-modules-$KVER should carry it."
+                log_error "Add the prefix to one of the lists in $(basename "$0"),"
+                log_error "or pass --include-prefix / --exclude-prefix."
+                exit 1 ;;
+        esac
+
+        # An initramfs hook that is not executable is silently ignored by
+        # update-initramfs. cp -a preserves the mode and dh_fixperms has no
+        # rule that would correct it, so check it here rather than shipping a
+        # hook that never runs.
+        case "$path" in
+            */initramfs-tools/hooks/*)
+                hook_copied=1
+                [[ -x "$path" ]] || {
+                    log_error "Initramfs hook is not executable: $path"
+                    log_error "update-initramfs skips non-executable hooks without saying so."
+                    exit 1
+                } ;;
+        esac
+
+        mkdir -p "$(dirname "$MOD_PKG_DIR$path")"
+        cp -a "$path" "$MOD_PKG_DIR$path"
+        integ_copied=$((integ_copied + 1))
+        log_info "  Carried:   $path"
+    done < <(dpkg -L "${name}-dkms")
+
+    # The copyright file goes through dh_installdocs rather than being staged
+    # by hand, so it lands under the generated package's own name instead of
+    # the -dkms package's. dh_installdocs prefers debian/<pkg>.copyright over
+    # debian/copyright, and dh_compress leaves a file named copyright alone.
+    if [[ -z "$dkms_copyright" ]]; then
+        log_error "${name}-dkms ships no doc/${name}-dkms/copyright"
+        log_error "The generated package must carry the licensing of the source it was built from."
+        exit 1
+    fi
+    cp -a "$dkms_copyright" "$STAGE_ROOT/$name-modules-$KVER.copyright"
+
+    # This package adds and removes kernel modules, so the initramfs may need
+    # rebuilding after it is installed. dh_installinitramfs declares that
+    # trigger itself when it finds a copied initramfs hook -- declare it by
+    # hand only when it will not, so the trigger is never declared twice with
+    # differing await semantics.
+    if [[ "$hook_copied" -eq 0 ]]; then
+        printf 'activate-noawait update-initramfs\n' \
+            > "$STAGE_ROOT/$name-modules-$KVER.triggers"
+    fi
+
+    log_info "  Carried $integ_copied runtime integration file(s) from ${name}-dkms"
 
     # ── Record the DKMS source package in Built-Using ────────────────────────
     # The .ko in this package was compiled from source that lives in another
