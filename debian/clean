@@ -3,3 +3,6 @@ debian/linux-image-*.postinst
 debian/linux-image-*.preinst
 debian/linux-image-*.postrm
 debian/linux-image-*.prerm
+debian/*-modules-*.copyright
+debian/*-modules-*.substvars
+debian/*-modules-*.triggers
