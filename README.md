@@ -259,7 +259,7 @@ whoever next tries to release. Each entry carries:
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per list element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.py` joins it into the comma-separated `kernel-config` workflow input. |
-| `dkms` | Out-of-tree DKMS modules built and bundled into the image package, one per list element, each named without the `-dkms` suffix (e.g. `kgsl`). Each needs a `<name>-dkms` package in the suite being built for, so this varies between suites. An empty list bundles nothing. A listed module is a presence contract: a build fails rather than shipping an image without it. `resolve-matrix.py` joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh --dkms`; see [debian/README.md](debian/README.md) for what the packaging does with it. |
+| `dkms` | Out-of-tree DKMS modules built against this kernel, one per list element, each named without the `-dkms` suffix (e.g. `kgsl`). Each produces its own `<name>-modules-<kernelrelease>` package rather than being installed into the image. Each needs a `<name>-dkms` package in the suite being built for, so this varies between suites. An empty list builds nothing. A listed module is a presence contract: a build fails rather than publishing without it. `resolve-matrix.py` joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh --dkms`; see [debian/README.md](debian/README.md) for what the packaging does with it. |
 | `debian_revision` | The Debian revision this package is built at, stated outright. Carried into the archive as built, because publishing promotes the artifact rather than rebuilding it. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
@@ -334,8 +334,8 @@ This repository contains two separate parts:
   decides *how* it is built.
 
 This document covers the CI generator. For the packaging internals: `debian/rules`
-targets, the config fragment merge pipeline, DKMS module bundling and the produced
-package layout see [debian/README.md](debian/README.md).
+targets, the config fragment merge pipeline, the out-of-tree DKMS module packages
+and the produced package layout see [debian/README.md](debian/README.md).
 
 Both branches below are taken in the caller. The family follows from the
 entry's suite; the promotion follows from which workflow is running. By the
@@ -504,7 +504,9 @@ For the current matrix, package generation produces:
 | `linux-image-qcom-next_<version>_arm64.deb` | Image metapackage that tracks the newest kernel image. |
 | `linux-headers-<kernelrelease>_<version>_arm64.deb` | Versioned headers for DKMS and out-of-tree modules. |
 | `linux-headers-qcom-next_<version>_arm64.deb` | Headers metapackage. |
-| `linux-image-<kernelrelease>-dbg_<version>_arm64.deb` | Kernel and module debug symbols. |
+| `linux-image-<kernelrelease>-dbg_<version>_arm64.deb` | Kernel and in-tree module debug symbols. |
+| `<name>-modules-<kernelrelease>_<version>_arm64.deb` | Prebuilt out-of-tree modules, one package per `dkms` entry, built from that `<name>-dkms` source against this kernel. Installs under `/lib/modules/<kernelrelease>/updates/qli/` and carries the modprobe.d, udev and initramfs files the `-dkms` package ships. Conflicts with `<name>-dkms`. |
+| `<name>-modules-<kernelrelease>-dbg_<version>_arm64.deb` | Debug symbols for the above. |
 
 `-rcN` remains in `uname -r`, module paths, boot assets, and versioned package
 names. Only the Debian version field converts it to `~rcN`, so a release
