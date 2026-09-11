@@ -579,6 +579,7 @@ override_dh_auto_install:
 	    --headers-dir     "$(CURDIR)/$$HDRDIR" \
 	    --image-pkg-dir   "$(CURDIR)/$$PKG" \
 	    --dbg-pkg-dir     "$(CURDIR)/$$DBG_PKG" \
+	    --stage-root      "$(CURDIR)/debian" \
 	    --arch            "$(DKMS_ARCH)" \
 	    --objcopy         "$(OBJCOPY)" \
 	    --modules-manifest "$(CURDIR)/debian/dkms-modules"
