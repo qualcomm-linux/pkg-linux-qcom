@@ -445,10 +445,20 @@ override_dh_auto_install:
 	[ -n "$$OBJ_DIR" ] && CFG_PATH="$$OBJ_DIR/.config"; \
 	[ -f "$$CFG_PATH" ] || { echo "ERROR: Missing .config at $$CFG_PATH"; exit 1; }; \
 	\
+	# Locate System.map (objdir-aware). Required, not optional: the depmod
+	# snippet debhelper generates for every package shipping a module is
+	# guarded by [ -e /boot/System.map-<kver> ], so without this file the
+	# snippet is a no-op and nothing on the target ever regenerates
+	# modules.dep.
+	MAP_PATH="System.map"; \
+	[ -n "$$OBJ_DIR" ] && MAP_PATH="$$OBJ_DIR/System.map"; \
+	[ -f "$$MAP_PATH" ] || { echo "ERROR: Missing System.map at $$MAP_PATH"; exit 1; }; \
+	\
 	# /boot artifacts
 	mkdir -p "$$PKG/boot"; \
 	cp -a -T "$$IMG_PATH" "$$PKG/boot/vmlinuz-$$BASE"; \
 	cp -a -T "$$CFG_PATH" "$$PKG/boot/config-$$BASE"; \
+	cp -a -T "$$MAP_PATH" "$$PKG/boot/System.map-$$BASE"; \
 	\
 	# Modules (stripped)
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
