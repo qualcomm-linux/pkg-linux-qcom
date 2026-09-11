@@ -35,6 +35,8 @@ set -euo pipefail
 #       lib/modules/<kver>/kernel/   (in-tree modules, for collision detection)
 #       boot/config-<kver>           (kernel .config, for BUILD_EXCLUSIVE_CONFIG checks)
 #   - The debug package staging tree must exist at --dbg-pkg-dir.
+#   - The directory holding the per-package staging trees must exist at
+#     --stage-root (absolute). In a source package this is debian/.
 #   - The kernel headers must be fully staged at --headers-dir (absolute path).
 #     This is the directory containing Makefile, include/, scripts/, arch/, etc.
 #     It must be an absolute path: dkms invokes make from inside the module
@@ -50,6 +52,7 @@ set -euo pipefail
 #     --headers-dir "$(CURDIR)/debian/linux-headers-$BASE/usr/src/linux-headers-$BASE" \
 #     --image-pkg-dir "$(CURDIR)/debian/linux-image-$BASE" \
 #     --dbg-pkg-dir   "$(CURDIR)/debian/linux-image-$BASE-dbg" \
+#     --stage-root    "$(CURDIR)/debian" \
 #     --arch          "$(DKMS_ARCH)" \
 #     --objcopy       "$(OBJCOPY)" \
 #     --modules-manifest "$(CURDIR)/debian/dkms-modules"
@@ -77,6 +80,7 @@ KVER=""
 HEADERS_DIR=""
 IMAGE_PKG_DIR=""
 DBG_PKG_DIR=""
+STAGE_ROOT=""
 # Default manifest: debian/dkms-modules (one level up from debian/scripts/)
 MODULES_MANIFEST="${SCRIPT_DIR}/../dkms-modules"
 # dkms --arch speaks uname -m vocabulary (aarch64), not kbuild vocabulary (arm64).
@@ -122,6 +126,10 @@ REQUIRED:
                               <dbg-pkg-dir>/usr/lib/debug/lib/modules/<kver>/extra/
                             In debian/rules this is:
                               \$(CURDIR)/debian/linux-image-\$BASE-dbg
+  --stage-root DIR          Directory the per-package staging trees live in.
+                            MUST be absolute, and must already exist.
+                            In debian/rules this is:
+                              \$(CURDIR)/debian
 
 OPTIONAL:
   --modules-manifest FILE   Path to the dkms-modules manifest.
@@ -145,8 +153,10 @@ PREREQUISITES (developer standalone use):
   3. --image-pkg-dir must contain lib/modules/<kver>/kernel/ (in-tree modules)
      and boot/config-<kver> (kernel .config).
   4. --dbg-pkg-dir must exist (can be empty; subdirs are created as needed).
-  5. --headers-dir must be an absolute path.
-  6. This script does NOT cross-compile: dkms builds each module with the host
+  5. --stage-root must exist; it is the directory per-package staging trees
+     are created in, i.e. debian/ in a source package.
+  6. --headers-dir and --stage-root must be absolute paths.
+  7. This script does NOT cross-compile: dkms builds each module with the host
      toolchain (no ARCH/CROSS_COMPILE is plumbed). Run it on a native arm64
      host (or an arm64 chroot / qemu-user environment) so the produced .ko
      matches the target kernel. --arch only sets the dkms architecture label
@@ -199,6 +209,7 @@ while [[ $# -gt 0 ]]; do
         --headers-dir)       require_val "$@"; HEADERS_DIR="$2";       shift 2 ;;
         --image-pkg-dir)     require_val "$@"; IMAGE_PKG_DIR="$2";     shift 2 ;;
         --dbg-pkg-dir)       require_val "$@"; DBG_PKG_DIR="$2";       shift 2 ;;
+        --stage-root)        require_val "$@"; STAGE_ROOT="$2";        shift 2 ;;
         --modules-manifest)  require_val "$@"; MODULES_MANIFEST="$2";  shift 2 ;;
         --arch)              require_val "$@"; DKMS_ARCH="$2";         shift 2 ;;
         --objcopy)           require_val "$@"; OBJCOPY="$2";           shift 2 ;;
@@ -217,6 +228,7 @@ _missing=()
 [[ -n "$HEADERS_DIR"   ]] || _missing+=(--headers-dir)
 [[ -n "$IMAGE_PKG_DIR" ]] || _missing+=(--image-pkg-dir)
 [[ -n "$DBG_PKG_DIR"   ]] || _missing+=(--dbg-pkg-dir)
+[[ -n "$STAGE_ROOT"    ]] || _missing+=(--stage-root)
 if [[ ${#_missing[@]} -gt 0 ]]; then
     log_error "Missing required arguments: ${_missing[*]}"
     log_error "Run with --help for usage."
@@ -229,6 +241,14 @@ fi
     log_error "--headers-dir must be an absolute path (got: $HEADERS_DIR)"
     log_error "dkms invokes make from inside the module source directory;"
     log_error "a relative path would resolve to nothing from that location."
+    exit 1
+}
+
+# --stage-root must be absolute for the same reason every other staging path
+# here is: this script is called with the build tree's cwd from debian/rules
+# but is also documented as standalone-callable from anywhere.
+[[ "$STAGE_ROOT" == /* ]] || {
+    log_error "--stage-root must be an absolute path (got: $STAGE_ROOT)"
     exit 1
 }
 
@@ -278,12 +298,19 @@ fi
 if [[ ! -d "$DBG_PKG_DIR" ]]; then
     log_warn "--dbg-pkg-dir does not exist: $DBG_PKG_DIR (will be created as needed)"
 fi
+[[ -d "$STAGE_ROOT" ]] || {
+    log_error "--stage-root does not exist: $STAGE_ROOT"
+    log_error "It is the directory the per-package staging trees are created in"
+    log_error "(debian/ in a source package), so it must already be there."
+    exit 1
+}
 
 log_step "DKMS module bundling configuration:"
 log_info "  kver:             $KVER"
 log_info "  headers-dir:      $HEADERS_DIR"
 log_info "  image-pkg-dir:    $IMAGE_PKG_DIR"
 log_info "  dbg-pkg-dir:      $DBG_PKG_DIR"
+log_info "  stage-root:       $STAGE_ROOT"
 log_info "  modules-manifest: $MODULES_MANIFEST"
 log_info "  arch:             $DKMS_ARCH"
 log_info "  objcopy:          $OBJCOPY"
