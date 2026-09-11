@@ -106,12 +106,15 @@ OPTIONS:
 
   DKMS modules:
     --dkms LIST               Comma-separated out-of-tree DKMS modules to build
-                              against this kernel and bundle into
-                              linux-image-<KVER>, each named without the -dkms
+                              against this kernel, each named without the -dkms
                               suffix (e.g. --dkms kgsl,camx). Each entry needs a
                               <name>-dkms package available to the build; the
                               Build-Depends entry is generated from this list.
-                              Empty (the default) bundles no modules.
+                              Each entry produces its own pair of binary
+                              packages, <name>-modules-<KVER> and its -dbg;
+                              the modules are not installed into
+                              linux-image-<KVER>.
+                              Empty (the default) builds no modules.
 
   Paths:
     --debian-dir DIR          Path to the debian/ packaging directory

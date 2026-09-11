@@ -70,12 +70,16 @@ KREL_FILE := debian/kernel.release
 #   SRCPKG         Source package name (default: linux-qcom-next).
 #   BINPKG         Binary metapackage name (default: linux-image-qcom-next).
 #   DEBIAN_REVISION  Debian revision component of the package version (default: 0qcom1).
-#   DKMS_MODULES     Comma-separated out-of-tree DKMS modules to build and bundle
-#                    into linux-image-<KVER>, each named without the -dkms suffix
-#                    (e.g. DKMS_MODULES=kgsl,camx). Empty (the default) bundles
+#   DKMS_MODULES     Comma-separated out-of-tree DKMS modules to build against
+#                    this kernel, each named without the -dkms suffix
+#                    (e.g. DKMS_MODULES=kgsl,camx). Empty (the default) builds
 #                    nothing. Each name must have a <name>-dkms package available
 #                    in the build environment; the Build-Depends entry for it is
 #                    generated from this list, so nothing else declares it.
+#                    Each entry produces its own pair of binary packages,
+#                    <name>-modules-<KVER> and <name>-modules-<KVER>-dbg, whose
+#                    control stanzas are generated from debian/control-dkms.in.
+#                    The modules are NOT installed into linux-image-<KVER>.
 #   GIT_CLONE        Kernel repository URL, recorded in debian/changelog.
 #   GIT_REF          Resolved kernel ref (tag or branch), recorded in the changelog.
 #   GIT_SHA          Full kernel HEAD commit SHA, recorded in the changelog.
@@ -92,7 +96,9 @@ KREL_FILE := debian/kernel.release
 #                    by hand.
 #
 # Outputs (generated files, all listed in debian/clean):
-#   debian/control       Substituted from debian/control.in
+#   debian/control       Substituted from debian/control.in, with one pair of
+#                        stanzas per DKMS_MODULES entry appended from
+#                        debian/control-dkms.in
 #   debian/changelog     Substituted from debian/changelog.in
 #   debian/dkms-modules  Manifest of the DKMS_MODULES entries, read at build time
 #                        by debian/scripts/bundle-dkms-modules.sh. Always written,
