@@ -17,7 +17,7 @@ Pre-Depends: linux-base (>= 4.12~)
 Depends: ${misc:Depends}, ${shlibs:Depends},
          initramfs-tools | dracut | linux-initramfs-tool
 Suggests: linux-headers-@KVER@
-Provides: linux-image, linux-image-arm64@DKMS_PROVIDES@
+Provides: linux-image, linux-image-arm64
 Description: Qualcomm ARM64 Linux kernel image @KVER@
  Kernel image, modules, and DTBs for kernel release @KVER@ on ARM64
  Qualcomm platforms.

@@ -243,20 +243,6 @@ prepare:
 		DKMS_BUILD_DEPENDS=", dkms$$DKMS_BUILD_DEPENDS"; \
 	fi; \
 	\
-	# Provides tail on the image package, appended the same way: the module a
-	# -dkms package would build for this kernel is already in the image, in
-	# /lib/modules/<kver>/extra/, so a dependency on that -dkms package is
-	# satisfied by installing this kernel. The entries are deliberately
-	# unversioned -- the version a dkms source carries is its module version,
-	# not the version of the package that shipped it, so there is nothing
-	# truthful to put in a version clause.
-	DKMS_PROVIDES=""; \
-	if [ -n "$$DKMS_LIST" ]; then \
-		for mod in $$DKMS_LIST; do \
-			DKMS_PROVIDES="$$DKMS_PROVIDES, $$mod-dkms"; \
-		done; \
-	fi; \
-	\
 	# ── Substitute templates ──────────────────────────────────────────────────
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
@@ -265,8 +251,24 @@ prepare:
 		-e "s|@KVER@|$$KVER_RESOLVED|g" \
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
 		-e "s|@DKMS_BUILD_DEPENDS@|$$DKMS_BUILD_DEPENDS|g" \
-		-e "s|@DKMS_PROVIDES@|$$DKMS_PROVIDES|g" \
 		debian/control.in > debian/control; \
+	\
+	# One pair of binary package stanzas per bundled module, appended to the
+	# generated control. Every module named in DKMS_MODULES ships as its own
+	# <name>-modules-<kver> package rather than being copied into the image, so
+	# the stanzas cannot be spelled in control.in: there is one per entry in a
+	# list that is a build input.
+	#
+	# Appended from the same DKMS_LIST that drives Build-Depends and the
+	# dkms-modules manifest, so a module cannot be declared in control without
+	# also being built, or built without being declared.
+	for mod in $$DKMS_LIST; do \
+		printf '\n' >> debian/control; \
+		sed \
+			-e "s|@MODNAME@|$$mod|g" \
+			-e "s|@KVER@|$$KVER_RESOLVED|g" \
+			debian/control-dkms.in >> debian/control; \
+	done; \
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
@@ -572,13 +574,16 @@ override_dh_auto_install:
 	# Delegated to debian/scripts/bundle-dkms-modules.sh.
 	# The script reads debian/dkms-modules, builds each listed module against the
 	# staging headers produced earlier in this same dpkg-buildpackage run, and
-	# bundles the resulting .ko files into the linux-image and -dbg staging trees.
+	# stages the resulting .ko files into debian/<name>-modules-<kver>/ and their
+	# debug symbols into debian/<name>-modules-<kver>-dbg/ — the packages whose
+	# control stanzas 'prepare' generated from the same manifest.
+	# --image-pkg-dir is read, not written: the in-tree module list for the
+	# collision check and boot/config-<kver> for BUILD_EXCLUSIVE_CONFIG analysis.
 	# It can also be invoked directly by a developer — see the script's --help.
 	$(CURDIR)/debian/scripts/bundle-dkms-modules.sh \
 	    --kver            "$$BASE" \
 	    --headers-dir     "$(CURDIR)/$$HDRDIR" \
 	    --image-pkg-dir   "$(CURDIR)/$$PKG" \
-	    --dbg-pkg-dir     "$(CURDIR)/$$DBG_PKG" \
 	    --stage-root      "$(CURDIR)/debian" \
 	    --arch            "$(DKMS_ARCH)" \
 	    --objcopy         "$(OBJCOPY)" \
