@@ -40,12 +40,12 @@ jobs:
 
     steps:
       - name: Checkout pkg-linux-qcom
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Pinned to @main while native kernel-build support is still landing
       # upstream in qualcomm-linux/docker-pkg-build.
       - name: Checkout docker-pkg-build
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: qualcomm-linux/docker-pkg-build
           ref: main

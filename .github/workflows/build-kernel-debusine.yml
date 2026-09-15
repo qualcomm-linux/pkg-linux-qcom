@@ -78,7 +78,7 @@ jobs:
     environment: ${{ inputs.target-workspace != '' && 'Production' || 'Staging' }}
     steps:
       - name: Checkout debusine-action helpers
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: qualcomm-linux/debusine-action
           ref: ${{ env.DEBUSINE_ACTION_REF }}
@@ -148,7 +148,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout debusine-action helpers
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: qualcomm-linux/debusine-action
           ref: ${{ env.DEBUSINE_ACTION_REF }}
@@ -217,7 +217,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout debusine-action helpers
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: qualcomm-linux/debusine-action

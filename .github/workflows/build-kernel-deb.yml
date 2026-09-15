@@ -215,10 +215,10 @@ jobs:
         # debian/ and ci/ live on the same branch, so one checkout supplies
         # both the packaging and resolve-kernel-ref.sh, derive-localversion.sh,
         # derive-debian-revision.sh and the suite_suffix_mapping.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout docker-pkg-build
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: qualcomm-linux/docker-pkg-build
           ref: main
