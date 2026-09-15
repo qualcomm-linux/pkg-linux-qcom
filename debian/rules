@@ -29,6 +29,11 @@ PARALLEL ?= $(shell nproc)
 # objcopy for debug symbol extraction (cross-compile aware).
 OBJCOPY ?= $(shell which aarch64-linux-gnu-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo objcopy)
 
+# readelf for reading module build IDs. It parses ELF directly and is not tied
+# to a target, so the host one would do; resolved the same way as OBJCOPY above
+# to match how the kernel's own scripts/package/builddeb picks its READELF.
+READELF ?= $(shell which aarch64-linux-gnu-readelf 2>/dev/null || which readelf 2>/dev/null || echo readelf)
+
 # dkms identifies architectures in uname -m vocabulary (aarch64), unlike the
 # kbuild ARCH token above (arm64). The distinction matters for dkms.conf
 # BUILD_EXCLUSIVE_ARCH gates, which match against this value.
@@ -234,6 +239,20 @@ prepare:
 		DKMS_BUILD_DEPENDS=", dkms$$DKMS_BUILD_DEPENDS"; \
 	fi; \
 	\
+	# Provides tail on the image package, appended the same way: the module a
+	# -dkms package would build for this kernel is already in the image, in
+	# /lib/modules/<kver>/extra/, so a dependency on that -dkms package is
+	# satisfied by installing this kernel. The entries are deliberately
+	# unversioned -- the version a dkms source carries is its module version,
+	# not the version of the package that shipped it, so there is nothing
+	# truthful to put in a version clause.
+	DKMS_PROVIDES=""; \
+	if [ -n "$$DKMS_LIST" ]; then \
+		for mod in $$DKMS_LIST; do \
+			DKMS_PROVIDES="$$DKMS_PROVIDES, $$mod-dkms"; \
+		done; \
+	fi; \
+	\
 	# ── Substitute templates ──────────────────────────────────────────────────
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
@@ -242,6 +261,7 @@ prepare:
 		-e "s|@KVER@|$$KVER_RESOLVED|g" \
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
 		-e "s|@DKMS_BUILD_DEPENDS@|$$DKMS_BUILD_DEPENDS|g" \
+		-e "s|@DKMS_PROVIDES@|$$DKMS_PROVIDES|g" \
 		debian/control.in > debian/control; \
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
@@ -483,6 +503,17 @@ override_dh_auto_install:
 	cp -a "$$MODULE_LDS" "$$HDRDIR/arch/arm64/kernel/" 2>/dev/null || true; \
 	\
 	# Debug symbols for linux-image-<BASE>-dbg package.
+	#
+	# Each module's debug file is written twice over: once at the path that
+	# mirrors where the module installs (/usr/lib/debug + /lib/modules/<ver>/
+	# kernel/<path>), and once as a /usr/lib/debug/.build-id/xx/yyy.debug
+	# symlink to it. Both are what scripts/package/builddeb produces.
+	#
+	# The build-id path is the one gdb, debuginfod and gdb-add-index consult
+	# first, and the only one that does not depend on how the module was
+	# addressed: a tool that opens it as /usr/lib/modules/... rather than
+	# /lib/modules/... looks under /usr/lib/debug/usr/lib/modules/..., which
+	# the mirrored path alone does not answer.
 	echo "Installing debug symbols to $$DBG_PKG"; \
 	MODULES_ORDER="modules.order"; \
 	[ -n "$$OBJ_DIR" ] && MODULES_ORDER="$$OBJ_DIR/modules.order"; \
@@ -496,6 +527,15 @@ override_dh_auto_install:
 			mkdir -p "$${dbg%/*}"; \
 			$(OBJCOPY) --only-keep-debug "$$src_mod" "$$dbg" 2>/dev/null || \
 				cp -a "$$src_mod" "$$dbg"; \
+			BUILDID=$$($(READELF) -n "$$src_mod" 2>/dev/null | \
+			           sed -n 's@^.*Build ID: \(..\)\(.*\)@\1/\2@p'); \
+			if [ -n "$$BUILDID" ]; then \
+				link="$$DBG_PKG/usr/lib/debug/.build-id/$$BUILDID.debug"; \
+				mkdir -p "$${link%/*}"; \
+				ln -sf --relative "$$dbg" "$$link"; \
+			else \
+				echo "Warning: no build ID in $$mod — no .build-id symlink for it"; \
+			fi; \
 		done < "$$MODULES_ORDER"; \
 	else \
 		echo "Warning: modules.order not found — skipping per-module debug symbol extraction"; \
@@ -545,20 +585,18 @@ override_dh_installmodules:
 override_dh_installdeb:
 	# Generate versioned maintainer scripts from templates using BASE (uname -r).
 	# The binary package name is linux-image-<BASE>, derived from kernel.release.
-	# dh_installmodules injects the depmod snippet at #DEBHELPER# in the postinst.
+	# Every maintainer script is a debian/linux-image.<script>.in template with
+	# @KVER@ substituted, so each one can name its own kernel release; scripts
+	# with no template are simply not shipped.
+	# dh_installmodules injects the depmod snippet at #DEBHELPER# in them.
 	@BASE=$$(cat $(KREL_FILE)); \
 	INST_PKG="linux-image-$$BASE"; \
 	\
-	# Generate debian/linux-image-<BASE>.postinst from template.
-	sed "s/@KVER@/$$BASE/g" debian/linux-image.postinst.in > debian/$$INST_PKG.postinst; \
-	chmod 755 debian/$$INST_PKG.postinst; \
-	\
-	# Copy static maintainer scripts to versioned names.
-	for script in preinst postrm prerm; do \
-		if [ -f debian/linux-image.$$script ]; then \
-			cp debian/linux-image.$$script debian/$$INST_PKG.$$script; \
-			chmod 755 debian/$$INST_PKG.$$script; \
-		fi; \
+	for script in preinst postinst prerm postrm; do \
+		template="debian/linux-image.$$script.in"; \
+		[ -f "$$template" ] || continue; \
+		sed "s/@KVER@/$$BASE/g" "$$template" > debian/$$INST_PKG.$$script; \
+		chmod 755 debian/$$INST_PKG.$$script; \
 	done; \
 	\
 	dh_installmodules; \
