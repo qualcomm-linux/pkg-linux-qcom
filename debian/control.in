@@ -2,17 +2,20 @@ Source: @SRCPKG@
 Section: kernel
 Priority: optional
 Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
-Standards-Version: 4.6.2
+Standards-Version: 4.7.4
 Build-Depends: debhelper-compat (= 13),
                bc, bison, flex, libssl-dev, libelf-dev, dwarves,
                python3, kmod, cpio, rsync, pkg-config, gcc, make@DKMS_BUILD_DEPENDS@
 Homepage: https://kernel.org
+Vcs-Git: https://github.com/qualcomm-linux/pkg-linux-qcom.git
+Vcs-Browser: https://github.com/qualcomm-linux/pkg-linux-qcom
 Rules-Requires-Root: binary-targets
 
 Package: linux-image-@KVER@
 Architecture: arm64
-Depends: ${misc:Depends}, ${shlibs:Depends}
-Recommends: initramfs-tools | dracut | linux-initramfs-tool
+Pre-Depends: linux-base (>= 4.12~)
+Depends: ${misc:Depends}, ${shlibs:Depends},
+         initramfs-tools | dracut | linux-initramfs-tool
 Suggests: linux-headers-@KVER@
 Provides: linux-image, linux-image-arm64
 Description: Qualcomm ARM64 Linux kernel image @KVER@
@@ -22,13 +25,14 @@ Description: Qualcomm ARM64 Linux kernel image @KVER@
  Files installed:
   - /boot/vmlinuz-@KVER@
   - /boot/config-@KVER@
+  - /boot/System.map-@KVER@
   - /lib/modules/@KVER@/
   - /usr/lib/linux-image-@KVER@/ (DTBs)
   - /usr/lib/firmware/@KVER@/device-tree (Ubuntu flash-kernel symlink)
 
 Package: @BINPKG@
 Architecture: arm64
-Depends: linux-image-@KVER@, ${misc:Depends}
+Depends: linux-image-@KVER@ (= ${binary:Version}), ${misc:Depends}
 Description: Qualcomm ARM64 Linux kernel image (meta-package)
  This meta-package always depends on the latest @BINPKG@ kernel image
  for ARM64 Qualcomm platforms. Installing this package ensures that
@@ -47,7 +51,7 @@ Description: Qualcomm ARM64 Linux kernel headers @KVER@
 
 Package: @HDRPKG@
 Architecture: arm64
-Depends: linux-headers-@KVER@, ${misc:Depends}
+Depends: linux-headers-@KVER@ (= ${binary:Version}), ${misc:Depends}
 Description: Qualcomm ARM64 Linux kernel headers (meta-package)
  This meta-package always depends on the latest @HDRPKG@ kernel headers
  for ARM64 Qualcomm platforms.

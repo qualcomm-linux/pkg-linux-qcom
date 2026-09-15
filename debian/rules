@@ -29,6 +29,11 @@ PARALLEL ?= $(shell nproc)
 # objcopy for debug symbol extraction (cross-compile aware).
 OBJCOPY ?= $(shell which aarch64-linux-gnu-objcopy 2>/dev/null || which objcopy 2>/dev/null || echo objcopy)
 
+# readelf for reading module build IDs. It parses ELF directly and is not tied
+# to a target, so the host one would do; resolved the same way as OBJCOPY above
+# to match how the kernel's own scripts/package/builddeb picks its READELF.
+READELF ?= $(shell which aarch64-linux-gnu-readelf 2>/dev/null || which readelf 2>/dev/null || echo readelf)
+
 # dkms identifies architectures in uname -m vocabulary (aarch64), unlike the
 # kbuild ARCH token above (arm64). The distinction matters for dkms.conf
 # BUILD_EXCLUSIVE_ARCH gates, which match against this value.
@@ -47,10 +52,14 @@ KREL_FILE := debian/kernel.release
 # debian/control before invoking any debian/rules targets.
 #
 # Inputs (make variables):
-#   LOCALVERSION   Suffix appended to the base kernel version, e.g. +qcom-next-20260722.
+#   LOCALVERSION   Suffix appended to the base kernel version, e.g. +20260722-qcom-next.
 #                  Required unless KVER is given explicitly.
 #   KVER           Full kernelrelease string (uname -r). Overrides LOCALVERSION.
 #   KVER_EXTRA     Optional extra suffix appended after LOCALVERSION, e.g. -ci42.
+#                  It lands after the flavour, so a build carrying one does not
+#                  end in the flavour the way a release build does. That is fine
+#                  for the scratch and CI-tagged builds it exists for, and a
+#                  reason not to use it for anything published.
 #   SNAPSHOT       Dated component of the Debian version: YYYYMMDD with an
 #                  optional .<respin> ordinal, e.g. 20260722 or 20260722.1.
 #                  A build without one carries no +git<date> at all.
@@ -61,27 +70,42 @@ KREL_FILE := debian/kernel.release
 #   SRCPKG         Source package name (default: linux-qcom-next).
 #   BINPKG         Binary metapackage name (default: linux-image-qcom-next).
 #   DEBIAN_REVISION  Debian revision component of the package version (default: 0qcom1).
-#   DKMS_MODULES     Comma-separated out-of-tree DKMS modules to build and bundle
-#                    into linux-image-<KVER>, each named without the -dkms suffix
-#                    (e.g. DKMS_MODULES=kgsl,camx). Empty (the default) bundles
+#   DKMS_MODULES     Comma-separated out-of-tree DKMS modules to build against
+#                    this kernel, each named without the -dkms suffix
+#                    (e.g. DKMS_MODULES=kgsl,camx). Empty (the default) builds
 #                    nothing. Each name must have a <name>-dkms package available
 #                    in the build environment; the Build-Depends entry for it is
 #                    generated from this list, so nothing else declares it.
+#                    Each entry produces its own pair of binary packages,
+#                    <name>-modules-<KVER> and <name>-modules-<KVER>-dbg, whose
+#                    control stanzas are generated from debian/control-dkms.in.
+#                    The modules are NOT installed into linux-image-<KVER>.
 #   GIT_CLONE        Kernel repository URL, recorded in debian/changelog.
 #   GIT_REF          Resolved kernel ref (tag or branch), recorded in the changelog.
 #   GIT_SHA          Full kernel HEAD commit SHA, recorded in the changelog.
 #                    GITSHA above is the same commit at 12 characters, for the
 #                    version strings; this is the unabbreviated value.
+#   CHANGELOG_DATE   Date of the changelog entry, RFC 2822 (date -R form).
+#                    prepare-source.sh passes the kernel commit's committer
+#                    date, so the entry is dated by the source it describes
+#                    and two builds of one commit write one changelog.
+#                    dpkg-source takes the debian tarball's mtimes from this
+#                    date and dpkg-buildpackage exports it as
+#                    SOURCE_DATE_EPOCH, so it is also what makes the source
+#                    package reproducible. Defaults to now, for a prepare run
+#                    by hand.
 #
 # Outputs (generated files, all listed in debian/clean):
-#   debian/control       Substituted from debian/control.in
+#   debian/control       Substituted from debian/control.in, with one pair of
+#                        stanzas per DKMS_MODULES entry appended from
+#                        debian/control-dkms.in
 #   debian/changelog     Substituted from debian/changelog.in
 #   debian/dkms-modules  Manifest of the DKMS_MODULES entries, read at build time
 #                        by debian/scripts/bundle-dkms-modules.sh. Always written,
 #                        so an empty DKMS_MODULES is a genuine "bundle nothing"
 #                        rather than the missing-manifest misconfiguration that
 #                        the bundler rejects.
-#   debian/localversion  Plain file containing the LOCALVERSION suffix (e.g. +qcom-next-20260722).
+#   debian/localversion  Plain file containing the LOCALVERSION suffix (e.g. +20260722-qcom-next).
 #                        Read by override_dh_auto_build to pass LOCALVERSION= to make.
 #   debian/pkgversion    Plain file containing the full Debian package version
 #                        (e.g. 7.2.0~rc3+git20260722-0qcom1).
@@ -101,6 +125,7 @@ DKMS_MODULES     ?=
 GIT_CLONE        ?= unknown
 GIT_REF          ?= unknown
 GIT_SHA          ?= unknown
+CHANGELOG_DATE   ?= $(shell date -R)
 
 .PHONY: prepare
 prepare:
@@ -112,8 +137,8 @@ prepare:
 	else \
 		[ -n "$(LOCALVERSION)" ] || { \
 			echo "ERROR: LOCALVERSION is required when KVER is not set."; \
-			echo "       Pass LOCALVERSION=<suffix> (e.g. LOCALVERSION=+qcom-next-20260722)"; \
-			echo "       or KVER=<full-kernelrelease> (e.g. KVER=7.2.0-rc3+qcom-next-20260722)"; \
+			echo "       Pass LOCALVERSION=<suffix> (e.g. LOCALVERSION=+20260722-qcom-next)"; \
+			echo "       or KVER=<full-kernelrelease> (e.g. KVER=7.2.0-rc3+20260722-qcom-next)"; \
 			exit 1; \
 		}; \
 		echo "Reading base kernel version from kernel Makefile..."; \
@@ -233,6 +258,23 @@ prepare:
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
 		-e "s|@DKMS_BUILD_DEPENDS@|$$DKMS_BUILD_DEPENDS|g" \
 		debian/control.in > debian/control; \
+	\
+	# One pair of binary package stanzas per bundled module, appended to the
+	# generated control. Every module named in DKMS_MODULES ships as its own
+	# <name>-modules-<kver> package rather than being copied into the image, so
+	# the stanzas cannot be spelled in control.in: there is one per entry in a
+	# list that is a build input.
+	#
+	# Appended from the same DKMS_LIST that drives Build-Depends and the
+	# dkms-modules manifest, so a module cannot be declared in control without
+	# also being built, or built without being declared.
+	for mod in $$DKMS_LIST; do \
+		printf '\n' >> debian/control; \
+		sed \
+			-e "s|@MODNAME@|$$mod|g" \
+			-e "s|@KVER@|$$KVER_RESOLVED|g" \
+			debian/control-dkms.in >> debian/control; \
+	done; \
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
@@ -241,6 +283,7 @@ prepare:
 		-e "s|@GITCLONE@|$(GIT_CLONE)|g" \
 		-e "s|@BRANCH@|$(GIT_REF)|g" \
 		-e "s|@GITSHA@|$(GIT_SHA)|g" \
+		-e "s|@DATE@|$(CHANGELOG_DATE)|g" \
 		debian/changelog.in > debian/changelog; \
 	\
 	# ── Write runtime state files ─────────────────────────────────────────────
@@ -410,10 +453,20 @@ override_dh_auto_install:
 	[ -n "$$OBJ_DIR" ] && CFG_PATH="$$OBJ_DIR/.config"; \
 	[ -f "$$CFG_PATH" ] || { echo "ERROR: Missing .config at $$CFG_PATH"; exit 1; }; \
 	\
+	# Locate System.map (objdir-aware). Required, not optional: the depmod
+	# snippet debhelper generates for every package shipping a module is
+	# guarded by [ -e /boot/System.map-<kver> ], so without this file the
+	# snippet is a no-op and nothing on the target ever regenerates
+	# modules.dep.
+	MAP_PATH="System.map"; \
+	[ -n "$$OBJ_DIR" ] && MAP_PATH="$$OBJ_DIR/System.map"; \
+	[ -f "$$MAP_PATH" ] || { echo "ERROR: Missing System.map at $$MAP_PATH"; exit 1; }; \
+	\
 	# /boot artifacts
 	mkdir -p "$$PKG/boot"; \
 	cp -a -T "$$IMG_PATH" "$$PKG/boot/vmlinuz-$$BASE"; \
 	cp -a -T "$$CFG_PATH" "$$PKG/boot/config-$$BASE"; \
+	cp -a -T "$$MAP_PATH" "$$PKG/boot/System.map-$$BASE"; \
 	\
 	# Modules (stripped)
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
@@ -472,6 +525,17 @@ override_dh_auto_install:
 	cp -a "$$MODULE_LDS" "$$HDRDIR/arch/arm64/kernel/" 2>/dev/null || true; \
 	\
 	# Debug symbols for linux-image-<BASE>-dbg package.
+	#
+	# Each module's debug file is written twice over: once at the path that
+	# mirrors where the module installs (/usr/lib/debug + /lib/modules/<ver>/
+	# kernel/<path>), and once as a /usr/lib/debug/.build-id/xx/yyy.debug
+	# symlink to it. Both are what scripts/package/builddeb produces.
+	#
+	# The build-id path is the one gdb, debuginfod and gdb-add-index consult
+	# first, and the only one that does not depend on how the module was
+	# addressed: a tool that opens it as /usr/lib/modules/... rather than
+	# /lib/modules/... looks under /usr/lib/debug/usr/lib/modules/..., which
+	# the mirrored path alone does not answer.
 	echo "Installing debug symbols to $$DBG_PKG"; \
 	MODULES_ORDER="modules.order"; \
 	[ -n "$$OBJ_DIR" ] && MODULES_ORDER="$$OBJ_DIR/modules.order"; \
@@ -485,6 +549,15 @@ override_dh_auto_install:
 			mkdir -p "$${dbg%/*}"; \
 			$(OBJCOPY) --only-keep-debug "$$src_mod" "$$dbg" 2>/dev/null || \
 				cp -a "$$src_mod" "$$dbg"; \
+			BUILDID=$$($(READELF) -n "$$src_mod" 2>/dev/null | \
+			           sed -n 's@^.*Build ID: \(..\)\(.*\)@\1/\2@p'); \
+			if [ -n "$$BUILDID" ]; then \
+				link="$$DBG_PKG/usr/lib/debug/.build-id/$$BUILDID.debug"; \
+				mkdir -p "$${link%/*}"; \
+				ln -sf --relative "$$dbg" "$$link"; \
+			else \
+				echo "Warning: no build ID in $$mod — no .build-id symlink for it"; \
+			fi; \
 		done < "$$MODULES_ORDER"; \
 	else \
 		echo "Warning: modules.order not found — skipping per-module debug symbol extraction"; \
@@ -507,13 +580,17 @@ override_dh_auto_install:
 	# Delegated to debian/scripts/bundle-dkms-modules.sh.
 	# The script reads debian/dkms-modules, builds each listed module against the
 	# staging headers produced earlier in this same dpkg-buildpackage run, and
-	# bundles the resulting .ko files into the linux-image and -dbg staging trees.
+	# stages the resulting .ko files into debian/<name>-modules-<kver>/ and their
+	# debug symbols into debian/<name>-modules-<kver>-dbg/ — the packages whose
+	# control stanzas 'prepare' generated from the same manifest.
+	# --image-pkg-dir is read, not written: the in-tree module list for the
+	# collision check and boot/config-<kver> for BUILD_EXCLUSIVE_CONFIG analysis.
 	# It can also be invoked directly by a developer — see the script's --help.
 	$(CURDIR)/debian/scripts/bundle-dkms-modules.sh \
 	    --kver            "$$BASE" \
 	    --headers-dir     "$(CURDIR)/$$HDRDIR" \
 	    --image-pkg-dir   "$(CURDIR)/$$PKG" \
-	    --dbg-pkg-dir     "$(CURDIR)/$$DBG_PKG" \
+	    --stage-root      "$(CURDIR)/debian" \
 	    --arch            "$(DKMS_ARCH)" \
 	    --objcopy         "$(OBJCOPY)" \
 	    --modules-manifest "$(CURDIR)/debian/dkms-modules"
@@ -534,20 +611,18 @@ override_dh_installmodules:
 override_dh_installdeb:
 	# Generate versioned maintainer scripts from templates using BASE (uname -r).
 	# The binary package name is linux-image-<BASE>, derived from kernel.release.
-	# dh_installmodules injects the depmod snippet at #DEBHELPER# in the postinst.
+	# Every maintainer script is a debian/linux-image.<script>.in template with
+	# @KVER@ substituted, so each one can name its own kernel release; scripts
+	# with no template are simply not shipped.
+	# dh_installmodules injects the depmod snippet at #DEBHELPER# in them.
 	@BASE=$$(cat $(KREL_FILE)); \
 	INST_PKG="linux-image-$$BASE"; \
 	\
-	# Generate debian/linux-image-<BASE>.postinst from template.
-	sed "s/@KVER@/$$BASE/g" debian/linux-image.postinst.in > debian/$$INST_PKG.postinst; \
-	chmod 755 debian/$$INST_PKG.postinst; \
-	\
-	# Copy static maintainer scripts to versioned names.
-	for script in preinst postrm prerm; do \
-		if [ -f debian/linux-image.$$script ]; then \
-			cp debian/linux-image.$$script debian/$$INST_PKG.$$script; \
-			chmod 755 debian/$$INST_PKG.$$script; \
-		fi; \
+	for script in preinst postinst prerm postrm; do \
+		template="debian/linux-image.$$script.in"; \
+		[ -f "$$template" ] || continue; \
+		sed "s/@KVER@/$$BASE/g" "$$template" > debian/$$INST_PKG.$$script; \
+		chmod 755 debian/$$INST_PKG.$$script; \
 	done; \
 	\
 	dh_installmodules; \
