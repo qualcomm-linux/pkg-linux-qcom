@@ -110,8 +110,9 @@ OPTIONS:
                               suffix (e.g. --dkms kgsl,camx). Each entry needs a
                               <name>-dkms package available to the build; the
                               Build-Depends entry is generated from this list.
-                              Each entry produces its own pair of binary
-                              packages, <name>-modules-<KVER> and its -dbg;
+                              Each entry produces its own binary packages,
+                              <name>-modules-<KVER>, its -dbg, and the
+                              unversioned <binpkg>-modules-<name> metapackage;
                               the modules are not installed into
                               linux-image-<KVER>.
                               Empty (the default) builds no modules.

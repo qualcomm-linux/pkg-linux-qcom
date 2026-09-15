@@ -32,3 +32,12 @@ Description: @MODNAME@ kernel module debug symbols for @KVER@
  Files installed:
   - /usr/lib/debug/lib/modules/@KVER@/updates/qli/ (per-module .ko debug symbols)
   - /usr/lib/debug/.build-id/ (build-ID symlinks to the above)
+
+Package: @BINPKG@-modules-@MODNAME@
+Architecture: arm64
+Section: kernel
+Depends: @MODNAME@-modules-@KVER@ (= ${binary:Version}), ${misc:Depends}
+Description: @MODNAME@ kernel modules for Qualcomm ARM64 Linux (meta-package)
+ This meta-package always depends on the @MODNAME@ modules built for the latest
+ @BINPKG@ kernel image, so installing it keeps the @MODNAME@ modules in step
+ with the kernel across apt upgrades.

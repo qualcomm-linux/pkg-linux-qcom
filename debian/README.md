@@ -21,6 +21,7 @@ Packages follow the standard Debian/Ubuntu kernel naming convention:
 | `<HDRPKG>` | Headers metapackage tracking the newest headers | `linux-headers-qcom-next` |
 | `<name>-modules-<KVER>` | Prebuilt out-of-tree modules, one per `DKMS_MODULES` entry | `kgsl-modules-7.2.0+20260826-qcom-next` |
 | `<name>-modules-<KVER>-dbg` | Debug symbols for the above | `kgsl-modules-7.2.0+20260826-qcom-next-dbg` |
+| `<BINPKG>-modules-<name>` | Modules metapackage tracking the newest build of that module | `linux-image-qcom-next-modules-kgsl` |
 
 **`<KVER>`** is the full `kernelrelease` string (`uname -r`), which includes the
 base kernel version and the LOCALVERSION suffix encoding the snapshot date and
@@ -31,10 +32,13 @@ packages carry no separate flavour suffix.
 **`<BINPKG>`** and **`<HDRPKG>`** are per-variant metapackage names set from the
 build matrix (`binpkg` / derived headers name). They stay constant across
 snapshots and depend on the newest versioned package, so installing
-`linux-image-qcom-next` follows the latest build of that variant.
+`linux-image-qcom-next` follows the latest build of that variant. The module
+metapackage extends `<BINPKG>` rather than deriving a name of its own, so every
+unversioned name a variant publishes shares one prefix and `apt search
+linux-image-qcom-next` finds the whole set.
 
 `debian/control.in` declares the first five, so a build with no DKMS modules
-publishes five binary packages per variant. Each `DKMS_MODULES` entry adds two
+publishes five binary packages per variant. Each `DKMS_MODULES` entry adds three
 more, appended to `debian/control` by `prepare` from `debian/control-dkms.in`.
 `dh_strip` is run with `--no-automatic-dbgsym`, so debhelper generates no
 additional `-dbgsym` package: debug symbols are shipped only by the declared
@@ -95,7 +99,7 @@ pkg-linux-qcom/
 | File | Status | Description |
 |------|--------|-------------|
 | `debian/control.in` | ✅ Committed | Template with `@KVER@` placeholder |
-| `debian/control-dkms.in` | ✅ Committed | Template for the `<name>-modules-@KVER@` stanza pair, appended once per `DKMS_MODULES` entry |
+| `debian/control-dkms.in` | ✅ Committed | Template for the `<name>-modules-@KVER@` stanza group, appended once per `DKMS_MODULES` entry |
 | `debian/changelog.in` | ✅ Committed | Template with `@KVER@` placeholder |
 | `debian/rules` | ✅ Committed | Build rules + `prepare` target |
 | `debian/linux-image.preinst.in` | ✅ Committed | Pre-install script template (`@KVER@` substituted at build time) |
@@ -171,7 +175,7 @@ This produces:
 - `debian/control` — with the versioned package names, e.g.
   `linux-image-7.2.0+20260826-qcom-next`, the metapackage names from the
   matrix, e.g. `linux-image-qcom-next`, one `<name>-dkms` build dependency per
-  `DKMS_MODULES` entry, and one pair of `<name>-modules-<KVER>` stanzas per
+  `DKMS_MODULES` entry, and one group of `<name>-modules-<KVER>` stanzas per
   entry, appended from `debian/control-dkms.in`
 - `debian/changelog` — with the source package name, e.g. `linux-qcom-next`
 - `debian/dkms-modules` — the manifest of out-of-tree modules to build,
@@ -559,8 +563,10 @@ prepare-source.sh --source-dir /path/to/kernel --dkms kgsl,camx
 - `debian/control` gains `dkms, kgsl-dkms, camx-dkms` in `Build-Depends`, so
   the module sources are installed in the build environment. An empty list adds
   nothing, not even `dkms`.
-- `debian/control` also gains a `<name>-modules-<KVER>` stanza pair per entry,
-  appended from `debian/control-dkms.in`.
+- `debian/control` also gains a `<name>-modules-<KVER>` stanza group per entry,
+  appended from `debian/control-dkms.in`: the versioned modules package, its
+  `-dbg`, and the unversioned `<BINPKG>-modules-<name>` metapackage that depends
+  on the versioned one.
 - `debian/dkms-modules` is written as the manifest `bundle-dkms-modules.sh`
   reads — one name per line, without the `-dkms` suffix.
 
