@@ -457,7 +457,7 @@ jobs:
             "$(basename "$KERNEL_DIR")"
 
       - name: Upload prepared source tree artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.suite }}
           path: /tmp/kernel-srcpkg.tar.gz
