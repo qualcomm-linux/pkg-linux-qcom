@@ -3,23 +3,29 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 set -euo pipefail
 
-# Derive the version fields for a build from a kernel variant and resolved ref.
+# Derive the version fields for a build from a kernel flavour and resolved ref.
+#
+# The flavour is the kernel's own identity, the part of the kernel release
+# that distinguishes two kernels built from the same ref with different
+# configuration, so that their linux-image packages install alongside each
+# other. It is not the CI identifier for the build: a flavour is built for
+# several suites, and all of those builds produce the same kernel release.
 #
 # Emits LOCALVERSION (the kernel release suffix), SNAPSHOT (the dated component
 # of the Debian version) and GITSHA, all derived from the ref in one place.
 # SNAPSHOT and GITSHA are emitted alongside rather than recovered from
 # LOCALVERSION later: reading them back out means guessing where each field ends
-# in a string that also carries a variant name, and a hex SHA can end in eight
+# in a string that also carries a flavour name, and a hex SHA can end in eight
 # digits of its own.
 #
 # For dated tag builds (ref ends in -YYYYMMDD, optionally .<respin>):
-#   Produces +<kernel-variant>-<date>[.<respin>]-g<12 hex>.
+#   Produces +<flavour>-<date>[.<respin>]-g<12 hex>.
 #   Example: qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722-g07f50dc44edd
 #            qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1-g07f50dc44edd
 #
 #   The respin ordinal distinguishes a second tag cut on the same day. It is
 #   carried verbatim rather than normalised, so the first tag of a day stays
-#   plain +<variant>-<date>: systemd compares the separator before the chunk
+#   plain +<flavour>-<date>: systemd compares the separator before the chunk
 #   behind it, so an absent ordinal already sorts below a present one and no
 #   build has to spell a ".0".
 #
@@ -61,11 +67,11 @@ set -euo pipefail
 #   which spells the release candidate ~rcN and orders correctly either way.
 #
 # Usage:
-#   ci/scripts/derive-localversion.sh --variant qcom-next --ref qcom-next-7.2-rc3-20260722 --sha 07f50dc44edd
-#   ci/scripts/derive-localversion.sh --variant arduino --ref main --sha 07f50dc44edd --date 20260904
+#   ci/scripts/derive-localversion.sh --flavour qcom-next --ref qcom-next-7.2-rc3-20260722 --sha 07f50dc44edd
+#   ci/scripts/derive-localversion.sh --flavour arduino --ref main --sha 07f50dc44edd --date 20260904
 #
 # Options:
-#   --variant VARIANT  Kernel variant identifier. Defaults to qcom-next.
+#   --flavour FLAVOUR  Kernel flavour. Defaults to qcom-next.
 #   --ref REF          Kernel ref (tag name or branch name). Required.
 #   --sha SHA          Commit SHA, truncated to 12 hex characters. Required.
 #   --date DATE        HEAD commit date as YYYYMMDD or YYYYMMDD.N. Required for
@@ -86,7 +92,7 @@ set -euo pipefail
 #   0  Success.
 #   1  Error (invalid args, malformed --sha, branch tip without --date).
 
-VARIANT="qcom-next"
+FLAVOUR="qcom-next"
 REF=""
 SHA=""
 DATE=""
@@ -98,7 +104,7 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --variant) VARIANT="$2"; shift 2 ;;
+        --flavour) FLAVOUR="$2"; shift 2 ;;
         --ref)     REF="$2";     shift 2 ;;
         --sha)     SHA="$2";     shift 2 ;;
         --date)    DATE="$2";    shift 2 ;;
@@ -108,8 +114,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$REF" ]] || { echo "ERROR: --ref is required" >&2; exit 1; }
-[[ "$VARIANT" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
-    echo "ERROR: --variant must use lowercase letters, digits, and internal hyphens" >&2
+[[ "$FLAVOUR" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
+    echo "ERROR: --flavour must use lowercase letters, digits, and internal hyphens" >&2
     exit 1
 }
 # Every build identifies its commit, so --sha is required for all of them, not
@@ -123,11 +129,11 @@ done
 GITSHA="${SHA:0:12}"
 
 # Dated tags use a trailing YYYYMMDD snapshot, optionally followed by a respin
-# ordinal. The matrix selects the tag set; the variant supplies the stable
-# package identity used in LOCALVERSION.
+# ordinal. The matrix selects the tag set; the flavour supplies the stable
+# kernel identity used in LOCALVERSION.
 if [[ "$REF" =~ -([0-9]{8}(\.[0-9]+)?)$ ]]; then
     SNAPSHOT="${BASH_REMATCH[1]}"
-    LOCALVERSION="+${VARIANT}-${SNAPSHOT}-g${GITSHA}"
+    LOCALVERSION="+${FLAVOUR}-${SNAPSHOT}-g${GITSHA}"
 else
     # Branch-tip build: the ref carries no date, so the commit date supplies
     # one. Without it these builds had no snapshot at all, which put their
@@ -141,7 +147,7 @@ else
         exit 1
     }
     SNAPSHOT="$DATE"
-    LOCALVERSION="+${VARIANT}-${SNAPSHOT}-g${GITSHA}"
+    LOCALVERSION="+${FLAVOUR}-${SNAPSHOT}-g${GITSHA}"
 fi
 
 echo "LOCALVERSION=${LOCALVERSION}"

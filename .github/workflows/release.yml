@@ -1,39 +1,37 @@
 name: release
 
-# Release kernel package builds. Triggered manually only.
+# Release kernel packages into the released archive.
 #
-# Reads Release rows from ci/build-matrix.json, flattens suites, and builds
-# each entry using the matrix-selected ref strategy and branch_or_tag. After a
-# successful build, packages are promoted from the ephemeral Debusine CI
-# workspace to the stable target workspace (e.g. qli) via debusine-action
-# lib/release.
+# A release builds the ref it releases. It cannot promote a nightly instead:
+# lib/build names the CI workspace after the run that created it and that
+# workspace does not outlive the run, so by the time anyone decides to release,
+# there is no longer anything to promote from. Building here means the artifact
+# that reaches the archive is the one this run produced and tested, and the
+# ref it came from is pinned rather than resolved, so two dispatches of one
+# entry release the same kernel.
 #
-# To update a release ref: open a PR that changes the Release row for that
-# kernel variant in ci/build-matrix.json.
+# Every value describing a release lives in ci/build-matrix.yaml under
+# "releases": the ref, the suites, the packaging, and the workspace each entry
+# publishes into. A dispatch only says which of them to run. Updating a release
+# is therefore a pull request that changes branch_or_tag, which is what puts
+# the ref that ships under review -- rather than a version typed into this form
+# at the moment of releasing.
 #
-# This workflow intentionally has no schedule trigger. Releases are always
-# initiated manually after validation.
+# Debian suites only. Promotion runs through Debusine, and the Ubuntu path
+# publishes to S3 with no workspace to promote into; resolve-matrix.py rejects
+# a non-Debian release entry, so there is no Ubuntu leg to select here.
+#
+# Triggered manually only, and never on a schedule: a release is a decision.
+# The promote job runs in the Production environment, so whatever approval that
+# environment requires stands between this run and the archive.
 
 on:
   workflow_dispatch:
     inputs:
-      release-scope:
-        description: 'Choose all suites for one variant or one variant and suite'
-        type: choice
+      builds:
+        description: 'Releases to run: all, or comma-separated build names from ci/build-matrix.yaml (e.g. qcom-next-trixie,qcom-next-forky)'
         required: true
-        default: 'Selected variant (all suites)'
-        options:
-          - 'Selected variant (all suites)'
-          - 'Selected variant and suite'
-      kernel-variant:
-        description: 'Kernel variant to release'
-        required: true
-        default: 'qcom-next'
-        type: string
-      suite:
-        description: 'Target suite to release (used only for Selected variant and suite)'
-        required: true
-        default: 'trixie'
+        default: 'all'
         type: string
 
 permissions:
@@ -42,70 +40,98 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Release rows from ci/build-matrix.json.
+  # configure-matrix: select the entries to release from ci/build-matrix.yaml.
+  #
+  # --releases reads the releases list rather than builds. Both are validated
+  # whichever is selected, so a broken release entry fails here rather than
+  # part-way through a release.
+  #
+  # No --allow-empty and no family split: every release entry is Debian, so a
+  # selection that matches nothing is a mistake in the request and fails.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure release matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      releases: ${{ steps.set-matrix.outputs.releases }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Generate release matrix
         id: set-matrix
         env:
-          RELEASE_SCOPE_INPUT: ${{ github.event.inputs.release-scope }}
-          INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
-          INPUT_SUITE: ${{ github.event.inputs.suite }}
+          INPUT_BUILDS: ${{ inputs.builds }}
         run: |
           set -euo pipefail
 
-          RELEASE_SCOPE="$RELEASE_SCOPE_INPUT"
+          BUILDS="${INPUT_BUILDS:-all}"
 
-          case "$RELEASE_SCOPE" in
-            "Selected variant (all suites)")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
-              args=(--type Release --kernel-variant "$INPUT_VARIANT")
-              ;;
-            "Selected variant and suite")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
-              args=(--type Release --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
-              ;;
-            *)
-              echo "ERROR: unsupported release scope: $RELEASE_SCOPE" >&2
-              exit 1
-              ;;
-          esac
-          MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
+          args=()
+          if [[ "$BUILDS" == "all" ]]; then
+            echo "Source: ci/build-matrix.yaml releases (every entry)"
+          else
+            echo "Source: ci/build-matrix.yaml releases (builds: $BUILDS)"
+            # A name matching no release entry fails here, so releasing under a
+            # stale or mistyped name stops the run rather than quietly
+            # releasing a subset of what was asked for.
+            args+=(--build "$BUILDS")
+          fi
 
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+          MATRIX=$(ci/scripts/resolve-matrix.py --releases "${args[@]}")
+
+          echo "releases=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Release entries: $(echo "$MATRIX" | jq length)"
+
+      - name: Summarise what this run will release
+        env:
+          MATRIX: ${{ steps.set-matrix.outputs.releases }}
+        run: |
+          set -euo pipefail
+          # The refs and destinations in one place, so the approval on the
+          # Production environment is given against what is actually shipping
+          # rather than against a run number.
+          {
+            echo "### Releasing"
+            echo
+            echo "| Build | Suite | Ref | Revision | Into |"
+            echo "| --- | --- | --- | --- | --- |"
+            jq -r '.[] | "| \(.name) | \(.suite) | `\(.branch_or_tag)` | `\(.debian_revision)` | \(.target_workspace) |"' <<<"$MATRIX"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per flat Release matrix entry.
+  # release: one parallel job per selected entry.
   #
-  # Uses the ref strategy and branch_or_tag selected by the matrix.
-  # Passes target_workspace so build-kernel-debusine.yml triggers the Debusine
-  # release path (lib/release) instead of the S3 publish path.
+  # The same workflow the nightly calls, differing only in what it is told: a
+  # pinned ref instead of a resolved one, and the released workspace instead of
+  # staging. Nothing about how a kernel is built changes because it is being
+  # released.
+  #
+  # fail-fast is disabled so a failed trixie release does not cancel the forky
+  # one; each entry is a package of its own and one failing does not make the
+  # others wrong to ship.
   # ---------------------------------------------------------------------------
-  build:
-    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
+  release:
+    name: ${{ matrix.name }}
     needs: configure-matrix
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/build-kernel-deb.yml
+        include: ${{ fromJson(needs.configure-matrix.outputs.releases) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
+    uses: ./.github/workflows/build-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
-      kernel-variant: ${{ matrix.kernel_variant }}
+      build: ${{ matrix.name }}
+      flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
       ref-strategy: ${{ matrix.ref_strategy }}
-      tag-pattern: ${{ matrix.tag_pattern || '' }}
       srcpkg: ${{ matrix.srcpkg }}
       binpkg: ${{ matrix.binpkg }}
       kernel-config: ${{ matrix.kernel_config }}
@@ -114,8 +140,20 @@ jobs:
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+      # Released archives only, as the nightly does. What this build resolves a
+      # Build-Depends against is something the released kernel will depend on,
+      # so reading qli-staging here would let a released kernel require a -dkms
+      # package that has not been released.
+      extra-build-dep-workspaces: qli
+      # The entry's own, and the one field that makes it a release rather than
+      # a build of the same ref: where the package is published. Stated in the
+      # matrix rather than defaulted here, so the archive a release reaches is
+      # reviewable alongside the ref it ships.
       target-workspace: ${{ matrix.target_workspace }}
+      # A release reaches an archive people install from, so the promotion
+      # waits for whatever approval the Production environment requires. The
+      # nightly leaves this at Staging and promotes unattended.
+      promote-environment: Production
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
-      DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}

@@ -1,6 +1,10 @@
 name: PR Build
 
 # Build-test PRs through the same pipeline the daily builds use.
+#
+# Packaging and CI now live on one branch, so a PR is tested entirely against
+# its own commit: its ci/build-matrix.yaml defines the legs, and its debian/
+# tree and ci/scripts build them. Nothing is read from main.
 
 on:
   pull_request:
@@ -16,7 +20,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: flatten the Daily rows from the PR's build-matrix.json.
+  # configure-matrix: select the entries from the PR's build-matrix.yaml.
   #
   # The PR head, not the merge commit: a push mid-run must not change what this
   # run tested. A SHA also resolves for fork PRs, whose head branch does not
@@ -25,10 +29,13 @@ jobs:
   configure-matrix:
     name: Configure build matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      debian: ${{ steps.set-matrix.outputs.debian }}
+      ubuntu: ${{ steps.set-matrix.outputs.ubuntu }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
@@ -37,27 +44,44 @@ jobs:
         id: set-matrix
         run: |
           set -euo pipefail
-          MATRIX=$(ci/scripts/resolve-matrix.sh --type Daily)
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+          # Split by build path: the families are built by different workflows,
+          # so a PR gets one job per leg it actually builds and no skipped job
+          # for the path that leg does not take.
+          for family in debian ubuntu; do
+            MATRIX=$(ci/scripts/resolve-matrix.py \
+              --family "$family" --allow-empty)
+            echo "$family=$MATRIX" >> "$GITHUB_OUTPUT"
+            echo "$family entries: $(echo "$MATRIX" | jq length)"
+          done
 
   # ---------------------------------------------------------------------------
-  # build: one parallel job per flat matrix entry, mirroring daily.yml.
+  # build-debian / build-ubuntu: one parallel job per matrix entry, mirroring
+  # daily.yml.
+  #
+  # A PR builds the whole matrix, so it gets one check per build leg and
+  # nothing else -- unless the matrix has no entries for one family, which
+  # fires that family's guard and leaves a check named "matrix.name".
+  # daily.yml documents why the guard is needed and the name left alone.
   #
   # fail-fast is disabled so a broken trixie leg still leaves forky and
   # resolute results on the PR.
   # ---------------------------------------------------------------------------
-  build:
-    name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
+  build-debian:
+    name: ${{ matrix.name }}
     needs: configure-matrix
+    if: ${{ needs.configure-matrix.outputs.debian != '[]' }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/build-kernel-deb.yml
+        include: ${{ fromJson(needs.configure-matrix.outputs.debian) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
+    uses: ./.github/workflows/build-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
-      kernel-variant: ${{ matrix.kernel_variant }}
+      build: ${{ matrix.name }}
+      flavour: ${{ matrix.flavour }}
       git-clone: ${{ matrix.git_clone }}
       kernel-branch: ${{ matrix.branch_or_tag }}
       ref-strategy: ${{ matrix.ref_strategy }}
@@ -68,11 +92,60 @@ jobs:
       dkms: ${{ matrix.dkms }}
       debian-revision: ${{ matrix.debian_revision }}
       localversion: ${{ matrix.localversion || '' }}
-      # Mark the version so PR artifacts never collide with the daily build's
-      # in the shared Debusine workspace.
+      # Marks the kernel release, not the package version: debian/rules
+      # appends KVER_EXTRA to KVER and then derives the version separately, so
+      # this changes uname -r and the versioned linux-image name while the
+      # source version stays the one the nightly would build. That is enough
+      # here -- a PR build has its own throwaway workspace and promotes
+      # nowhere -- but it is not a version stamp, and nothing should start
+      # relying on it as one.
       kver-extra: -pr${{ github.event.number }}
+      # Staging as well as released: nothing here is promoted anywhere, so a
+      # pull request may depend on a -dkms package that has reached qli-staging
+      # and not yet qli -- which is how a kernel and the module it needs get
+      # reviewed together.
+      extra-build-dep-workspaces: qli qli-staging
+      # Empty, and stated rather than left to the input's default: this is the
+      # one value keeping a pull request's kernel out of the archives. An empty
+      # target-workspace is what build-kernel-debian.yml's promote job tests
+      # for, so a PR is built, tested and published to S3 and goes no further.
+      #
+      # A PR is unreviewed by definition, and its packages are versioned
+      # -pr<number> rather than as the nightly's, so promoting one would put a
+      # kernel nobody has approved into an archive people install from, under a
+      # version no release will ever supersede. Left implicit, a future edit to
+      # the default -- or a copy of this block into a workflow that should
+      # promote -- would flip that silently; spelled out here, changing it
+      # means saying so.
+      target-workspace: ''
     secrets:
-      # No DEBUSINE_RELEASE_TOKEN: PR builds never promote to a release
-      # workspace, so they leave target-workspace empty.
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
+
+  build-ubuntu:
+    name: ${{ matrix.name }}
+    needs: configure-matrix
+    if: ${{ needs.configure-matrix.outputs.ubuntu != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.ubuntu) }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
+    uses: ./.github/workflows/build-kernel-ubuntu.yml
+    with:
+      suite: ${{ matrix.suite }}
+      build: ${{ matrix.name }}
+      flavour: ${{ matrix.flavour }}
+      git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      dkms: ${{ matrix.dkms }}
+      debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: -pr${{ github.event.number }}
