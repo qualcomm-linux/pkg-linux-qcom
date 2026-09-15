@@ -113,7 +113,9 @@ OPTIONS:
                               Each entry produces its own binary packages,
                               <name>-modules-<KVER>, its -dbg, and the
                               unversioned <binpkg>-modules-<name> metapackage;
-                              the modules are not installed into
+                              a non-empty list also produces one
+                              <binpkg>-modules metapackage depending on all of
+                              them. The modules are not installed into
                               linux-image-<KVER>.
                               Empty (the default) builds no modules.
 
