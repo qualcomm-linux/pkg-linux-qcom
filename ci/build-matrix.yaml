@@ -51,9 +51,9 @@
 # Debusine, which does not build the Ubuntu family.
 #
 # debian_revision is stated outright, not derived. The trailing "~" marks a
-# version as unreleased, and it is carried into the archive as built: what
-# release.yml promotes is the tested artifact, not a rebuild at a tidier
-# version. The rest of the revision places the suite where it belongs relative
+# version as unreleased, and it is carried into the archive as built: what is
+# published is the tested artifact, never a rebuild at a tidier version. The
+# rest of the revision places the suite where it belongs relative
 # to the other suites (see the ordering discussion in README.md). No two
 # entries may produce the same srcpkg at the same debian_revision.
 

@@ -150,12 +150,13 @@ comes from a run of it.
   uploaded to the configured S3 bucket.
 - Debian entries are then promoted into the staging workspace with Debusine's
   `package-publish` workflow, making them installable from that archive.
-- Debian builds resolve their Build-Depends against `qli` alone. The nightly is
-  the build a release promotes, so anything it builds against is something the
-  released kernel will depend on; reading `qli-staging` here would let a kernel
-  reach `qli` depending on a `-dkms` package that has not. A PR build resolves
-  against `qli qli-staging`, because nothing it produces is promoted and a
-  kernel and the module it needs should be reviewable together.
+- Debian builds resolve their Build-Depends against `qli` alone. The nightly
+  is the build whose output is published, so anything it builds against is
+  something the published kernel depends on; reading `qli-staging` here would
+  let a kernel be published depending on a `-dkms` package that has not been
+  released. A PR build resolves against `qli qli-staging`, because nothing it
+  produces is promoted and a kernel and the module it needs should be
+  reviewable together.
 - `resolute` stays on the Docker-based Ubuntu path and uploads its package
   outputs to the existing temporary-package S3 location.
 
@@ -262,7 +263,7 @@ whoever next tries to release. Each entry carries:
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per list element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.py` joins it into the comma-separated `kernel-config` workflow input. |
 | `dkms` | Out-of-tree DKMS modules built and bundled into the image package, one per list element, each named without the `-dkms` suffix (e.g. `kgsl`). Each needs a `<name>-dkms` package in the suite being built for, so this varies between suites. An empty list bundles nothing. A listed module is a presence contract: a build fails rather than shipping an image without it. `resolve-matrix.py` joins it into the comma-separated `dkms` workflow input, which reaches `prepare-source.sh --dkms`; see [debian/README.md](debian/README.md) for what the packaging does with it. |
-| `debian_revision` | The Debian revision this package is built at, stated outright. Carried into every archive the package reaches, because a release promotes the built artifact rather than rebuilding it. |
+| `debian_revision` | The Debian revision this package is built at, stated outright. Carried into the archive as built, because publishing promotes the artifact rather than rebuilding it. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
 | `target_workspace` | **`releases` only, and required there.** The Debusine workspace this entry publishes into. It is the one field a `builds` entry may not carry: where a nightly goes follows from why it is running, and is the calling workflow's to decide, while a release exists precisely to put one ref into one archive. |
