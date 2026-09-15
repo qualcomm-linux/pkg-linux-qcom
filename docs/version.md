@@ -9,7 +9,7 @@ A build produces two version strings, and they are deliberately not the same
 string:
 
 ```text
-uname -r         7.2.0-rc7+qcom-next-20260821-gabcdef123456
+uname -r         7.2.0-rc7+20260821-gabcdef123456-qcom-next
 Debian version   7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1
 ```
 
@@ -42,7 +42,7 @@ the version stays closer to the tag it came from.
 ## Kernel release
 
 ```text
-<base>+qcom-next-<date>[.<respin>]-g<12 hex>
+<base>+<date>[.<respin>]-g<12 hex>-<variant>
 ```
 
 The full upstream version survives here, `-rc7` included: `uname -r` is the
@@ -52,16 +52,22 @@ release candidate or a stable sublevel.
 The suffix joins with `+`, not `-`. systemd compares the separator before the
 chunk behind it, and `-` sorts below `+`, so `+` puts every release candidate
 below the final release that follows it. Joining with `-` instead falls through
-to a plain comparison of `rc` against `qcom`, where `r` > `q`, and every rc
-outranks its own final release in the boot menu. This is the same trick Debian's
-own kernels use (`linux-image-7.1.10+deb14-amd64`).
+to a plain comparison of `rc` against the digits of the date, where `r` outranks
+any digit, and every rc outranks its own final release in the boot menu. This is
+the same trick Debian's own kernels use (`linux-image-7.1.10+deb14-amd64`).
 
 The variant name is part of the string, so a flavour is a distinct kernel that
 installs alongside the others rather than replacing them:
 
 ```text
-7.2.0-rc7+qcom-next-debug-20260821-gabcdef123456
+7.2.0-rc7+20260821-gabcdef123456-qcom-next-debug
 ```
+
+It goes last because Debian's kernel releases end in the flavour
+(`7.1.12+deb14-amd64`), which makes the metapackage name `linux-image-<variant>`
+exactly what remains of `linux-image-<kernel release>` once the version is
+taken off. The cost is that the boot menu orders by date before variant, so two
+variants on one board interleave rather than grouping.
 
 This string is also the versioned binary package name
 (`linux-image-<kernel release>`), so a new commit means a new package name. That
@@ -99,11 +105,17 @@ The cost of `~` is one misleading reading: the version sorts below the same
 snapshot without a SHA, as though it preceded it. Nothing occupies that slot,
 because every snapshot build carries a SHA.
 
-The revision (`0qli1~bpo13+1`) is derived separately, from the version stub, the
-suite, and whether the build is a Daily or a Release. See the matrix
-documentation in the top-level [README](../README.md#matrix-model); the trailing
-digit on the stub is the packaging revision, bumped when the packaging changes
-but the kernel snapshot does not.
+The revision (`0qli1~bpo13+1`) is not derived. Each matrix entry states its own
+outright, and it says two things: where the suite belongs relative to the other
+suites, and which packaging built it. The `~bpo13+1` is the backports
+convention, sorting a trixie build below a forky build of the same kernel; the
+trailing digit on the `0qli` stub is the packaging revision, bumped when the
+packaging changes but the kernel snapshot does not. See the matrix
+documentation in the top-level [README](../README.md#matrix-model).
+
+Nothing in the revision marks how far a build has got. A kernel is built once
+and the artifact that build produced is what any archive holds, so there is no
+second version for a marker to sort against.
 
 ## Ordering
 
@@ -112,14 +124,10 @@ The full chain for one suite, in the order dpkg sorts it:
 ```text
 7.2.0~rc7+git20260820.1~g011a82096bee-0qli1~bpo13+1     first tag of the 20th
 7.2.0~rc7+git20260820.2~g3f2f3ca1a81e-0qli1~bpo13+1     respin, same day
-7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1~      Daily, next snapshot
-7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1       Release of the same
+7.2.0~rc7+git20260821~gabcdef123456-0qli1~bpo13+1       next snapshot
 7.2.0~rc7+git20260821~gabcdef123456-0qli2~bpo13+1       packaging rebuild
 7.2.0+git20260902~g123456789abc-0qli1~bpo13+1           7.2 final
 ```
-
-A Daily sorts below the Release of the same snapshot because its revision ends
-in a trailing `~`.
 
 ## Moved tags
 
@@ -149,7 +157,7 @@ the HEAD commit instead. The result has the same shape as a tag build and orders
 in the same sequence:
 
 ```text
-uname -r         7.2.0-rc7+qcom-next-20260904-g07f50dc44edd
+uname -r         7.2.0-rc7+20260904-g07f50dc44edd-qcom-next
 Debian version   7.2.0~rc7+git20260904~g07f50dc44edd-0qli1~bpo13+1
 ```
 
@@ -171,7 +179,7 @@ repository, the resolved ref and the full 40-character SHA are recorded in the
 package changelog instead:
 
 ```text
-  * Kernel version: 7.2.0-rc7+qcom-next-20260904-g07f50dc44edd
+  * Kernel version: 7.2.0-rc7+20260904-g07f50dc44edd-qcom-next
   * Source: https://github.com/qualcomm-linux/kernel qcom-next
   * Commit: 07f50dc44edd…
 ```

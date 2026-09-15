@@ -56,7 +56,7 @@ OPTIONS:
                               (default: $DEFAULT_FLAVOUR). Only consulted when
                               --localversion is not given.
     --localversion SUFFIX     LOCALVERSION suffix appended to the base kernel
-                              version (e.g. +qcom-next-20260722-g07f50dc44edd).
+                              version (e.g. +20260722-g07f50dc44edd-qcom-next).
                               Derived from the checked-out tag or branch by
                               ci/scripts/derive-localversion.sh if not given.
     --snapshot SNAPSHOT       Dated component of the Debian version: YYYYMMDD
@@ -106,12 +106,18 @@ OPTIONS:
 
   DKMS modules:
     --dkms LIST               Comma-separated out-of-tree DKMS modules to build
-                              against this kernel and bundle into
-                              linux-image-<KVER>, each named without the -dkms
+                              against this kernel, each named without the -dkms
                               suffix (e.g. --dkms kgsl,camx). Each entry needs a
                               <name>-dkms package available to the build; the
                               Build-Depends entry is generated from this list.
-                              Empty (the default) bundles no modules.
+                              Each entry produces its own binary packages,
+                              <name>-modules-<KVER>, its -dbg, and the
+                              unversioned <binpkg>-modules-<name> metapackage;
+                              a non-empty list also produces one
+                              <binpkg>-modules metapackage depending on all of
+                              them. The modules are not installed into
+                              linux-image-<KVER>.
+                              Empty (the default) builds no modules.
 
   Paths:
     --debian-dir DIR          Path to the debian/ packaging directory
@@ -127,7 +133,7 @@ EXAMPLES:
     # Full CI invocation with all options
     $0 --source-dir /path/to/kernel \\
        --distro trixie \\
-       --localversion +qcom-next-20260722-g07f50dc44edd \\
+       --localversion +20260722-g07f50dc44edd-qcom-next \\
        --snapshot 20260722 \\
        --srcpkg linux-qcom-next \\
        --binpkg linux-image-qcom-next \\
@@ -232,7 +238,7 @@ if [[ -z "$LOCALVERSION" ]]; then
     if [[ -z "$GIT_SHA" || -z "$CHECKOUT_REF" ]]; then
         log_warn "LOCALVERSION not set and $SOURCE_DIR is not a readable git checkout."
         log_warn "Package will be named linux-image-<base-kver> (no flavour/date suffix)."
-        log_warn "Use --localversion to specify, e.g.: --localversion +qcom-next-20260722-g07f50dc44edd"
+        log_warn "Use --localversion to specify, e.g.: --localversion +20260722-g07f50dc44edd-qcom-next"
     else
         # Committer date, normalised to UTC, as CI does.
         DERIVE_DATE=$(TZ=UTC git -C "$SOURCE_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)

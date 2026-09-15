@@ -1,0 +1,20 @@
+#!/bin/sh
+# preinst for linux-image-@KVER@
+#
+# Generated from debian/linux-image.preinst.in by debian/rules at build time;
+# @KVER@ is substituted with the kernel release (uname -r).
+set -e
+
+# Auto-generated debhelper code is inserted here.
+#DEBHELPER#
+
+# Nothing to do before unpacking. Each kernel version is a uniquely named
+# package (the version is part of the package name), so dpkg handles the
+# coexistence of multiple installed kernels on its own; there is no need to
+# remove other kernel versions here.
+#
+# Kernels are removed explicitly by the administrator:
+#   sudo dpkg -r linux-image-@KVER@
+# or by apt autoremove once the package is no longer needed.
+
+exit 0

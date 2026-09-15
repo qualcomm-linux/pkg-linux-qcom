@@ -9,6 +9,11 @@ debian/kernel.release
 debian/localversion
 debian/pkgversion
 
+# Per-module DKMS package inputs written by bundle-dkms-modules.sh during build
+debian/*-modules-*.copyright
+debian/*-modules-*.substvars
+debian/*-modules-*.triggers
+
 # Generated maintainer scripts (versioned names, created during build)
 debian/linux-image-*.postinst
 debian/linux-image-*.preinst
@@ -18,3 +23,6 @@ debian/linux-image-*.prerm
 # Default kernel source and build output directories
 kernel-source/
 kernel-build/
+
+# Python bytecode cache from ci/scripts/
+__pycache__/
