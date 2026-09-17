@@ -1,0 +1,42 @@
+#!/bin/sh
+# prerm for linux-image-@KVER@
+#
+# Generated from debian/linux-image.prerm.in by debian/rules at build time;
+# @KVER@ is substituted with the kernel release (uname -r).
+set -e
+
+KVER="@KVER@"
+
+# Auto-generated debhelper code is inserted here.
+#DEBHELPER#
+
+# Run the kernel prerm.d hooks, while the kernel being removed is still on
+# disk. dkms ships one there, which calls 'dkms kernel_prerm' so that modules
+# built against this release are torn down before it disappears; linux-base
+# ships zz-legacy-boot in /usr/share/kernel/prerm.d.
+#
+# linux-check-removal(1) comes first, as it does in Debian's own prerm: if the
+# kernel being removed is the one currently running, it prompts before letting
+# the removal proceed. It is silent when the answer cannot matter -- in a
+# chroot or container, or where debconf prompts are disabled -- so it only
+# speaks up on an interactive removal of the running kernel.
+#
+# Neither call is guarded and neither is allowed to fail, unlike the postrm
+# next door. Two reasons:
+#
+#   - The package is still installed here, so Pre-Depends still holds and
+#     linux-base is guaranteed present. In the postrm it may already be gone,
+#     which is what the 'command -v' guard there is for.
+#   - A failing prerm aborts the removal before dpkg has removed anything, so
+#     there is no half-removed package to strand. That is what makes it safe to
+#     let linux-check-removal veto, and vetoing is the whole point of calling
+#     it. A failing postrm, by contrast, would leave the package wedged, which
+#     is why that one swallows errors.
+if [ "$1" = "remove" ]; then
+    image_path="/boot/vmlinuz-$KVER"
+    linux-check-removal "$KVER"
+    echo "linux-image: running kernel prerm.d hooks for $KVER..."
+    linux-run-hooks image prerm "$KVER" "$image_path" -- "$@"
+fi
+
+exit 0

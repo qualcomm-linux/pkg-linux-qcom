@@ -11,6 +11,7 @@ Rules-Requires-Root: binary-targets
 
 Package: linux-image-@KVER@
 Architecture: arm64
+Pre-Depends: linux-base (>= 4.12~)
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Recommends: initramfs-tools | dracut | linux-initramfs-tool
 Suggests: linux-headers-@KVER@

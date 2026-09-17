@@ -1,0 +1,42 @@
+#!/bin/sh
+# preinst for linux-image-@KVER@
+#
+# Generated from debian/linux-image.preinst.in by debian/rules at build time;
+# @KVER@ is substituted with the kernel release (uname -r).
+set -e
+
+KVER="@KVER@"
+
+# Auto-generated debhelper code is inserted here.
+#DEBHELPER#
+
+# Run the kernel preinst.d hooks. dkms ships one there, which calls
+# 'dkms kernel_preinst' for the kernel about to be installed.
+#
+# Dispatched through linux-run-hooks(1) like the other three scripts, so that
+# both /etc/kernel/preinst.d and /usr/share/kernel/preinst.d are run. See the
+# postinst for the full reasoning.
+#
+# The call is unguarded, and this script is the sharpest reason the dependency
+# on linux-base is Pre-Depends rather than Depends: the preinst runs before our
+# package is unpacked, and only a pre-dependency is guaranteed to be configured
+# by then.
+#
+# 'install' and 'upgrade' are every action that reaches here bar
+# 'abort-upgrade', which Debian's own preinst skips too.
+if [ "$1" = "install" ] || [ "$1" = "upgrade" ]; then
+    echo "linux-image: running kernel preinst.d hooks for $KVER..."
+    image_path="/boot/vmlinuz-$KVER"
+    linux-run-hooks image preinst "$KVER" "$image_path" -- "$@"
+fi
+
+# Nothing else to do before unpacking. Each kernel version is a uniquely named
+# package (the version is part of the package name), so dpkg handles the
+# coexistence of multiple installed kernels on its own; there is no need to
+# remove other kernel versions here.
+#
+# Kernels are removed explicitly by the administrator:
+#   sudo dpkg -r linux-image-@KVER@
+# or by apt autoremove once the package is no longer needed.
+
+exit 0

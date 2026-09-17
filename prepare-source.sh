@@ -50,7 +50,7 @@ OPTIONS:
                               a kernel Makefile)
 
   Version control:
-    -d, --distro DISTRO       Target suite: trixie|forky|sid|noble|questing|resolute
+    -d, --distro DISTRO       Target suite: trixie|forky|sid|questing|resolute
                               (default: $DEFAULT_DISTRO)
     --flavour NAME            Kernel flavour, the identity LOCALVERSION carries
                               (default: $DEFAULT_FLAVOUR). Only consulted when
@@ -183,7 +183,7 @@ done
 [[ -d "$SOURCE_DIR" ]] || { log_error "Source directory not found: $SOURCE_DIR"; exit 1; }
 SOURCE_DIR="$(cd "$SOURCE_DIR" && pwd)"
 
-VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
+VALID_DISTROS=(questing resolute trixie forky sid unstable)
 [[ " ${VALID_DISTROS[*]} " =~ " $DISTRO " ]] || {
     log_error "Invalid distro: $DISTRO (valid: ${VALID_DISTROS[*]})"
     exit 1

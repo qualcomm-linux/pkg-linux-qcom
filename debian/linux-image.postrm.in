@@ -1,0 +1,43 @@
+#!/bin/sh
+# postrm for linux-image-@KVER@
+#
+# Generated from debian/linux-image.postrm.in by debian/rules at build time;
+# @KVER@ is substituted with the kernel release (uname -r).
+set -e
+
+KVER="@KVER@"
+
+# Auto-generated debhelper code (dh_installmodules' depmod call) is inserted
+# here.
+#DEBHELPER#
+
+# Run the kernel postrm.d hooks: zz-update-grub, and on forky zz-systemd-boot,
+# which drops the removed kernel's loader entry. This is the standard Debian
+# way to tidy the bootloader after a kernel is removed.
+#
+# The hooks live in the same two directories as the postinst.d ones and are
+# dispatched the same way, through linux-run-hooks(1). See the postinst for
+# the full reasoning.
+#
+# Unlike the postinst, this one tests for the command first. Pre-Depends
+# guarantees linux-base while the package is installed, not while it is being
+# removed: dpkg is free to remove linux-base in the same run, and on purge it
+# may already be gone. Debian's own linux-image postrm guards it for the same
+# reason and warns rather than failing, so that a kernel can always be
+# removed; the cost of a missing hook run here is a stale bootloader entry,
+# not an unbootable system.
+#
+# A failing hook must not fail the removal either -- dpkg would leave the
+# package half-removed -- so the dispatch is allowed to fail.
+if [ "$1" = "remove" ]; then
+    image_path="/boot/vmlinuz-$KVER"
+    if command -v linux-run-hooks >/dev/null 2>&1; then
+        echo "linux-image: running kernel postrm.d hooks for $KVER..."
+        linux-run-hooks image postrm "$KVER" "$image_path" -- "$@" || true
+    else
+        echo "linux-image: linux-base is gone; skipping the postrm.d hooks for $KVER." >&2
+        echo "linux-image: a bootloader entry for $KVER may be left behind." >&2
+    fi
+fi
+
+exit 0
