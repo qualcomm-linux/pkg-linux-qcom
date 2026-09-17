@@ -220,7 +220,7 @@ clone → prepare → build. Run it from the repo root.
 ./build-kernel.sh --tag qcom-next-7.2-rc7-20260826
 
 # Build from branch tip
-./build-kernel.sh --branch qcom-next --distro noble
+./build-kernel.sh --branch qcom-next --distro resolute
 
 # Build with explicit LOCALVERSION
 ./build-kernel.sh --tag qcom-next-7.2-rc7-20260826 --localversion qcom-next-20260826
@@ -268,7 +268,7 @@ dpkg-buildpackage -us -uc -b
 python3 docker_deb_build.py \
   --source-dir /path/to/kernel-source \
   --output-dir /path/to/output \
-  --distro noble
+  --distro resolute
 ```
 
 `build-kernel.sh` calls this automatically after running `prepare`.
@@ -355,10 +355,10 @@ that command, as Debian's own `linux-image` packages do — it runs from our
 postinst, so it has to be configured before we are. It is a plain field in
 `control.in`, not generated per suite: every suite in the build matrix carries
 4.12 or later (trixie has 4.12.1, forky and sid are ahead of it, resolute has
-4.15ubuntu5), so there is no suite to make an exception for. A suite whose
-`linux-base` predates 4.12 — noble, say, which the matrix does not build —
-refuses the package outright rather than installing it and silently skipping
-the hooks.
+4.15ubuntu5), so there is no suite to make an exception for. `noble` was the
+one accepted `--distro` value whose `linux-base` predates 4.12, and nothing
+built it, so it is no longer accepted at all; any other such suite would refuse
+the package outright rather than installing it and silently skipping the hooks.
 
 There is no `run-parts` fallback, deliberately. One that ran `/etc/kernel/*.d/`
 alone would reintroduce the silent unbootable install on any system that got
@@ -685,7 +685,6 @@ activated via `--enable-configs my-feature` or a manual copy to `config/`.
 
 | Distribution | Suite | Notes |
 |-------------|-------|-------|
-| Ubuntu 24.04 LTS | `noble` | |
 | Ubuntu 25.10 | `questing` | |
 | Ubuntu 26.04 | `resolute` | |
 | Debian 13 | `trixie` | Default |
