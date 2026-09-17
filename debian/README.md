@@ -350,10 +350,15 @@ Installed paths:
   snippet debhelper generates for every package that ships a module: it is
   guarded by `[ -e /boot/System.map-<KVER> ]`, so without this file no
   `modules.dep` is ever regenerated on the target.
-- `/lib/modules/<KVER>/` — stripped kernel modules
+- `/usr/lib/modules/<KVER>/` — stripped kernel modules
 - `/usr/lib/linux-image-<KVER>/` — all DTBs (vendor subdirs preserved)
-- `/lib/modules/<KVER>/build` → `/usr/src/linux-headers-<KVER>/` (symlink)
-- `/lib/modules/<KVER>/source` → `/usr/src/linux-headers-<KVER>/` (symlink)
+- `/usr/lib/modules/<KVER>/build` → `/usr/src/linux-headers-<KVER>/` (symlink)
+- `/usr/lib/modules/<KVER>/source` → `/usr/src/linux-headers-<KVER>/` (symlink)
+
+Modules ship under `/usr/lib/modules`, the merged-/usr location required by
+Debian Policy 10.1; `/lib/modules` resolves to the same directory on the
+target. kbuild installs them under `lib/modules/` in the staging tree and
+`dh_movetousr` moves them after `dh_installmodules` has run.
 
 Virtual packages provided: `linux-image`, `linux-image-arm64`
 
@@ -463,7 +468,7 @@ One package per `DKMS_MODULES` entry, built from that entry's `<name>-dkms`
 source against the kernel this same build produced.
 
 Installed paths:
-- `/lib/modules/<KVER>/updates/qli/*.ko` — the modules, stripped
+- `/usr/lib/modules/<KVER>/updates/qli/*.ko` — the modules, stripped
 
 Depends on `linux-image-<KVER>` (same version), and `Conflicts`/`Replaces`
 `<name>-dkms`.
@@ -525,7 +530,7 @@ blacklist that would outlive the kernel it was written for.
 `<name>-modules-<KVER>` depends on the exact `linux-image-<KVER>` it was built
 against, and `Conflicts`/`Replaces` `<name>-dkms`. The two forms are
 deliberately mutually exclusive: a `-dkms` install would build a second copy of
-the same modules into `/lib/modules/<KVER>/updates/dkms/`, at the same depmod
+the same modules into `/usr/lib/modules/<KVER>/updates/dkms/`, at the same depmod
 precedence as the copy shipped here, leaving which one loads up to depmod's
 ordering rather than to a decision anyone made.
 
@@ -560,7 +565,8 @@ packages have been staged. The script:
    analysis (skip), then hard-fails — a manifest entry is a presence contract.
 6. For each produced `.ko`: collision-checks against modules already staged by
    this run and against in-tree modules; installs to
-   `<name>-modules-<KVER>/lib/modules/<KVER>/updates/qli/`; extracts debug
+   `lib/modules/<KVER>/updates/qli/` in `<name>-modules-<KVER>`'s staging tree
+   (shipped as `/usr/lib/modules/<KVER>/updates/qli/`); extracts debug
    symbols via `objcopy --only-keep-debug` into the matching `-dbg` package;
    strips with `strip --strip-debug` (required for kernel modules — a full
    strip drops the symtab and relocations needed by the module loader).
@@ -631,7 +637,7 @@ and all available options (`--arch`, `--objcopy`, `--modules-manifest`).
 
 ## The `build` and `source` symlinks
 
-`/lib/modules/<KVER>/build` and `/lib/modules/<KVER>/source` are symlinks
+`/usr/lib/modules/<KVER>/build` and `/usr/lib/modules/<KVER>/source` are symlinks
 pointing to `/usr/src/linux-headers-<KVER>/`. These are used by:
 - `make -C /lib/modules/$(uname -r)/build` — standard out-of-tree module build
 - DKMS — automatic module rebuild on kernel update
