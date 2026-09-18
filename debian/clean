@@ -1,4 +1,5 @@
 debian/kernel.release
+debian/*-modules-*.substvars
 debian/linux-image-*.postinst
 debian/linux-image-*.preinst
 debian/linux-image-*.postrm

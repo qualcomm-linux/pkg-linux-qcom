@@ -5,6 +5,7 @@ Depends: ${misc:Depends}, linux-image-@KVER@ (= ${binary:Version})
 Conflicts: @MODNAME@-dkms
 Replaces: @MODNAME@-dkms
 Provides: @MODNAME@-modules
+Built-Using: ${dkms:Built-Using}
 Description: @MODNAME@ kernel modules for Qualcomm ARM64 Linux @KVER@
  Out-of-tree @MODNAME@ modules, built from the @MODNAME@-dkms source against
  kernel release @KVER@ and shipped prebuilt, so nothing has to be compiled on
