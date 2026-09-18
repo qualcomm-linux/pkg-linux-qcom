@@ -1,0 +1,9 @@
+Package: @BINPKG@-modules
+Architecture: arm64
+Section: kernel
+Depends: ${misc:Depends}@DKMS_META_DEPENDS@
+Description: Qualcomm ARM64 out-of-tree kernel modules (meta-package)
+ This meta-package always depends on every out-of-tree module meta-package
+ built for the latest kernel image of this variant, so installing it alongside
+ @BINPKG@ pulls in the full module set and keeps it in step with the kernel
+ across apt upgrades.
