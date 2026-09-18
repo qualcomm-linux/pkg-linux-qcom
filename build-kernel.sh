@@ -71,11 +71,13 @@ OPTIONS:
                             which is always applied in full. An "intree:" prefix
                             names a path relative to the kernel source root
                             (e.g. intree:arch/arm64/configs/qcom_debug.config)
-    --dkms LIST             Comma-separated out-of-tree DKMS modules to build and
-                            bundle into linux-image-<KVER>, without the -dkms
-                            suffix (e.g. --dkms kgsl,camx). Each entry needs its
-                            <name>-dkms package available to the build. Empty by
-                            default (bundle nothing).
+    --dkms LIST             Comma-separated out-of-tree DKMS modules to build
+                            against this kernel, without the -dkms suffix
+                            (e.g. --dkms kgsl,camx). Each entry needs its
+                            <name>-dkms package available to the build, and
+                            ships in its own <name>-modules-<KVER> package
+                            rather than in linux-image-<KVER>. Empty by
+                            default (build nothing).
 
   Paths:
     -k, --kernel-dir DIR    Kernel source directory (default: $KERNEL_DIR)
