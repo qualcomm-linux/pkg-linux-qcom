@@ -326,6 +326,10 @@ CI writes every orig in one builder image.
 Installed paths:
 - `/boot/vmlinuz-<KVER>` — compressed kernel image
 - `/boot/config-<KVER>` — kernel `.config`
+- `/boot/System.map-<KVER>` — kernel symbol table. Required by the depmod
+  snippet debhelper generates for every package that ships a module: it is
+  guarded by `[ -e /boot/System.map-<KVER> ]`, so without this file no
+  `modules.dep` is ever regenerated on the target.
 - `/lib/modules/<KVER>/` — stripped kernel modules
 - `/usr/lib/linux-image-<KVER>/` — all DTBs (vendor subdirs preserved)
 - `/lib/modules/<KVER>/build` → `/usr/src/linux-headers-<KVER>/` (symlink)
