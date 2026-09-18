@@ -638,7 +638,40 @@ for name in $DKMS_MODULES; do
         exit 1
     fi
 
+    # ── Record the DKMS source package in Built-Using ────────────────────────
+    # The .ko in this package was compiled from source that lives in another
+    # source package entirely, and nothing in the Debian metadata would say so:
+    # the binary is emitted by src:linux-qcom-next, which does not contain a
+    # line of the module's code. Built-Using names the exact source that did,
+    # which is what keeps it retained in the archive alongside the binary.
+    #
+    # ${source:Package} / ${source:Version} rather than the binary's own name
+    # and version: dpkg parses these out of the binary's "Source: name (ver)"
+    # field when it has one, and falls back to the binary version, epoch
+    # included, when it does not. Both are the right answer.
+    dkms_src="$(dpkg-query -W -f='${source:Package} (= ${source:Version})' \
+                "${name}-dkms" 2>/dev/null)" || {
+        log_error "Could not read the source package of ${name}-dkms"
+        log_error "It resolved through dpkg -L a moment ago, so this is unexpected."
+        exit 1
+    }
+
+    # Written into the staging root, which is where dh_gencontrol looks. Safe
+    # to write here: dh_prep is the only thing that truncates a .substvars and
+    # it runs before dh_auto_install; everything after this point merges.
+    #
+    # Rewritten rather than appended, because this script is also callable by
+    # hand outside the dh sequence, where no dh_prep has cleared the file and a
+    # second run would otherwise accumulate duplicate keys.
+    substvars="$STAGE_ROOT/$name-modules-$KVER.substvars"
+    if [[ -f "$substvars" ]]; then
+        grep -v '^dkms:Built-Using=' "$substvars" > "$substvars.new" || true
+        mv "$substvars.new" "$substvars"
+    fi
+    printf 'dkms:Built-Using=%s\n' "$dkms_src" >> "$substvars"
+
     log_info "Staged $staged_ko module(s) into $name-modules-$KVER"
+    log_info "  Built-Using: $dkms_src"
     echo
 
 done
