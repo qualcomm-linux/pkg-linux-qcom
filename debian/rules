@@ -67,8 +67,9 @@ KREL_FILE := debian/kernel.release
 #                    nothing. Each name must have a <name>-dkms package available
 #                    in the build environment; the Build-Depends entry for it is
 #                    generated from this list, so nothing else declares it.
-#                    Each entry produces its own pair of binary packages,
-#                    <name>-modules-<KVER> and <name>-modules-<KVER>-dbg, whose
+#                    Each entry produces its own binary packages, the versioned
+#                    <name>-modules-<KVER> and <name>-modules-<KVER>-dbg plus
+#                    the unversioned <BINPKG>-modules-<name> metapackage, whose
 #                    control stanzas are generated from debian/control-dkms.in.
 #                    The modules are NOT installed into linux-image-<KVER>.
 #   GIT_CLONE        Kernel repository URL, recorded in debian/changelog.
@@ -87,7 +88,7 @@ KREL_FILE := debian/kernel.release
 #                    by hand.
 #
 # Outputs (generated files, all listed in debian/clean):
-#   debian/control       Substituted from debian/control.in, with one pair of
+#   debian/control       Substituted from debian/control.in, with one group of
 #                        stanzas per DKMS_MODULES entry appended from
 #                        debian/control-dkms.in
 #   debian/changelog     Substituted from debian/changelog.in
@@ -250,7 +251,7 @@ prepare:
 		-e "s|@DKMS_BUILD_DEPENDS@|$$DKMS_BUILD_DEPENDS|g" \
 		debian/control.in > debian/control; \
 	\
-	# One pair of binary package stanzas per bundled module, appended to the
+	# One group of binary package stanzas per bundled module, appended to the
 	# generated control. Every module named in DKMS_MODULES ships as its own
 	# <name>-modules-<kver> package rather than being copied into the image, so
 	# the stanzas cannot be spelled in control.in: there is one per entry in a
@@ -264,6 +265,7 @@ prepare:
 		sed \
 			-e "s|@MODNAME@|$$mod|g" \
 			-e "s|@KVER@|$$KVER_RESOLVED|g" \
+			-e "s|@BINPKG@|$(BINPKG)|g" \
 			debian/control-dkms.in >> debian/control; \
 	done; \
 	sed \
