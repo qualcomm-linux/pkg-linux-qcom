@@ -71,6 +71,9 @@ KREL_FILE := debian/kernel.release
 #                    <name>-modules-<KVER> and <name>-modules-<KVER>-dbg plus
 #                    the unversioned <BINPKG>-modules-<name> metapackage, whose
 #                    control stanzas are generated from debian/control-dkms.in.
+#                    A non-empty list also produces one <BINPKG>-modules
+#                    metapackage depending on all of them, generated from
+#                    debian/control-dkms-all.in.
 #                    The modules are NOT installed into linux-image-<KVER>.
 #   GIT_CLONE        Kernel repository URL, recorded in debian/changelog.
 #   GIT_REF          Resolved kernel ref (tag or branch), recorded in the changelog.
@@ -90,7 +93,9 @@ KREL_FILE := debian/kernel.release
 # Outputs (generated files, all listed in debian/clean):
 #   debian/control       Substituted from debian/control.in, with one group of
 #                        stanzas per DKMS_MODULES entry appended from
-#                        debian/control-dkms.in
+#                        debian/control-dkms.in, plus a single all-modules
+#                        metapackage stanza from debian/control-dkms-all.in
+#                        when the list is not empty
 #   debian/changelog     Substituted from debian/changelog.in
 #   debian/dkms-modules  Manifest of the DKMS_MODULES entries, read at build time
 #                        by debian/scripts/bundle-dkms-modules.sh. Always written,
@@ -268,6 +273,23 @@ prepare:
 			-e "s|@BINPKG@|$(BINPKG)|g" \
 			debian/control-dkms.in >> debian/control; \
 	done; \
+	\
+	# One more stanza, once, when anything was bundled: the metapackage that
+	# pulls in every per-module metapackage above, so the whole out-of-tree
+	# module set for a variant installs under a single name.
+	# It depends on those metapackages rather than on the versioned packages,
+	# so what it names does not have to be re-resolved on every snapshot.
+	if [ -n "$$DKMS_LIST" ]; then \
+		DKMS_META_DEPENDS=""; \
+		for mod in $$DKMS_LIST; do \
+			DKMS_META_DEPENDS="$$DKMS_META_DEPENDS, $(BINPKG)-modules-$$mod (= \$${binary:Version})"; \
+		done; \
+		printf '\n' >> debian/control; \
+		sed \
+			-e "s|@BINPKG@|$(BINPKG)|g" \
+			-e "s|@DKMS_META_DEPENDS@|$$DKMS_META_DEPENDS|g" \
+			debian/control-dkms-all.in >> debian/control; \
+	fi; \
 	sed \
 		-e "s|@SRCPKG@|$(SRCPKG)|g" \
 		-e "s|@PKGVER@|$$PKG_VERSION|g" \
