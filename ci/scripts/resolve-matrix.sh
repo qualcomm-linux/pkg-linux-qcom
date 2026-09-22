@@ -16,11 +16,12 @@ set -euo pipefail
 #     either a bare name from debian/config-available/ or an "intree:" entry
 #     naming a path relative to the kernel source root
 #     (e.g. intree:arch/arm64/configs/qcom_debug.config). dkms is instead an
-#     object keyed by suite, one key per entry in suites, whose value is that
-#     suite's list of out-of-tree modules, one array element per module named
-#     as the stem of its <name>-dkms package, e.g. "kgsl". This lets suites
-#     that lack a module differ from suites that ship it, e.g. a suite whose
-#     build path doesn't yet carry a given DKMS package.
+#     object keyed by suite, whose value is that suite's list of out-of-tree
+#     modules, one array element per module named as the stem of its
+#     <name>-dkms package, e.g. "kgsl". A suite key is optional: a suite with
+#     no entry gets no DKMS modules, so {} means none for any suite. This
+#     lets suites that lack a module differ from suites that ship it, e.g. a
+#     suite whose build path doesn't yet carry a given DKMS package.
 #
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
@@ -164,15 +165,13 @@ validation_errors=$(jq -r '
     else empty
     end;
 
-  # dkms is an object keyed by suite, one key per entry in suites, so each
-  # suite has an explicit bundle instead of one implied by a shared default.
+  # dkms is an object keyed by suite; a key is optional and a missing one
+  # means that suite gets no DKMS modules, so {} means none for any suite.
   def dkms_valid:
     if (.dkms | type) != "object"
     then "dkms must be an object mapping each suite to its module list"
     elif (.suites | type) != "array"
     then empty                      # suites_valid already reports this
-    elif (([.suites[]] - (.dkms | keys)) | length) > 0
-    then "dkms is missing an entry for suite(s) " + (([.suites[]] - (.dkms | keys)) | join(", "))
     elif (((.dkms | keys) - [.suites[]]) | length) > 0
     then "dkms names suite(s) not in suites: " + (((.dkms | keys) - [.suites[]]) | join(", "))
     else (.dkms | to_entries[] | dkms_list_errors(.value; "dkms[" + .key + "]"))
@@ -374,7 +373,7 @@ result=$(jq -c \
         | . + {
             "suite": $suite,
             "kernel_config": ($row.kernel_config | join(",")),
-            "dkms": ($row.dkms[$suite] | join(","))
+            "dkms": (($row.dkms[$suite] // []) | join(","))
           }
       ]
       | if length == 0
