@@ -192,7 +192,7 @@ its own values for:
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
-| `dkms` | Out-of-tree DKMS modules built against this kernel and bundled into its `linux-image` package, as an object keyed by suite: each of the row's `suites` must have an entry, and each entry is a list of modules named as the stem of their `<name>-dkms` package (e.g. `kgsl`). An empty list bundles nothing for that suite. A listed module is a presence contract: a build fails rather than shipping an image without it. There is no default or fallback, so suites that can't build a given module (e.g. an Ubuntu-family suite lacking a package) simply list less. `resolve-matrix.sh` joins the resolved leg's suite into the comma-separated `dkms` workflow input. |
+| `dkms` | Out-of-tree DKMS modules built against this kernel and bundled into its `linux-image` package, as an object keyed by suite, each entry a list of modules named as the stem of their `<name>-dkms` package (e.g. `kgsl`). A suite's entry is optional: a suite with no entry, and `{}` itself, bundles nothing. An empty list does the same for the suite it names. A listed module is a presence contract: a build fails rather than shipping an image without it. There is no default or fallback, so suites that can't build a given module (e.g. an Ubuntu-family suite lacking a package) simply list less, or omit an entry entirely. `resolve-matrix.sh` joins the resolved leg's suite into the comma-separated `dkms` workflow input. |
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
@@ -208,8 +208,8 @@ start. It also rejects a matrix where any configured suite has no
 suffix is non-empty and doesn't start with `~`, where a variant's Daily
 and Release rows disagree on `debian_version_stub`, where a row's
 `debian_version_suffix` doesn't match what its `type` implies, or where a
-row's `dkms` object is missing an entry for one of its `suites` or names a
-suite that isn't in `suites` — all before any build job starts.
+row's `dkms` object names a suite that isn't in `suites` — all before any
+build job starts.
 
 Each flattened leg's final `debian_revision` is derived by
 `ci/scripts/derive-debian-revision.sh` from `debian_version_stub`,
