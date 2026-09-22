@@ -3,13 +3,18 @@
 # SPDX-License-Identifier: BSD-3-Clause
 set -euo pipefail
 
-# bundle-dkms-modules.sh — Build and bundle out-of-tree DKMS modules into the
-# linux-image staging tree at dpkg-buildpackage time.
+# bundle-dkms-modules.sh — Build out-of-tree DKMS modules against the kernel
+# being produced and stage each one into its own binary package tree at
+# dpkg-buildpackage time.
 #
 # This script is the single source of truth for DKMS module integration.
 # It is called by debian/rules override_dh_auto_install after the kernel image,
 # modules, headers, and debug packages have been staged, and can also be invoked
 # directly by a developer who has already staged those trees manually.
+#
+# The modules do NOT go into linux-image-<kver>. Each one ships in its own
+# <name>-modules-<kver> package, whose control stanza 'debian/rules prepare'
+# generated from the same manifest entry that brings the module here.
 #
 # What it does (for each module listed in the manifest):
 #   1. Resolves the installed -dkms package via dpkg -L (authoritative, no globbing).
@@ -22,9 +27,9 @@ set -euo pipefail
 #      On failure: adds BUILD_EXCLUSIVE gate analysis when dkms attempted no
 #      build, then hard-fails — a manifest entry is a presence contract.
 #   6. For each produced .ko:
-#      - Collision-checks against already-bundled modules and in-tree modules.
-#      - Installs to <image-pkg-dir>/lib/modules/<kver>/extra/<name>.ko
-#      - Extracts debug symbols to <dbg-pkg-dir>/usr/lib/debug/lib/modules/<kver>/extra/<name>.ko
+#      - Collision-checks against already-staged modules and in-tree modules.
+#      - Installs to <stage-root>/<name>-modules-<kver>/lib/modules/<kver>/updates/qli/<mod>.ko
+#      - Extracts debug symbols to <stage-root>/<name>-modules-<kver>-dbg/usr/lib/debug/lib/modules/<kver>/updates/qli/<mod>.ko
 #        via objcopy --only-keep-debug (Stage 1, non-destructive).
 #      - Strips the shipped copy with `strip --strip-debug` (Stage 2).
 #        --strip-debug is required for kernel modules: a full strip drops the
@@ -34,7 +39,8 @@ set -euo pipefail
 #   - The kernel image staging tree must exist at --image-pkg-dir with:
 #       lib/modules/<kver>/kernel/   (in-tree modules, for collision detection)
 #       boot/config-<kver>           (kernel .config, for BUILD_EXCLUSIVE_CONFIG checks)
-#   - The debug package staging tree must exist at --dbg-pkg-dir.
+#   - The directory holding the per-package staging trees must exist at
+#     --stage-root (absolute). In a source package this is debian/.
 #   - The kernel headers must be fully staged at --headers-dir (absolute path).
 #     This is the directory containing Makefile, include/, scripts/, arch/, etc.
 #     It must be an absolute path: dkms invokes make from inside the module
@@ -49,7 +55,7 @@ set -euo pipefail
 #     --kver        "$BASE" \
 #     --headers-dir "$(CURDIR)/debian/linux-headers-$BASE/usr/src/linux-headers-$BASE" \
 #     --image-pkg-dir "$(CURDIR)/debian/linux-image-$BASE" \
-#     --dbg-pkg-dir   "$(CURDIR)/debian/linux-image-$BASE-dbg" \
+#     --stage-root    "$(CURDIR)/debian" \
 #     --arch          "$(DKMS_ARCH)" \
 #     --objcopy       "$(OBJCOPY)" \
 #     --modules-manifest "$(CURDIR)/debian/dkms-modules"
@@ -59,7 +65,7 @@ set -euo pipefail
 #     --kver        6.12.0-qcom-next-20260210 \
 #     --headers-dir /path/to/kernel-source/debian/linux-headers-6.12.0-qcom-next-20260210/usr/src/linux-headers-6.12.0-qcom-next-20260210 \
 #     --image-pkg-dir /path/to/kernel-source/debian/linux-image-6.12.0-qcom-next-20260210 \
-#     --dbg-pkg-dir   /path/to/kernel-source/debian/linux-image-6.12.0-qcom-next-20260210-dbg
+#     --stage-root    /path/to/kernel-source/debian
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -76,7 +82,7 @@ _DKMS_SRC_ROOT="${_BUNDLE_DKMS_SRC_ROOT:-/usr/src}"
 KVER=""
 HEADERS_DIR=""
 IMAGE_PKG_DIR=""
-DBG_PKG_DIR=""
+STAGE_ROOT=""
 # Default manifest: debian/dkms-modules (one level up from debian/scripts/)
 MODULES_MANIFEST="${SCRIPT_DIR}/../dkms-modules"
 # dkms --arch speaks uname -m vocabulary (aarch64), not kbuild vocabulary (arm64).
@@ -112,16 +118,20 @@ REQUIRED:
                             module source directory, so a relative path fails.
                             In debian/rules this is:
                               \$(CURDIR)/debian/linux-headers-\$BASE/usr/src/linux-headers-\$BASE
-  --image-pkg-dir DIR       Path to the linux-image staging tree root.
-                            .ko files are installed under:
-                              <image-pkg-dir>/lib/modules/<kver>/extra/
+  --image-pkg-dir DIR       Path to the linux-image staging tree root. Read
+                            from, never written to: it supplies the in-tree
+                            module list for the collision check and
+                            boot/config-<kver> for BUILD_EXCLUSIVE_CONFIG
+                            analysis.
                             In debian/rules this is:
                               \$(CURDIR)/debian/linux-image-\$BASE
-  --dbg-pkg-dir DIR         Path to the debug package staging tree root.
-                            Debug symbols are installed under:
-                              <dbg-pkg-dir>/usr/lib/debug/lib/modules/<kver>/extra/
+  --stage-root DIR          Directory the per-package staging trees live in.
+                            MUST be absolute, and must already exist.
+                            Each module is staged into two trees below it:
+                              <stage-root>/<name>-modules-<kver>/
+                              <stage-root>/<name>-modules-<kver>-dbg/
                             In debian/rules this is:
-                              \$(CURDIR)/debian/linux-image-\$BASE-dbg
+                              \$(CURDIR)/debian
 
 OPTIONAL:
   --modules-manifest FILE   Path to the dkms-modules manifest.
@@ -144,8 +154,9 @@ PREREQUISITES (developer standalone use):
   2. --headers-dir must point to a fully staged kernel headers tree.
   3. --image-pkg-dir must contain lib/modules/<kver>/kernel/ (in-tree modules)
      and boot/config-<kver> (kernel .config).
-  4. --dbg-pkg-dir must exist (can be empty; subdirs are created as needed).
-  5. --headers-dir must be an absolute path.
+  4. --stage-root must exist; it is the directory per-package staging trees
+     are created in, i.e. debian/ in a source package.
+  5. --headers-dir and --stage-root must be absolute paths.
   6. This script does NOT cross-compile: dkms builds each module with the host
      toolchain (no ARCH/CROSS_COMPILE is plumbed). Run it on a native arm64
      host (or an arm64 chroot / qemu-user environment) so the produced .ko
@@ -165,14 +176,14 @@ EXAMPLES:
     --kver 6.12.0-qcom-next-20260210 \\
     --headers-dir /build/kernel/debian/linux-headers-6.12.0-qcom-next-20260210/usr/src/linux-headers-6.12.0-qcom-next-20260210 \\
     --image-pkg-dir /build/kernel/debian/linux-image-6.12.0-qcom-next-20260210 \\
-    --dbg-pkg-dir   /build/kernel/debian/linux-image-6.12.0-qcom-next-20260210-dbg
+    --stage-root    /build/kernel/debian
 
   # Developer standalone path:
   debian/scripts/bundle-dkms-modules.sh \\
     --kver 6.12.0-qcom-next-20260210 \\
     --headers-dir /path/to/staged/linux-headers-6.12.0-qcom-next-20260210 \\
     --image-pkg-dir /path/to/staged/linux-image-6.12.0-qcom-next-20260210 \\
-    --dbg-pkg-dir   /path/to/staged/linux-image-6.12.0-qcom-next-20260210-dbg \\
+    --stage-root    /path/to/staged/debian \\
     --arch aarch64
 
   # With explicit manifest and objcopy:
@@ -180,7 +191,7 @@ EXAMPLES:
     --kver 6.12.0-qcom-next-20260210 \\
     --headers-dir /path/to/headers \\
     --image-pkg-dir /path/to/image-pkg \\
-    --dbg-pkg-dir   /path/to/dbg-pkg \\
+    --stage-root    /path/to/debian \\
     --modules-manifest /path/to/debian/dkms-modules \\
     --objcopy aarch64-linux-gnu-objcopy
 EOF
@@ -198,7 +209,7 @@ while [[ $# -gt 0 ]]; do
         --kver)              require_val "$@"; KVER="$2";              shift 2 ;;
         --headers-dir)       require_val "$@"; HEADERS_DIR="$2";       shift 2 ;;
         --image-pkg-dir)     require_val "$@"; IMAGE_PKG_DIR="$2";     shift 2 ;;
-        --dbg-pkg-dir)       require_val "$@"; DBG_PKG_DIR="$2";       shift 2 ;;
+        --stage-root)        require_val "$@"; STAGE_ROOT="$2";        shift 2 ;;
         --modules-manifest)  require_val "$@"; MODULES_MANIFEST="$2";  shift 2 ;;
         --arch)              require_val "$@"; DKMS_ARCH="$2";         shift 2 ;;
         --objcopy)           require_val "$@"; OBJCOPY="$2";           shift 2 ;;
@@ -216,7 +227,7 @@ _missing=()
 [[ -n "$KVER"          ]] || _missing+=(--kver)
 [[ -n "$HEADERS_DIR"   ]] || _missing+=(--headers-dir)
 [[ -n "$IMAGE_PKG_DIR" ]] || _missing+=(--image-pkg-dir)
-[[ -n "$DBG_PKG_DIR"   ]] || _missing+=(--dbg-pkg-dir)
+[[ -n "$STAGE_ROOT"    ]] || _missing+=(--stage-root)
 if [[ ${#_missing[@]} -gt 0 ]]; then
     log_error "Missing required arguments: ${_missing[*]}"
     log_error "Run with --help for usage."
@@ -229,6 +240,14 @@ fi
     log_error "--headers-dir must be an absolute path (got: $HEADERS_DIR)"
     log_error "dkms invokes make from inside the module source directory;"
     log_error "a relative path would resolve to nothing from that location."
+    exit 1
+}
+
+# --stage-root must be absolute for the same reason every other staging path
+# here is: this script is called with the build tree's cwd from debian/rules
+# but is also documented as standalone-callable from anywhere.
+[[ "$STAGE_ROOT" == /* ]] || {
+    log_error "--stage-root must be an absolute path (got: $STAGE_ROOT)"
     exit 1
 }
 
@@ -275,15 +294,18 @@ fi
     log_error "The linux-image staging tree must exist before calling this script."
     exit 1
 }
-if [[ ! -d "$DBG_PKG_DIR" ]]; then
-    log_warn "--dbg-pkg-dir does not exist: $DBG_PKG_DIR (will be created as needed)"
-fi
+[[ -d "$STAGE_ROOT" ]] || {
+    log_error "--stage-root does not exist: $STAGE_ROOT"
+    log_error "It is the directory the per-package staging trees are created in"
+    log_error "(debian/ in a source package), so it must already be there."
+    exit 1
+}
 
 log_step "DKMS module bundling configuration:"
 log_info "  kver:             $KVER"
 log_info "  headers-dir:      $HEADERS_DIR"
 log_info "  image-pkg-dir:    $IMAGE_PKG_DIR"
-log_info "  dbg-pkg-dir:      $DBG_PKG_DIR"
+log_info "  stage-root:       $STAGE_ROOT"
 log_info "  modules-manifest: $MODULES_MANIFEST"
 log_info "  arch:             $DKMS_ARCH"
 log_info "  objcopy:          $OBJCOPY"
@@ -329,6 +351,17 @@ echo
 # ---------------------------------------------------------------------------
 DKMS_TREE="$(mktemp -d)"
 trap 'rm -rf "$DKMS_TREE"' EXIT
+
+# ---------------------------------------------------------------------------
+# Every module staged by this run, keyed on the basename it will install under.
+#
+# Each module package stages into its own tree, but on the target they all
+# unpack into one /lib/modules/<kver>/updates/qli/, so two modules sharing a
+# basename still collide there. A per-tree existence check cannot see that;
+# this can. The value is the manifest entry that claimed the name, so the
+# error can say which one.
+# ---------------------------------------------------------------------------
+declare -A seen_ko=()
 
 # ---------------------------------------------------------------------------
 # Main loop: build and bundle each listed module
@@ -477,9 +510,25 @@ for name in $DKMS_MODULES; do
             [[ -z "$comp" ]] || \
                 echo "  Note: found compressed module output ($comp); compressed dkms output is not supported." >&2
         fi
-        log_error "Refusing to ship linux-image-$KVER without $PKG_NAME."
+        log_error "Refusing to ship $name-modules-$KVER without $PKG_NAME."
         exit 1
     fi
+
+    # ── Per-module staging trees ─────────────────────────────────────────────
+    # The modules ship in <name>-modules-<kver>, not in the kernel image, and
+    # their debug files in the matching -dbg package. Both names are the ones
+    # 'debian/rules prepare' spelled into debian/control from the same manifest
+    # entry, so a typo here surfaces as an empty package rather than silently
+    # landing in the wrong one -- which is what the post-staging assertion
+    # below is for.
+    #
+    # $name, not $PKG_NAME: the package name stem is what the manifest, the
+    # Build-Depends entry and the control stanza all agree on. dkms.conf's
+    # PACKAGE_NAME is free to differ from it (and does -- iris-vpu builds
+    # iris_vpu), and is only used to address the dkms tree.
+    MOD_PKG_DIR="$STAGE_ROOT/$name-modules-$KVER"
+    MOD_DBG_DIR="$STAGE_ROOT/$name-modules-$KVER-dbg"
+    staged_ko=0
 
     # ── Install, extract debug, and strip each produced .ko ──────────────────
     # Mirror the in-tree module treatment:
@@ -495,22 +544,30 @@ for name in $DKMS_MODULES; do
     # the script on collision errors.
     while IFS= read -r ko; do
         b="$(basename "$ko")"
-        dest="$IMAGE_PKG_DIR/lib/modules/$KVER/extra/$b"
-        dbg="$DBG_PKG_DIR/usr/lib/debug/lib/modules/$KVER/extra/$b"
+        dest="$MOD_PKG_DIR/lib/modules/$KVER/updates/qli/$b"
+        dbg="$MOD_DBG_DIR/usr/lib/debug/lib/modules/$KVER/updates/qli/$b"
 
-        # Guard: duplicate bundled module name (two manifest entries → same basename)
-        if [[ -e "$dest" ]]; then
+        # Guard: duplicate module name across every module staged by this run.
+        # Checked against the run-scoped set rather than the destination tree:
+        # each module package has its own tree, so two packages claiming one
+        # basename would each look unoccupied while still colliding in the
+        # single updates/qli/ they share once installed.
+        if [[ -n "${seen_ko[$b]:-}" ]]; then
             log_error "Duplicate bundled module name: $b"
-            log_error "Already bundled by an earlier manifest entry — check $MODULES_MANIFEST"
+            log_error "Already staged by manifest entry '${seen_ko[$b]}' — check $MODULES_MANIFEST"
             exit 1
         fi
+        seen_ko[$b]="$name"
 
         # Guard: in-tree collision (bundled module shares name with an in-tree module)
         intree="$(find "$IMAGE_PKG_DIR/lib/modules/$KVER/kernel" \
                   -name "$b" -print -quit 2>/dev/null || true)"
         if [[ -n "$intree" ]]; then
             log_error "Bundled module $b collides with in-tree module: $intree"
-            log_error "Module precedence on the target would be ambiguous (depmod search order)."
+            log_error "  in-tree:   $intree"
+            log_error "  this one:  /lib/modules/$KVER/updates/qli/$b"
+            log_error "updates/ outranks kernel/ in depmod's default search order, so"
+            log_error "this module would silently take precedence over the in-tree one."
             exit 1
         fi
 
@@ -558,12 +615,63 @@ for name in $DKMS_MODULES; do
         # Stage 3: strip the shipped copy in place
         strip --strip-debug "$dest"
 
+        staged_ko=$((staged_ko + 1))
+
         log_info "  Installed: $dest (stripped)"
         log_info "  Debug:     $dbg"
 
     done < <(printf '%s\n' "$kos")
 
-    log_info "Bundled $PKG_NAME modules into $(basename "$IMAGE_PKG_DIR")"
+    # ── Assert the package is not empty ──────────────────────────────────────
+    # dkms produced at least one .ko -- that is checked above -- but nothing
+    # downstream notices if none of them reached the staging tree. A binary
+    # package with an empty tree builds cleanly: dh_installdeb creates DEBIAN/,
+    # dh_gencontrol and dh_builddeb are happy, and dh_missing does not look
+    # here. The result is a published .deb containing nothing.
+    #
+    # Check the destination rather than trusting the loop, so a wrong
+    # --stage-root or a mistyped package name is caught where it happened.
+    if [[ "$staged_ko" -eq 0 ]]; then
+        log_error "Staged no modules into $name-modules-$KVER despite dkms producing:"
+        printf '%s\n' "$kos" | sed 's/^/  | /' >&2
+        log_error "The package would ship empty. Check --stage-root ($STAGE_ROOT)."
+        exit 1
+    fi
+
+    # ── Record the DKMS source package in Built-Using ────────────────────────
+    # The .ko in this package was compiled from source that lives in another
+    # source package entirely, and nothing in the Debian metadata would say so:
+    # the binary is emitted by src:linux-qcom-next, which does not contain a
+    # line of the module's code. Built-Using names the exact source that did,
+    # which is what keeps it retained in the archive alongside the binary.
+    #
+    # ${source:Package} / ${source:Version} rather than the binary's own name
+    # and version: dpkg parses these out of the binary's "Source: name (ver)"
+    # field when it has one, and falls back to the binary version, epoch
+    # included, when it does not. Both are the right answer.
+    dkms_src="$(dpkg-query -W -f='${source:Package} (= ${source:Version})' \
+                "${name}-dkms" 2>/dev/null)" || {
+        log_error "Could not read the source package of ${name}-dkms"
+        log_error "It resolved through dpkg -L a moment ago, so this is unexpected."
+        exit 1
+    }
+
+    # Written into the staging root, which is where dh_gencontrol looks. Safe
+    # to write here: dh_prep is the only thing that truncates a .substvars and
+    # it runs before dh_auto_install; everything after this point merges.
+    #
+    # Rewritten rather than appended, because this script is also callable by
+    # hand outside the dh sequence, where no dh_prep has cleared the file and a
+    # second run would otherwise accumulate duplicate keys.
+    substvars="$STAGE_ROOT/$name-modules-$KVER.substvars"
+    if [[ -f "$substvars" ]]; then
+        grep -v '^dkms:Built-Using=' "$substvars" > "$substvars.new" || true
+        mv "$substvars.new" "$substvars"
+    fi
+    printf 'dkms:Built-Using=%s\n' "$dkms_src" >> "$substvars"
+
+    log_info "Staged $staged_ko module(s) into $name-modules-$KVER"
+    log_info "  Built-Using: $dkms_src"
     echo
 
 done

@@ -192,7 +192,7 @@ its own values for:
 | `srcpkg` | Debian source package name. |
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
-| `dkms` | Out-of-tree DKMS modules built against this kernel and bundled into its `linux-image` package, as an object keyed by suite, each entry a list of modules named as the stem of their `<name>-dkms` package (e.g. `kgsl`). A suite's entry is optional: a suite with no entry, and `{}` itself, bundles nothing. An empty list does the same for the suite it names. A listed module is a presence contract: a build fails rather than shipping an image without it. There is no default or fallback, so suites that can't build a given module (e.g. an Ubuntu-family suite lacking a package) simply list less, or omit an entry entirely. `resolve-matrix.sh` joins the resolved leg's suite into the comma-separated `dkms` workflow input. |
+| `dkms` | Out-of-tree DKMS modules built against this kernel, as an object keyed by suite, each entry a list of modules named as the stem of their `<name>-dkms` package (e.g. `kgsl`). Each module produces its own `<name>-modules-<kernelrelease>` package plus an unversioned `<binpkg>-modules-<name>` metapackage, rather than being installed into the image; a non-empty list also produces one `<binpkg>-modules` metapackage covering them all. A suite's entry is optional: a suite with no entry, and `{}` itself, builds nothing. An empty list does the same for the suite it names. A listed module is a presence contract: a build fails rather than publishing without it. There is no default or fallback, so suites that can't build a given module (e.g. an Ubuntu-family suite lacking a package) simply list less, or omit an entry entirely. `resolve-matrix.sh` joins the resolved leg's suite into the comma-separated `dkms` workflow input; see [debian/README.md](debian/README.md) for what the packaging does with it. |
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
@@ -253,8 +253,8 @@ This repository contains two separate parts:
   decides *how* it is built.
 
 This document covers the CI generator. For the packaging internals: `debian/rules`
-targets, the config fragment merge pipeline, DKMS module bundling and the produced
-package layout see [debian/README.md](debian/README.md).
+targets, the config fragment merge pipeline, the out-of-tree DKMS module packages
+and the produced package layout see [debian/README.md](debian/README.md).
 
 ```mermaid
 flowchart LR
@@ -397,7 +397,11 @@ For the current matrix, package generation produces:
 | `linux-image-qcom-next_<version>_arm64.deb` | Image metapackage that tracks the newest kernel image. |
 | `linux-headers-<kernelrelease>_<version>_arm64.deb` | Versioned headers for DKMS and out-of-tree modules. |
 | `linux-headers-qcom-next_<version>_arm64.deb` | Headers metapackage. |
-| `linux-image-<kernelrelease>-dbg_<version>_arm64.deb` | Kernel and module debug symbols. |
+| `linux-image-<kernelrelease>-dbg_<version>_arm64.deb` | Kernel and in-tree module debug symbols. |
+| `<name>-modules-<kernelrelease>_<version>_arm64.deb` | Prebuilt out-of-tree modules, one package per `dkms` entry, built from that `<name>-dkms` source against this kernel. Installs under `/lib/modules/<kernelrelease>/updates/qli/`. Conflicts with `<name>-dkms`. |
+| `<name>-modules-<kernelrelease>-dbg_<version>_arm64.deb` | Debug symbols for the above. |
+| `linux-image-qcom-next-modules-<name>_<version>_arm64.deb` | Modules metapackage, one per `dkms` entry, that tracks the newest build of that module for this variant. |
+| `linux-image-qcom-next-modules_<version>_arm64.deb` | Metapackage depending on every `linux-image-qcom-next-modules-<name>` above, so the whole out-of-tree module set installs under one name. Built only when the variant has `dkms` entries. |
 
 `-rcN` remains in `uname -r`, module paths, boot assets, and versioned package
 names. Only the Debian version field converts it to `~rcN`, so a release
@@ -427,7 +431,9 @@ sudo apt install linux-image-qcom-next
 
 When installing downloaded artifacts directly, install the versioned image and
 its metapackage together. Add the headers packages when DKMS or other
-out-of-tree module builds are required.
+out-of-tree module builds are required, and the module packages for whichever
+out-of-tree modules the hardware needs — `linux-image-qcom-next-modules` takes
+the whole set.
 
 ## Manual Builds
 
