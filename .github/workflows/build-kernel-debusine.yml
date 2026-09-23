@@ -12,6 +12,10 @@ name: build-debusine
 #   target-workspace != ''  -> release path: promote from CI workspace to the
 #                              target Debusine workspace via debusine-action lib/release.
 #
+# The same input picks the GitHub environment and the workspaces the build
+# resolves its build-dependencies from: a Staging run also reads qli-staging,
+# a Production run reads qli alone.
+#
 # Jobs:
 #   build   (debusine-pkg-builder container): generates .dsc, submits to Debusine.
 #   publish (self-hosted runner): S3 upload (daily path only).
@@ -120,7 +124,9 @@ jobs:
           DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
           DEBUSINE_PARENT_WORKSPACE: ${{ inputs.debusine-parent-workspace }}
           SUITE: ${{ inputs.suite }}
-          EXTRA_BUILD_DEP_WORKSPACES: qli
+          # Staging runs may build against packages that have not been released
+          # to qli yet, so they resolve build-dependencies from qli-staging too.
+          EXTRA_BUILD_DEP_WORKSPACES: ${{ inputs.target-workspace != '' && 'qli' || 'qli qli-staging' }}
         run: |
           # No -x here: DEBUSINE_TOKEN is in env, keep xtrace off.
           set -euo pipefail
