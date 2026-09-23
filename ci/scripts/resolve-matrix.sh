@@ -10,14 +10,18 @@ set -euo pipefail
 #     kernel variant and delivery type (e.g. "trixie": "~bpo13+1").
 #   - "deliveries": the matrix rows. Each kernel_variant owns exactly one
 #     Daily row and one Release row. A row declares every input needed by
-#     that delivery, including a debian_version_stub. Three fields are
-#     list-valued: suites, which is expanded into isolated legs;
-#     kernel_config, which is one config fragment per element; and dkms,
-#     which is one out-of-tree module per element. A fragment is
+#     that delivery, including a debian_version_stub. Two fields are
+#     list-valued: suites, which is expanded into isolated legs, and
+#     kernel_config, which is one config fragment per element. A fragment is
 #     either a bare name from debian/config-available/ or an "intree:" entry
 #     naming a path relative to the kernel source root
-#     (e.g. intree:arch/arm64/configs/qcom_debug.config). A dkms entry is the
-#     stem of a <name>-dkms package, e.g. "kgsl".
+#     (e.g. intree:arch/arm64/configs/qcom_debug.config). dkms is instead an
+#     object keyed by suite, whose value is that suite's list of out-of-tree
+#     modules, one array element per module named as the stem of its
+#     <name>-dkms package, e.g. "kgsl". A suite key is optional: a suite with
+#     no entry gets no DKMS modules, so {} means none for any suite. This
+#     lets suites that lack a module differ from suites that ship it, e.g. a
+#     suite whose build path doesn't yet carry a given DKMS package.
 #
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
@@ -145,20 +149,32 @@ validation_errors=$(jq -r '
   # <name>-dkms package. The same shape rules debian/rules prepare enforces,
   # applied here so a typo fails before any build job starts rather than in
   # the middle of one.
-  def dkms_valid:
-    if (.dkms | type) != "array"
-    then "dkms must be an array"
-    elif any(.dkms[]; type != "string" or length == 0)
-    then "dkms must contain only non-empty strings"
-    elif any(.dkms[]; test(","))
-    then "dkms entries must not contain commas; use one array element per module"
-    elif any(.dkms[]; endswith("-dkms"))
-    then "dkms entries must omit the -dkms suffix (e.g. kgsl, not kgsl-dkms)"
-    elif any(.dkms[]; test("^[a-z0-9][a-z0-9+.-]*$") | not)
-    then "dkms entries must be package name stems (lowercase letters, digits, + . -)"
-    elif ([.dkms[]] | unique | length) != (.dkms | length)
-    then "dkms must not contain duplicates"
+  def dkms_list_errors($list; $label):
+    if ($list | type) != "array"
+    then $label + " must be an array"
+    elif any($list[]; type != "string" or length == 0)
+    then $label + " must contain only non-empty strings"
+    elif any($list[]; test(","))
+    then $label + " entries must not contain commas; use one array element per module"
+    elif any($list[]; endswith("-dkms"))
+    then $label + " entries must omit the -dkms suffix (e.g. kgsl, not kgsl-dkms)"
+    elif any($list[]; test("^[a-z0-9][a-z0-9+.-]*$") | not)
+    then $label + " entries must be package name stems (lowercase letters, digits, + . -)"
+    elif ([$list[]] | unique | length) != ($list | length)
+    then $label + " must not contain duplicates"
     else empty
+    end;
+
+  # dkms is an object keyed by suite; a key is optional and a missing one
+  # means that suite gets no DKMS modules, so {} means none for any suite.
+  def dkms_valid:
+    if (.dkms | type) != "object"
+    then "dkms must be an object mapping each suite to its module list"
+    elif (.suites | type) != "array"
+    then empty                      # suites_valid already reports this
+    elif (((.dkms | keys) - [.suites[]]) | length) > 0
+    then "dkms names suite(s) not in suites: " + (((.dkms | keys) - [.suites[]]) | join(", "))
+    else (.dkms | to_entries[] | dkms_list_errors(.value; "dkms[" + .key + "]"))
     end;
 
   def suites_valid:
@@ -357,7 +373,7 @@ result=$(jq -c \
         | . + {
             "suite": $suite,
             "kernel_config": ($row.kernel_config | join(",")),
-            "dkms": ($row.dkms | join(","))
+            "dkms": (($row.dkms[$suite] // []) | join(","))
           }
       ]
       | if length == 0

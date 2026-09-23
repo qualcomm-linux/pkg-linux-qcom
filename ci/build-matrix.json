@@ -20,12 +20,11 @@
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
-      "dkms": [
-        "kgsl",
-        "camx",
-        "iris-vpu",
-        "audioreach"
-      ],
+      "dkms": {
+        "resolute": [
+          "kgsl"
+        ]
+      },
       "debian_version_stub": "0qli1",
       "debian_version_suffix": "~"
     },
@@ -38,17 +37,12 @@
         "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next-7.2-20260826",
+      "branch_or_tag": "qcom-next-7.3-rc2-20260921",
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
-      "dkms": [
-        "kgsl",
-        "camx",
-        "iris-vpu",
-        "audioreach"
-      ],
+      "dkms": {},
       "debian_version_stub": "0qli1",
       "debian_version_suffix": ""
     },
@@ -69,12 +63,7 @@
         "intree:arch/arm64/configs/qcom_debug.config",
         "intree:kernel/configs/debug.config"
       ],
-      "dkms": [
-        "kgsl",
-        "camx",
-        "iris-vpu",
-        "audioreach"
-      ],
+      "dkms": {},
       "debian_version_stub": "0qli1",
       "debian_version_suffix": "~"
     },
@@ -87,7 +76,7 @@
         "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next-7.2-20260826",
+      "branch_or_tag": "qcom-next-7.3-rc2-20260921",
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
@@ -95,12 +84,7 @@
         "intree:arch/arm64/configs/qcom_debug.config",
         "intree:kernel/configs/debug.config"
       ],
-      "dkms": [
-        "kgsl",
-        "camx",
-        "iris-vpu",
-        "audioreach"
-      ],
+      "dkms": {},
       "debian_version_stub": "0qli1",
       "debian_version_suffix": ""
     }

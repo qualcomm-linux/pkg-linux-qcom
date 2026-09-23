@@ -62,7 +62,7 @@ OPTIONS:
                             Useful for CI build IDs or local user builds.
 
   Build control:
-    -d, --distro DISTRO     Target distro: noble|questing|resolute|trixie|sid
+    -d, --distro DISTRO     Target distro: questing|resolute|trixie|sid
                             (default: $DEFAULT_DISTRO)
     --build-mode MODE       docker|native|sbuild (default: $DEFAULT_BUILD_MODE)
     --docker-build PATH     Path to docker_deb_build.py (docker mode)
@@ -93,7 +93,7 @@ OPTIONS:
 EXAMPLES:
     $0 --latest-tag
     $0 --latest-tag --build-mode native
-    $0 --tag qcom-next-6.12.0-20260210 --distro noble
+    $0 --tag qcom-next-6.12.0-20260210 --distro resolute
     $0 --local-source /path/to/kernel --build-mode native
     $0 --local-source /path/to/kernel --kver-extra -mybuild
     $0 --latest-tag --kernel-config docker,systemd-boot
@@ -102,7 +102,6 @@ EXAMPLES:
     $0 --dsc kernel-build/trixie/linux-qcom-next_*.dsc
 
 DISTRIBUTIONS:
-    noble     Ubuntu 24.04 LTS
     questing  Ubuntu 25.10
     resolute  Ubuntu 26.04
     trixie    Debian 13 (default)
@@ -150,7 +149,7 @@ done
 [[ -z "${OUTPUT_DIR:-}" ]] && OUTPUT_DIR="$OUTPUT_BASE_DIR/$DISTRO"
 
 # Validate distro and build mode
-VALID_DISTROS=(noble questing resolute trixie forky sid unstable)
+VALID_DISTROS=(questing resolute trixie forky sid unstable)
 VALID_MODES=(docker native sbuild)
 [[ " ${VALID_DISTROS[*]} " =~ " $DISTRO " ]]    || { log_error "Invalid distro: $DISTRO (valid: ${VALID_DISTROS[*]})"; exit 1; }
 [[ " ${VALID_MODES[*]} " =~ " $BUILD_MODE " ]]  || { log_error "Invalid build mode: $BUILD_MODE (valid: ${VALID_MODES[*]})"; exit 1; }
