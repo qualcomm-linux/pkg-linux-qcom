@@ -328,10 +328,15 @@ CI writes every orig in one builder image.
 Installed paths:
 - `/boot/vmlinuz-<KVER>` — compressed kernel image
 - `/boot/config-<KVER>` — kernel `.config`
-- `/lib/modules/<KVER>/` — stripped kernel modules
+- `/usr/lib/modules/<KVER>/` — stripped kernel modules
 - `/usr/lib/linux-image-<KVER>/` — all DTBs (vendor subdirs preserved)
-- `/lib/modules/<KVER>/build` → `/usr/src/linux-headers-<KVER>/` (symlink)
-- `/lib/modules/<KVER>/source` → `/usr/src/linux-headers-<KVER>/` (symlink)
+- `/usr/lib/modules/<KVER>/build` → `/usr/src/linux-headers-<KVER>/` (symlink)
+- `/usr/lib/modules/<KVER>/source` → `/usr/src/linux-headers-<KVER>/` (symlink)
+
+Modules ship under `/usr/lib/modules`, the merged-/usr location required by
+Debian Policy 10.1; `/lib/modules` resolves to the same directory on the
+target. kbuild installs them under `lib/modules/` in the staging tree and
+`dh_movetousr` moves them after `dh_installmodules` has run.
 
 Virtual packages provided: `linux-image`, `linux-image-arm64`
 
@@ -467,7 +472,8 @@ packages have been staged. The script:
    On failure: prints `make.log` tail (compile error) or `BUILD_EXCLUSIVE` gate
    analysis (skip), then hard-fails — a manifest entry is a presence contract.
 6. For each produced `.ko`: collision-checks against already-bundled and in-tree
-   modules; installs to `lib/modules/<KVER>/extra/`; extracts debug symbols via
+   modules; installs to `lib/modules/<KVER>/extra/` in the staging tree (shipped
+   as `/usr/lib/modules/<KVER>/extra/`); extracts debug symbols via
    `objcopy --only-keep-debug` into the `-dbg` package; strips with
    `strip --strip-debug` (required for kernel modules — a full strip drops the
    symtab and relocations needed by the module loader).
@@ -517,7 +523,7 @@ and all available options (`--arch`, `--objcopy`, `--modules-manifest`).
 
 ## The `build` and `source` symlinks
 
-`/lib/modules/<KVER>/build` and `/lib/modules/<KVER>/source` are symlinks
+`/usr/lib/modules/<KVER>/build` and `/usr/lib/modules/<KVER>/source` are symlinks
 pointing to `/usr/src/linux-headers-<KVER>/`. These are used by:
 - `make -C /lib/modules/$(uname -r)/build` — standard out-of-tree module build
 - DKMS — automatic module rebuild on kernel update

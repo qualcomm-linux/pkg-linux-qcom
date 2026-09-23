@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Bjordis Collaku <bcollaku@qti.qualcomm.com>
 Standards-Version: 4.6.2
 Build-Depends: debhelper-compat (= 13),
+               debhelper (>= 13.11.9~),
                bc, bison, flex, libssl-dev, libelf-dev, dwarves,
                python3, kmod, cpio, rsync, pkg-config, gcc, make@DKMS_BUILD_DEPENDS@
 Homepage: https://kernel.org
@@ -23,7 +24,7 @@ Description: Qualcomm ARM64 Linux kernel image @KVER@
  Files installed:
   - /boot/vmlinuz-@KVER@
   - /boot/config-@KVER@
-  - /lib/modules/@KVER@/
+  - /usr/lib/modules/@KVER@/
   - /usr/lib/linux-image-@KVER@/ (DTBs)
   - /usr/lib/firmware/@KVER@/device-tree (Ubuntu flash-kernel symlink)
 
@@ -44,7 +45,7 @@ Description: Qualcomm ARM64 Linux kernel headers @KVER@
  kernel release @KVER@.
  .
  Headers are installed under /usr/src/linux-headers-@KVER@/ and the
- /lib/modules/@KVER@/build symlink is pointed there.
+ /usr/lib/modules/@KVER@/build symlink is pointed there.
 
 Package: @HDRPKG@
 Architecture: arm64

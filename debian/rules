@@ -426,7 +426,8 @@ override_dh_auto_install:
 	cp -a -T "$$IMG_PATH" "$$PKG/boot/vmlinuz-$$BASE"; \
 	cp -a -T "$$CFG_PATH" "$$PKG/boot/config-$$BASE"; \
 	\
-	# Modules (stripped)
+	# Modules (stripped). kbuild installs them under lib/modules/ in the staging
+	# tree; execute_after_dh_installdeb moves them to /usr/lib/modules/.
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
 		INSTALL_MOD_PATH=$$PKG INSTALL_MOD_STRIP=1; \
 	\
@@ -561,6 +562,23 @@ override_dh_installdeb:
 	\
 	dh_installmodules; \
 	dh_installdeb
+
+# Move everything staged under the aliased /bin, /lib and /sbin directories
+# into /usr, as Debian Policy 10.1 requires on merged-/usr systems: the
+# modules and their build/source links from modules_install, and the bundled
+# DKMS modules. kbuild hardcodes MODLIB to $(INSTALL_MOD_PATH)/lib/modules, so
+# the modules are installed there and moved afterwards, the same way Debian's
+# own linux package does it. dh_movetousr also rewrites the build/source links
+# into the form Policy 10.5 requires.
+#
+# This must run after override_dh_installdeb rather than earlier in the
+# sequence. dh_installmodules, which that override calls, only looks under
+# lib/modules/ when deciding whether to add the depmod maintainer script
+# snippet, so moving the modules first would silently drop it. The
+# dh-sequence-movetousr addon runs the helper before dh_installdeb, which is
+# still before that call, hence the explicit hook.
+execute_after_dh_installdeb:
+	dh_movetousr
 
 override_dh_auto_test:
 	@echo "Skipping dh_auto_test (no kernel test suite)."
