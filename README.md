@@ -125,7 +125,8 @@ variant is a two-row matrix change, not a workflow redesign.
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
 | `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
-| `release.yml` | Resolves and runs the Release matrix. | Manual dispatch only. |
+| `release.yml` | Resolves and runs the Release matrix. | Push to `main` that changes a Release `branch_or_tag`, or manual dispatch. |
+| `release-dry-run.yml` | Builds the Release rows a PR changes, promoting nothing. | Pull requests to `main`. |
 | `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily and Release. |
 | `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes Releases. | Called by `build-kernel-deb.yml`. |
 | `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
@@ -150,9 +151,18 @@ Daily is the recurring build and artifact-publication path.
 
 Release is the controlled promotion path.
 
-- It is manual only and uses one **Release scope** for a kernel variant:
-  - **Selected variant (all suites)** is the normal release action and promotes
-    every configured Release suite for that variant.
+- Merging a change to a Release row's `branch_or_tag` releases that variant:
+  a push to `main` touching `ci/build-matrix.json` starts `release.yml` for
+  every suite of each variant whose Release `branch_or_tag` changed.
+  `ci/scripts/changed-release-variants.sh` decides which variants those are by
+  comparing the parsed matrix before and after the push. Other matrix changes,
+  including other fields of a Release row, release nothing. Reverting a ref
+  counts as a change, so it releases the ref reverted to.
+- Before merge, `release-dry-run.yml` builds the same variants from the PR's
+  new ref, chosen by the same script, and promotes nothing.
+- A manual run uses one **Release scope** for a kernel variant:
+  - **Selected variant (all suites)** promotes every configured Release suite
+    for that variant.
   - **Selected variant and suite** promotes one configured Release suite for
     that variant when a targeted action is required.
 - It uses the pinned `branch_or_tag` from the selected `Release` matrix row; it
@@ -164,7 +174,7 @@ Release is the controlled promotion path.
   APT repository.
 - The Release job runs in the **Production** GitHub environment. This provides
   the release credential and enforces the required approval gate before
-  promotion to `qli`.
+  promotion to `qli`, whether the run was started by a merge or by hand.
 
 Direct `build-kernel-deb.yml` dispatches are build-only. Release promotion is
 initiated exclusively by `release.yml`, which owns the target workspace and
