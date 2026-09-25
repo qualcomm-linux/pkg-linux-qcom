@@ -1,0 +1,116 @@
+name: Release Dry Run
+
+# Build the Release rows a pull request changes, the way release.yml will
+# build them once it merges, and promote nothing.
+#
+# pr-build.yml only builds Daily rows, which resolve the newest tag, so it
+# never builds the ref a Release row pins. When a PR changes a Release row's
+# branch_or_tag, this builds every suite of that variant from the new ref, so
+# a green PR shows the release will build before merging starts it.
+#
+# The variants are chosen by ci/scripts/changed-release-variants.sh, the same
+# script release.yml uses on push, so this dry-runs exactly what the merge
+# releases. A PR that changes no Release ref builds nothing.
+#
+# This is its own workflow rather than more legs in pr-build.yml because a
+# run's artifacts share one namespace: a Release leg and a Daily leg for the
+# same variant and suite would both upload kernel-srcpkg-<variant>-<suite>.
+#
+# No path filter: a PR that doesn't touch the matrix still gets a (fast,
+# empty) result, so this can be made a required check without blocking those
+# PRs forever.
+
+on:
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: release-dry-run-${{ github.event.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # configure-matrix: the Release rows whose branch_or_tag this PR changes.
+  #
+  # Compared from the merge base, not the base branch tip, so a ref that moved
+  # on main after this PR branched isn't mistaken for a change made here. The
+  # PR head rather than the merge commit, as in pr-build.yml: a push mid-run
+  # must not change what this run tested.
+  # ---------------------------------------------------------------------------
+  configure-matrix:
+    name: Configure release dry-run matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          # The merge base with main has to be in the clone.
+          fetch-depth: 0
+
+      - name: Generate release dry-run matrix
+        id: set-matrix
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          VARIANTS=$(ci/scripts/changed-release-variants.sh \
+            --base "$MERGE_BASE" --head "$HEAD_SHA")
+
+          MATRIX='[]'
+          while IFS= read -r variant; do
+            LEGS=$(ci/scripts/resolve-matrix.sh --type Release --kernel-variant "$variant")
+            MATRIX=$(jq -c --argjson legs "$LEGS" '. + $legs' <<< "$MATRIX")
+          done < <(jq -r '.[]' <<< "$VARIANTS")
+
+          if [[ "$MATRIX" == '[]' ]]; then
+            echo "This PR changes no Release branch_or_tag; nothing to dry-run."
+          fi
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+
+  # ---------------------------------------------------------------------------
+  # build: one parallel job per changed Release leg, built as release.yml would
+  # except that nothing is promoted.
+  #
+  # target-workspace is left empty, which keeps the build in the Staging
+  # environment and off the release path, and DEBUSINE_RELEASE_TOKEN is not
+  # passed at all. kver-extra marks the version as in pr-build.yml, so these
+  # packages can never be taken for the release itself.
+  # ---------------------------------------------------------------------------
+  build:
+    name: dry-run ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
+    needs: configure-matrix
+    if: needs.configure-matrix.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
+    uses: $/.github/workflows/build-kernel-deb.yml
+    with:
+      suite: ${{ matrix.suite }}
+      kernel-variant: ${{ matrix.kernel_variant }}
+      git-clone: ${{ matrix.git_clone }}
+      kernel-branch: ${{ matrix.branch_or_tag }}
+      ref-strategy: ${{ matrix.ref_strategy }}
+      tag-pattern: ${{ matrix.tag_pattern || '' }}
+      srcpkg: ${{ matrix.srcpkg }}
+      binpkg: ${{ matrix.binpkg }}
+      kernel-config: ${{ matrix.kernel_config }}
+      dkms: ${{ matrix.dkms }}
+      debian-revision: ${{ matrix.debian_revision }}
+      localversion: ${{ matrix.localversion || '' }}
+      kver-extra: -pr${{ github.event.number }}
+      debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
+    secrets:
+      DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
+      DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}
