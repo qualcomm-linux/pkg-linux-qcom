@@ -1,6 +1,6 @@
 name: release
 
-# Release kernel package builds. Triggered manually only.
+# Release kernel package builds.
 #
 # Reads Release rows from ci/build-matrix.json, flattens suites, and builds
 # each entry using the matrix-selected ref strategy and branch_or_tag. After a
@@ -9,12 +9,20 @@ name: release
 # lib/release.
 #
 # To update a release ref: open a PR that changes the Release row for that
-# kernel variant in ci/build-matrix.json.
+# kernel variant in ci/build-matrix.json. release-dry-run.yml builds the
+# changed rows on the PR, and merging it starts this workflow for exactly the
+# variants whose branch_or_tag changed, every suite of each. Nothing else in
+# the matrix starts a release. Every run still waits for approval in the
+# Production environment before building and again before promoting.
 #
-# This workflow intentionally has no schedule trigger. Releases are always
-# initiated manually after validation.
+# Manual dispatch remains for releasing without a ref change and for retries.
+# There is intentionally no schedule trigger.
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - ci/build-matrix.json
   workflow_dispatch:
     inputs:
       release-scope:
@@ -36,6 +44,11 @@ on:
         default: 'trixie'
         type: string
 
+# No concurrency group, deliberately. GitHub keeps at most one queued run per
+# group and cancels the older queued one, so a group would let a later push,
+# even one that releases nothing, silently cancel a queued run that does.
+# Overlapping releases are resolved at the Production approval instead.
+
 permissions:
   contents: read
   packages: read
@@ -53,15 +66,42 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          # A push compares the matrix against the commit main pointed at
+          # before it, which a depth-1 clone does not contain.
+          fetch-depth: 0
 
       - name: Generate release matrix
         id: set-matrix
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
           RELEASE_SCOPE_INPUT: ${{ github.event.inputs.release-scope }}
           INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
           INPUT_SUITE: ${{ github.event.inputs.suite }}
         run: |
           set -euo pipefail
+
+          # A push releases every suite of each variant whose Release
+          # branch_or_tag changed in it, and nothing when none did. Comparing
+          # against "before" rather than the parent commit covers pushes that
+          # land several commits at once.
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            VARIANTS=$(ci/scripts/changed-release-variants.sh \
+              --base "$BEFORE_SHA" --head "$GITHUB_SHA")
+
+            MATRIX='[]'
+            while IFS= read -r variant; do
+              LEGS=$(ci/scripts/resolve-matrix.sh --type Release --kernel-variant "$variant")
+              MATRIX=$(jq -c --argjson legs "$LEGS" '. + $legs' <<< "$MATRIX")
+            done < <(jq -r '.[]' <<< "$VARIANTS")
+
+            if [[ "$MATRIX" == '[]' ]]; then
+              echo "No Release branch_or_tag changed in $BEFORE_SHA..$GITHUB_SHA; nothing to release."
+            fi
+            echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+            echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+            exit 0
+          fi
 
           RELEASE_SCOPE="$RELEASE_SCOPE_INPUT"
 
@@ -94,11 +134,14 @@ jobs:
   build:
     name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
     needs: configure-matrix
+    # An empty include list is a workflow error, and a push that touched the
+    # matrix without changing a Release ref resolves to one.
+    if: needs.configure-matrix.outputs.matrix != '[]'
     strategy:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: ./.github/workflows/build-kernel-deb.yml
+    uses: $/.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}
