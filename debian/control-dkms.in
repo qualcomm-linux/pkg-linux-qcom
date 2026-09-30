@@ -4,7 +4,6 @@ Section: kernel
 Depends: ${misc:Depends}, linux-image-@KVER@ (= ${binary:Version})
 Conflicts: @MODNAME@-dkms
 Replaces: @MODNAME@-dkms
-Provides: @MODNAME@-modules
 Built-Using: ${dkms:Built-Using}
 Description: @MODNAME@ kernel modules for Qualcomm ARM64 Linux @KVER@
  Out-of-tree @MODNAME@ modules, built from the @MODNAME@-dkms source against
@@ -36,7 +35,11 @@ Package: @BINPKG@-modules-@MODNAME@
 Architecture: arm64
 Section: kernel
 Depends: @MODNAME@-modules-@KVER@ (= ${binary:Version}), ${misc:Depends}
+Provides: @MODNAME@-modules (= ${@MODNAME@-dkms:Version})
 Description: @MODNAME@ kernel modules for Qualcomm ARM64 Linux (meta-package)
  This meta-package always depends on the @MODNAME@ modules built for the latest
  @BINPKG@ kernel image, so installing it keeps the @MODNAME@ modules in step
  with the kernel across apt upgrades.
+ .
+ It provides @MODNAME@-modules at the version of the @MODNAME@-dkms source the
+ modules were built from.

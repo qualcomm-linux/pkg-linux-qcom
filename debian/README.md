@@ -466,7 +466,7 @@ Installed paths:
 - `/lib/modules/<KVER>/updates/qli/*.ko` — the modules, stripped
 
 Depends on `linux-image-<KVER>` (same version), and `Conflicts`/`Replaces`
-`<name>-dkms`. Provides the virtual package `<name>-modules`.
+`<name>-dkms`.
 
 Only the modules are shipped. Whatever `modprobe.d` snippets, udev rules or
 initramfs hooks the `<name>-dkms` package carries are not carried over with
@@ -484,6 +484,25 @@ Depends on `<name>-modules-<KVER>` (same version).
 `<BINPKG>-modules-<name>` depends on the newest `<name>-modules-<KVER>` for
 this variant, one per `DKMS_MODULES` entry, so the modules follow the kernel
 across snapshots the way `<BINPKG>` makes the image follow it.
+
+`<BINPKG>-modules-<name>` also provides the virtual package `<name>-modules`,
+versioned with the `<name>-dkms` source the modules were built from. A package
+that needs the modules depends on
+`<name>-modules (>= X) | <name>-dkms (>= X)`, and is satisfied by either the
+prebuilt modules or DKMS. `<name>-dkms` itself cannot be provided, because the
+unversioned `Conflicts: <name>-dkms` on `<name>-modules-<KVER>` would then match
+the provider too.
+
+The `Provides` is on the metapackage and not on `<name>-modules-<KVER>` because
+apt keeps every installed provider of a virtual package that something depends
+on. On the versioned package, each kernel's modules would stay installed for as
+long as the consumer does. They would pin their `linux-image-<KVER>` so old
+kernels were never autoremoved. A new kernel would also get no modules on
+upgrade, since the dependency is already satisfied. On the metapackage, the
+consumer keeps only the metapackage, which moves to the newest kernel's modules
+on upgrade. Older `<name>-modules-<KVER>` then go through autoremove with the
+kernel they were built for, and apt's kernel protection holds back the running
+and previous kernels as usual.
 
 `<BINPKG>-modules` depends on every `<BINPKG>-modules-<name>` above, so the
 whole out-of-tree module set for the variant installs under a single name. It

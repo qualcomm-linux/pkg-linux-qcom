@@ -98,7 +98,8 @@ KREL_FILE := debian/kernel.release
 #                        when the list is not empty
 #   debian/changelog     Substituted from debian/changelog.in
 #   debian/dkms-modules  Manifest of the DKMS_MODULES entries, read at build time
-#                        by debian/scripts/bundle-dkms-modules.sh. Always written,
+#                        by debian/scripts/bundle-dkms-modules.sh and by
+#                        override_dh_gencontrol. Always written,
 #                        so an empty DKMS_MODULES is a genuine "bundle nothing"
 #                        rather than the missing-manifest misconfiguration that
 #                        the bundler rejects.
@@ -642,6 +643,10 @@ override_dh_gencontrol:
 	# Read the package version from debian/pkgversion (written by 'prepare' target).
 	# This replaces the old hardcoded -v"1-1" which was only valid when the kernel
 	# version was encoded entirely in the package name.
+	#
+	# Each per-module metapackage provides <name>-modules at the version of the
+	# <name>-dkms source it was built from, passed in as the
+	# $${<name>-dkms:Version} substvar for every module in debian/dkms-modules.
 	@[ -f debian/pkgversion ] || { \
 		echo "ERROR: debian/pkgversion not found."; \
 		echo "       Run 'make -f debian/rules prepare ...' first."; \
@@ -649,4 +654,13 @@ override_dh_gencontrol:
 	}; \
 	PKG_VERSION=$$(cat debian/pkgversion); \
 	echo "dh_gencontrol: Version=$$PKG_VERSION"; \
-	dh_gencontrol -- -v"$$PKG_VERSION"
+	DKMS_VARS=; \
+	for mod in $$(sed -e 's/#.*//' -e 's/\r$$//' debian/dkms-modules); do \
+		ver=$$(dpkg-query -W -f='$${Version}' "$$mod-dkms") || { \
+			echo "ERROR: $$mod-dkms is not installed."; \
+			exit 1; \
+		}; \
+		echo "dh_gencontrol: $$mod-dkms:Version=$$ver"; \
+		DKMS_VARS="$$DKMS_VARS -V$$mod-dkms:Version=$$ver"; \
+	done; \
+	dh_gencontrol -- -v"$$PKG_VERSION" $$DKMS_VARS
