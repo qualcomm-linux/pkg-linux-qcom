@@ -2,7 +2,7 @@
 # Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 
-"""Bump the Release refs in ci/build-matrix.json.
+"""Bump the Release refs in ci/build-matrix.json and propose a PR.
 
 For each kernel variant with a Release row, resolve the newest tag of its
 Daily row (ref_strategy latest_tag) with ci/scripts/resolve-kernel-ref.sh, the
@@ -10,31 +10,61 @@ same lookup daily.yml uses. When that tag's trailing YYYYMMDD is newer than
 the Release row's branch_or_tag, the row is bumped to it. A Release row never
 moves backwards.
 
+By default this works in a temporary git worktree of <remote>/<base>, so the
+current checkout is never touched. Every stale Release row is bumped in one
+signed-off commit, pushed to <branch>, and proposed as a PR to <base> with gh.
+Merging that PR starts release.yml for the bumped variants;
+release-dry-run.yml builds them on the PR first.
+
+Run it by hand as a maintainer: a PR opened with a workflow's GITHUB_TOKEN
+would not trigger release-dry-run.yml.
+
+Repository settings needed for --auto-merge:
+  - Settings > General > "Allow auto-merge" must be on.
+  - main needs branch protection or a ruleset that requires the
+    release-dry-run.yml checks and at least one approving review. Without
+    required checks, gh either merges the PR at once or refuses to arm
+    auto-merge.
+
 Usage:
-  ci/scripts/propose-release-bump.py [--matrix-path PATH] [--dry-run] [--yes]
+  ci/scripts/propose-release-bump.py [--auto-merge] [--dry-run] [--yes]
+  ci/scripts/propose-release-bump.py --matrix-path PATH [--dry-run] [--yes]
 
 Options:
-  --matrix-path PATH  Matrix to bump in place (default: ci/build-matrix.json
-                      in this checkout).
-  --dry-run           Show what would change; write nothing.
-  -y, --yes           Do not ask before writing PATH.
+  --remote NAME       Remote to fetch <base> from and push to (default:
+                      origin).
+  --base BRANCH       Branch to bump and open the PR against (default: main).
+  --branch NAME       Branch to push (default: bump/<newest tag>).
+  --auto-merge        Arm auto-merge (merge commit) on the PR, so it merges
+                      once the required checks pass and it is approved.
+  --dry-run           Show what would change (the diff, in the worktree
+                      mode); commit, push and write nothing.
+  --matrix-path PATH  Only bump PATH in place: no worktree, git or gh.
+  -y, --yes           Do not ask before committing, pushing and opening the
+                      PR (or writing PATH).
 
-Before writing, the script shows what it would bump and asks for
-confirmation. Progress, including every command it runs, goes to stderr.
+Before changing anything, the script shows the diff, the commit message and
+what it will push, and asks for confirmation. Progress, including every
+command it runs, goes to stderr.
 
 Output:
-  One "variant: old -> new" line per bumped Release row, or "up to date".
+  One "variant: old -> new" line per bumped Release row, or "up to date",
+  followed by the PR URL when one is opened.
 
 Exit codes:
-  0  Success, including when everything is up to date.
+  0  Success, including when everything is up to date or a PR for <branch>
+     is already open.
   1  Error.
 """
 
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import textwrap
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -139,6 +169,142 @@ def bump_matrix(matrix):
     return bumps
 
 
+def newest_tag(bumps):
+    return max((new for _, _, new in bumps), key=date_key)
+
+
+def commit_message(bumps):
+    news = {new for _, _, new in bumps}
+    olds = {old for _, old, _ in bumps}
+    variants = [v for v, _, _ in bumps]
+
+    if len(news) == 1:
+        title = f"ci: update the Release ref to {newest_tag(bumps)}"
+    else:
+        title = "ci: update the Release refs to the newest tags"
+
+    if len(news) == 1 and len(olds) == 1:
+        new, old = next(iter(news)), next(iter(olds))
+        if len(bumps) == 1:
+            body = (f"The {variants[0]} Release row pins {old}. Bump it to "
+                    f"the newer {new} snapshot.")
+        else:
+            who = ("Both" if len(bumps) == 2 else f"All {len(bumps)}")
+            body = (f"{who} Release rows ({', '.join(variants)}) pin {old}. "
+                    f"Bump them to the newer {new} snapshot.")
+        body = textwrap.fill(body, width=72, break_on_hyphens=False)
+    else:
+        body = "Bump the Release rows to the newer snapshots:\n\n" + "\n".join(
+            f"  {v}: {old} -> {new}" for v, old, new in bumps)
+
+    return f"{title}\n\n{body}\n"
+
+
+def github_repo(remote):
+    """Return owner/name of the GitHub repository behind remote."""
+    url = run(["git", "remote", "get-url", remote], capture=True)
+    m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    if not m:
+        raise SystemExit(f"ERROR: {remote} ({url}) is not a GitHub remote")
+    return m.group(1)
+
+
+def open_pr(wt, repo, args, bumps):
+    branch = args.branch or f"bump/{newest_tag(bumps)}"
+
+    step(f"Checking for an open PR from {branch}")
+    existing = run(
+        ["gh", "pr", "list", "--repo", repo, "--head", branch,
+         "--state", "open", "--json", "url", "--jq", ".[].url"],
+        capture=True,
+    )
+    if existing:
+        print(f"PR for {branch} already open: {existing}")
+        return
+
+    message = commit_message(bumps)
+    step("Proposed change")
+    run(["git", "--no-pager", "diff"], cwd=wt)
+    log("")
+    log("Commit message:")
+    log(textwrap.indent(message, "    "))
+    log(f"Push:       {branch} to {args.remote}")
+    log(f"PR:         {repo} {args.base} <- {branch}")
+    log(f"Auto-merge: {'yes (merge commit)' if args.auto_merge else 'no'}")
+    log("")
+    if not confirm("Commit, push and open the PR?", args):
+        log("Aborted; nothing was committed or pushed.")
+        return
+
+    step(f"Committing on {branch}")
+    run(["git", "switch", "-q", "-c", branch], cwd=wt)
+    run(["git", "add", MATRIX_REL_PATH], cwd=wt)
+    run(["git", "commit", "-q", "-s", "-F", "-"], cwd=wt,
+        stdin=message)
+    step(f"Pushing {branch} to {args.remote}")
+    run(["git", "push", args.remote, f"HEAD:refs/heads/{branch}"], cwd=wt)
+    step("Opening the PR")
+    url = run(
+        ["gh", "pr", "create", "--repo", repo, "--base", args.base,
+         "--head", branch, "--fill"],
+        cwd=wt, capture=True,
+    )
+    print(url)
+
+    if args.auto_merge:
+        step("Arming auto-merge")
+        run(["gh", "pr", "merge", "--repo", repo, "--auto", "--merge", url])
+        print("auto-merge armed")
+
+    step("Looking for other open bump/* PRs")
+    others = run(
+        ["gh", "pr", "list", "--repo", repo, "--state", "open",
+         "--limit", "100", "--json", "headRefName,url",
+         "--jq", '.[] | select(.headRefName | startswith("bump/")) | .url'],
+        capture=True,
+    )
+    others = [u for u in others.splitlines() if u != url]
+    if others:
+        log("Other open bump PRs, superseded by this one:")
+        for u in others:
+            log(f"  {u}")
+
+
+def propose(args):
+    if not shutil.which("gh"):
+        raise SystemExit("ERROR: gh is not installed")
+    repo = github_repo(args.remote)
+    log(f"Repository: {repo}")
+    if not args.dry_run:
+        step("Checking gh authentication")
+        run(["gh", "auth", "status", "--hostname", "github.com"],
+            capture=True)
+
+    step(f"Fetching {args.remote}/{args.base}")
+    run(["git", "fetch", "-q", args.remote, args.base])
+    with tempfile.TemporaryDirectory(prefix="release-bump-") as tmp:
+        wt = Path(tmp) / "wt"
+        step(f"Creating a temporary worktree of {args.remote}/{args.base}")
+        run(["git", "worktree", "add", "-q", "--detach", str(wt),
+             f"{args.remote}/{args.base}"])
+        try:
+            path = wt / MATRIX_REL_PATH
+            matrix = load_matrix(path)
+            bumps = bump_matrix(matrix)
+            report(bumps)
+            if bumps:
+                # Only the temporary worktree; nothing is committed yet.
+                write_matrix(path, matrix)
+            if bumps and args.dry_run:
+                step("Proposed change (--dry-run: stopping here)")
+                run(["git", "--no-pager", "diff"], cwd=wt)
+            elif bumps:
+                open_pr(wt, repo, args, bumps)
+        finally:
+            step("Removing the temporary worktree")
+            run(["git", "worktree", "remove", "--force", str(wt)])
+
+
 def bump_file(args):
     path = args.matrix_path
     step(f"Checking {path}")
@@ -165,14 +331,20 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
         epilog="See the header of this script for details.")
+    parser.add_argument("--remote", default="origin")
+    parser.add_argument("--base", default="main")
+    parser.add_argument("--branch")
+    parser.add_argument("--auto-merge", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--matrix-path", type=Path,
-                        default=SCRIPT_DIR.parent.parent / MATRIX_REL_PATH)
+    parser.add_argument("--matrix-path", type=Path)
     parser.add_argument("-y", "--yes", action="store_true")
     args = parser.parse_args()
 
     try:
-        bump_file(args)
+        if args.matrix_path:
+            bump_file(args)
+        else:
+            propose(args)
     except subprocess.CalledProcessError as e:
         log(f"ERROR: {' '.join(map(str, e.cmd))} failed ({e.returncode})")
         return 1
