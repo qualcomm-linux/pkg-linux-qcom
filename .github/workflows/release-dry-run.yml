@@ -95,7 +95,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: $/.github/workflows/build-kernel-deb.yml
+    uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}
