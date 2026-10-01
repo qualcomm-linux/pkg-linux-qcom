@@ -11,9 +11,14 @@ description: >
 # The caller must have checked out pkg-linux-qcom into the workspace first:
 # debian/ and ci/ come from that checkout, and so does this action.
 #
-# Runs on the self-hosted arm64 runner. Leaves KERNEL_URL, DISTRO,
-# DOCKER_DISTRO, KERNEL_DIR, KERNEL_REF, KERNEL_SHA, KERNEL_DATE,
-# LOCALVERSION, SNAPSHOT, GITSHA and DEBIAN_REVISION in the job environment.
+# Runs on the self-hosted arm64 runner, and leaves nothing behind in the job
+# environment: values pass between these steps as step outputs, each consumer
+# naming what it reads. Writing them to GITHUB_ENV instead would put them in
+# the environment of every later step in the job, including steps outside this
+# action, and a newline in one would let the value that carried it define
+# environment variables of its own. Several of these values are not ours: the
+# kernel ref comes from a remote's tag list, and on pr-build.yml the inputs
+# come from the build matrix as the pull request wrote it.
 
 inputs:
   kernel-variant:
@@ -78,6 +83,7 @@ runs:
   using: composite
   steps:
     - name: Resolve build environment
+      id: env
       shell: bash
       env:
         KERNEL_URL_INPUT: ${{ inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
@@ -105,28 +111,32 @@ runs:
           exit 1
         fi
 
-        echo "KERNEL_URL=$KERNEL_URL_INPUT" >> "$GITHUB_ENV"
-        echo "DISTRO=$SUITE_INPUT" >> "$GITHUB_ENV"
-        echo "DOCKER_DISTRO=$DOCKER_DISTRO" >> "$GITHUB_ENV"
+        echo "kernel_url=$KERNEL_URL_INPUT" >> "$GITHUB_OUTPUT"
+        echo "distro=$SUITE_INPUT" >> "$GITHUB_OUTPUT"
+        echo "docker_distro=$DOCKER_DISTRO" >> "$GITHUB_OUTPUT"
         echo "Suite $SUITE_INPUT is $FAMILY-family and builds in the $DOCKER_DISTRO image"
 
     - name: Checkout docker-pkg-build
       uses: actions/checkout@v4
       with:
+        persist-credentials: false
         repository: qualcomm-linux/docker-pkg-build
         ref: main
         path: docker-pkg-build
 
     - name: Build docker image
       shell: bash
+      env:
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
       run: |
         ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DOCKER_DISTRO"
         docker image ls
 
     - name: Resolve kernel ref
-      id: kernel-ref
+      id: ref
       shell: bash
       env:
+        KERNEL_URL: ${{ steps.env.outputs.kernel_url }}
         BRANCH_INPUT: ${{ inputs.kernel-branch || 'qcom-next' }}
         REF_STRATEGY_INPUT: ${{ inputs.ref-strategy || 'latest_tag' }}
         TAG_PATTERN_INPUT: ${{ inputs.tag-pattern || 'qcom-next-*' }}
@@ -156,21 +166,33 @@ runs:
             ;;
         esac
 
-        echo "KERNEL_REF=$KERNEL_REF" >> "$GITHUB_ENV"
+        # A ref carrying a newline would otherwise define outputs of its own.
+        # The remote chooses this value, so check it before writing it out.
+        [[ "$KERNEL_REF" == *$'\n'* ]] && {
+          echo "::error::resolved kernel ref contains a newline"
+          exit 1
+        }
+
+        echo "kernel_ref=$KERNEL_REF" >> "$GITHUB_OUTPUT"
         echo "Kernel variant: $KERNEL_VARIANT_INPUT"
         echo "Ref strategy: $REF_STRATEGY"
         echo "Resolved kernel ref: $KERNEL_REF"
 
     - name: Clone kernel source
+      id: clone
       shell: bash
+      env:
+        KERNEL_URL: ${{ steps.env.outputs.kernel_url }}
+        KERNEL_REF: ${{ steps.ref.outputs.kernel_ref }}
       run: |
+        set -euo pipefail
         KERNEL_DIR="$GITHUB_WORKSPACE/kernel-source"
-        echo "KERNEL_DIR=$KERNEL_DIR" >> "$GITHUB_ENV"
+        echo "kernel_dir=$KERNEL_DIR" >> "$GITHUB_OUTPUT"
         echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
         git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags \
           "$KERNEL_URL" "$KERNEL_DIR"
         KERNEL_SHA=$(git -C "$KERNEL_DIR" rev-parse HEAD)
-        echo "KERNEL_SHA=$KERNEL_SHA" >> "$GITHUB_ENV"
+        echo "kernel_sha=$KERNEL_SHA" >> "$GITHUB_OUTPUT"
         echo "Kernel HEAD SHA: $KERNEL_SHA"
 
         # Committer date of HEAD, normalised to UTC. Committer rather than
@@ -182,14 +204,18 @@ runs:
           echo "::error::could not read a YYYYMMDD commit date from $KERNEL_REF (got '$KERNEL_DATE')"
           exit 1
         }
-        echo "KERNEL_DATE=$KERNEL_DATE" >> "$GITHUB_ENV"
+        echo "kernel_date=$KERNEL_DATE" >> "$GITHUB_OUTPUT"
         echo "Kernel HEAD commit date (UTC): $KERNEL_DATE"
 
     - name: Derive version fields
+      id: localversion
       shell: bash
       env:
         LOCALVERSION_INPUT: ${{ inputs.localversion }}
         KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant }}
+        KERNEL_REF: ${{ steps.ref.outputs.kernel_ref }}
+        KERNEL_SHA: ${{ steps.clone.outputs.kernel_sha }}
+        KERNEL_DATE: ${{ steps.clone.outputs.kernel_date }}
       run: |
         set -euo pipefail
         OVERRIDE_LV="$LOCALVERSION_INPUT"
@@ -198,12 +224,13 @@ runs:
           # replace cannot be trusted to describe it. The Debian version then
           # carries no +git<date>; prepare-source.sh warns about the same.
           echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
-          echo "LOCALVERSION=$OVERRIDE_LV" >> "$GITHUB_ENV"
-          echo "SNAPSHOT=" >> "$GITHUB_ENV"
-          echo "GITSHA=" >> "$GITHUB_ENV"
+          echo "localversion=$OVERRIDE_LV" >> "$GITHUB_OUTPUT"
+          echo "snapshot=" >> "$GITHUB_OUTPUT"
+          echo "gitsha=" >> "$GITHUB_OUTPUT"
         else
-          # Emits LOCALVERSION=, SNAPSHOT= and GITSHA= lines, already in
-          # GITHUB_ENV form.
+          # Emits LOCALVERSION=, SNAPSHOT= and GITSHA= lines. They are read
+          # here rather than recovered from LOCALVERSION later: a hex SHA can
+          # end in eight digits of its own.
           #
           # --date is only consulted for branch-tip builds, where the ref
           # carries no snapshot of its own. It comes from the commit rather
@@ -215,9 +242,16 @@ runs:
             --ref "$KERNEL_REF" \
             --sha "$KERNEL_SHA" \
             --date "$KERNEL_DATE")
-          echo "$FIELDS" >> "$GITHUB_ENV"
           echo "Derived version fields:"
           echo "$FIELDS"
+          echo "$FIELDS" | while IFS='=' read -r key value; do
+            case "$key" in
+              LOCALVERSION) echo "localversion=$value" ;;
+              SNAPSHOT)     echo "snapshot=$value" ;;
+              GITSHA)       echo "gitsha=$value" ;;
+              *) echo "::error::unexpected field '$key' from derive-localversion.sh"; exit 1 ;;
+            esac
+          done >> "$GITHUB_OUTPUT"
         fi
 
     - name: Resolve Debian revision
@@ -227,10 +261,12 @@ runs:
       # selected suite's mapped suffix applied automatically, always using
       # Daily semantics since direct dispatch is build-only and
       # non-promoting.
+      id: revision
       shell: bash
       env:
         DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
         DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli1' }}
+        DISTRO: ${{ steps.env.outputs.distro }}
       run: |
         set -euo pipefail
         INPUT_REVISION="$DEBIAN_REVISION_INPUT"
@@ -245,13 +281,14 @@ runs:
             --matrix-file ci/build-matrix.json)
           echo "Derived Debian revision for direct dispatch: $DEBIAN_REVISION"
         fi
-        echo "DEBIAN_REVISION=$DEBIAN_REVISION" >> "$GITHUB_ENV"
+        echo "debian_revision=$DEBIAN_REVISION" >> "$GITHUB_OUTPUT"
 
     - name: Merge qcom-next PR patches
       if: ${{ inputs.qcom-next-pr != '' }}
       shell: bash
       env:
         QCOM_NEXT_PR: ${{ inputs.qcom-next-pr }}
+        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
       run: |
         cd "$KERNEL_DIR"
         echo "Merging qcom-next PR(s): $QCOM_NEXT_PR"
@@ -278,6 +315,7 @@ runs:
       shell: bash
       env:
         KERNEL_TOPICS_PR: ${{ inputs.kernel-topics-pr }}
+        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
       run: |
         cd "$KERNEL_DIR"
         echo "Applying kernel-topics PR patch(es): $KERNEL_TOPICS_PR"
@@ -303,6 +341,15 @@ runs:
         KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
         DKMS_INPUT: ${{ inputs.dkms }}
         DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
+        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
+        DISTRO: ${{ steps.env.outputs.distro }}
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
+        LOCALVERSION: ${{ steps.localversion.outputs.localversion }}
+        SNAPSHOT: ${{ steps.localversion.outputs.snapshot }}
+        DEBIAN_REVISION: ${{ steps.revision.outputs.debian_revision }}
+        KERNEL_URL: ${{ steps.env.outputs.kernel_url }}
+        KERNEL_REF: ${{ steps.ref.outputs.kernel_ref }}
+        KERNEL_SHA: ${{ steps.clone.outputs.kernel_sha }}
       run: |
         # No -x here: keep xtrace off for this step as it assembles the
         # prepare-source.sh argument list which may include sensitive paths.
@@ -340,6 +387,8 @@ runs:
 
     - name: Upload prepared source tree
       shell: bash
+      env:
+        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
       run: |
         tar czf /tmp/kernel-srcpkg.tar.gz \
           -C "$(dirname "$KERNEL_DIR")" \

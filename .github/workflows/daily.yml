@@ -63,6 +63,8 @@ jobs:
       ubuntu: ${{ steps.set-matrix.outputs.ubuntu }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Generate build matrix
         id: set-matrix
