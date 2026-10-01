@@ -146,11 +146,6 @@ on:
         description: 'Advanced: extra KVER suffix (e.g. -ci42), appended to the kernel release verbatim'
         required: false
         default: ''
-      debug-build:
-        description: 'Advanced: enable the debug build configuration'
-        type: boolean
-        required: false
-        default: false
       qcom-next-pr:
         description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
         type: string
@@ -206,7 +201,6 @@ jobs:
           debian-version-stub: ${{ inputs.debian-version-stub || '0qli1' }}
           localversion: ${{ inputs.localversion }}
           kver-extra: ${{ inputs.kver-extra }}
-          debug-build: ${{ inputs.debug-build }}
           qcom-next-pr: ${{ inputs.qcom-next-pr }}
           kernel-topics-pr: ${{ inputs.kernel-topics-pr }}
 

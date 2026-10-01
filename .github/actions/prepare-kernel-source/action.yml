@@ -76,9 +76,6 @@ inputs:
   kver-extra:
     description: 'Extra KVER suffix, appended to the kernel release verbatim'
     default: ''
-  debug-build:
-    description: 'Enable the debug build configuration'
-    default: 'false'
   qcom-next-pr:
     description: 'qcom-next PR numbers to merge, space-separated'
     default: ''
@@ -383,7 +380,6 @@ runs:
         KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
         KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
         DKMS_INPUT: ${{ inputs.dkms }}
-        DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
         KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
         DISTRO: ${{ steps.env.outputs.distro }}
         DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
@@ -421,7 +417,6 @@ runs:
         # Always passed, unlike the optional inputs above: an empty list is a
         # genuine "bundle nothing" rather than a request for some default.
         ARGS+=(--dkms "$DKMS_INPUT")
-        [[ "$DEBUG_BUILD_INPUT" == "true" ]] && ARGS+=(--debug)
 
         docker run -i --rm \
           -v "$PWD:$PWD" --workdir="$PWD" \
