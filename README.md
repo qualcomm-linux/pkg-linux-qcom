@@ -39,7 +39,7 @@ Two entry points use the same reusable build pipeline:
 - **Daily** uses the matrix-selected latest-tag or branch-tip strategy and
   builds every configured Daily suite.
 - **Release** uses a pinned matrix ref and promotes successful Debian packages
-  to the selected production Debusine workspace.
+  to the production Debusine release workspace that `release.yml` names.
 
 The final Production matrix is conceptually:
 
@@ -85,8 +85,7 @@ The final Production matrix is conceptually:
         "forky": ["kgsl", "camx", "iris-vpu"]
       },
       "debian_version_stub": "0qli1",
-      "debian_version_suffix": "",
-      "target_workspace": "qli"
+      "debian_version_suffix": ""
     }
   ]
 }
@@ -228,9 +227,12 @@ its own values for:
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
-| `target_workspace` | Debusine destination for Release entries only. |
 
-`target_workspace` is required for `Release` and rejected for `Daily`.
+No row names where its packages are published: that is a property of the
+workflow that picks the row up, not of the kernel. `release.yml` promotes to
+the release workspace for every Release entry, and the resolver rejects a
+`target_workspace` field on any row.
+
 `tag_pattern` is required for `latest_tag` and rejected for other strategies.
 The resolver selects the most recent trailing `YYYYMMDD` date, and rejects
 duplicate suites and malformed variant identifiers before any build jobs
@@ -511,6 +513,7 @@ A manual build never promotes; Release promotion is performed only through
 | `DEBUSINE_HOST` | Production Debusine host. |
 | `DEBUSINE_SCOPE` | Debusine scope. |
 | `DEBUSINE_PARENT_WORKSPACE` | Parent workspace used to create per-run CI child workspaces. |
+| `DEBUSINE_RELEASE_WORKSPACE` | Workspace `release.yml` promotes Release builds to. Optional; defaults to `qli`. |
 
 ### Secrets
 
@@ -538,8 +541,7 @@ To add a kernel variant:
    the pair if either disagrees with its row's `type`.
 3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
    `pinned_ref` for Release, and update that ref through a reviewed PR.
-4. Give the variant distinct `srcpkg` and `binpkg` values. Set the Release
-   `target_workspace` explicitly.
+4. Give the variant distinct `srcpkg` and `binpkg` values.
 5. Confirm suite-family routing: Debian suites use Debusine; Ubuntu suites use
    the Docker path.
 6. Run a filtered Daily validation for the new variant, then its full Daily and

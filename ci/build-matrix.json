@@ -43,7 +43,6 @@
     {
       "kernel_variant": "qcom-next",
       "type": "Release",
-      "target_workspace": "qli",
       "suites": [
         "trixie",
         "forky"
@@ -108,7 +107,6 @@
     {
       "kernel_variant": "qcom-next-debug",
       "type": "Release",
-      "target_workspace": "qli",
       "suites": [
         "trixie",
         "forky"
