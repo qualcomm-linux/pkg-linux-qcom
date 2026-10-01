@@ -10,19 +10,18 @@ Description: @MODNAME@ kernel modules for Qualcomm ARM64 Linux @KVER@
  kernel release @KVER@ and shipped prebuilt, so nothing has to be compiled on
  the target and neither dkms nor the kernel headers need to be installed there.
  .
- The modules are installed in /lib/modules/@KVER@/updates/qli/. Only the
+ The modules are installed in /usr/lib/modules/@KVER@/updates/qli/. Only the
  modules are shipped: any modprobe.d snippets, udev rules or initramfs hooks
  the @MODNAME@-dkms package carries are not carried over with them.
  .
  This package conflicts with @MODNAME@-dkms. That package would build a second
- copy of the same modules into /lib/modules/@KVER@/updates/dkms/, which sits at
- the same depmod precedence as the copy here, so which one loaded would depend
- on depmod's ordering rather than on a decision anyone made.
+ copy of the same modules into /usr/lib/modules/@KVER@/updates/dkms/, which
+ sits at the same depmod precedence as the copy here, so which one loaded would
+ depend on depmod's ordering rather than on a decision anyone made.
 
 Package: @MODNAME@-modules-@KVER@-dbg
 Architecture: arm64
 Section: debug
-Priority: optional
 Depends: ${misc:Depends}, @MODNAME@-modules-@KVER@ (= ${binary:Version})
 Description: @MODNAME@ kernel module debug symbols for @KVER@
  Debug symbols for the @MODNAME@ modules in @MODNAME@-modules-@KVER@, following
