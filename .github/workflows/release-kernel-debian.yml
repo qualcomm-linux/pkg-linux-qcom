@@ -157,6 +157,8 @@ jobs:
           debusine-user: ${{ secrets.DEBUSINE_USER }}
           debusine-token: ${{ secrets.DEBUSINE_TOKEN }}
           debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
+          # A release reads qli alone, so a released kernel is never built
+          # against something that has not been released alongside it.
           extra-build-dep-workspaces: qli
 
   # ---------------------------------------------------------------------------

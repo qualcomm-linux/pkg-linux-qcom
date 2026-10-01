@@ -238,7 +238,9 @@ jobs:
           debusine-user: ${{ secrets.DEBUSINE_USER }}
           debusine-token: ${{ secrets.DEBUSINE_TOKEN }}
           debusine-parent-workspace: ${{ inputs.debusine-parent-workspace || vars.DEBUSINE_PARENT_WORKSPACE || 'qli-ci' }}
-          extra-build-dep-workspaces: qli
+          # Staging runs may build against packages that have not been released
+          # to qli yet, so they resolve build-dependencies from qli-staging too.
+          extra-build-dep-workspaces: qli qli-staging
 
   # ---------------------------------------------------------------------------
   # publish: download the .deb files from Debusine and upload them to S3.
