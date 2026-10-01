@@ -113,7 +113,7 @@ jq empty "$MATRIX_FILE" 2>/dev/null \
 # shellcheck disable=SC2016  # jq source, not shell
 family_def='
   def suite_family:
-    if IN("trixie", "forky", "sid", "unstable", "bookworm")
+    if IN("trixie", "forky", "sid", "unstable")
     then "debian" else "ubuntu" end;
 '
 
