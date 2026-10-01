@@ -128,8 +128,8 @@ variant is a two-row matrix change, not a workflow redesign.
 | `release.yml` | Resolves and runs the Release matrix. | Push to `main` that changes a Release `branch_or_tag`, or manual dispatch. |
 | `release-dry-run.yml` | Builds the Release rows a PR changes, promoting nothing. | Pull requests to `main`. |
 | `pr-build.yml` | Builds the Daily matrix from the PR's head. | Pull requests to `main`. |
-| `build-kernel-debian.yml` | Builds one Debian-suite leg in Debusine and publishes it to S3. | Manual dispatch or called by Daily, PR build and the release dry-run. |
-| `build-kernel-ubuntu.yml` | Builds one Ubuntu-suite leg on the Docker path and publishes it to S3. | Manual dispatch or called by Daily and PR build. |
+| `build-kernel-debian.yml` | Builds one Debian-suite leg in Debusine and publishes it to S3. | Called by Daily, PR build and the release dry-run. |
+| `build-kernel-ubuntu.yml` | Builds one Ubuntu-suite leg on the Docker path and publishes it to S3. | Called by Daily and PR build. |
 | `release-kernel-debian.yml` | Builds one Debian-suite leg in Debusine and promotes it to the release workspace. | Called by Release. |
 
 The three build workflows share their steps through two composite actions
@@ -192,11 +192,10 @@ Release is the controlled promotion path.
   the release credential and enforces the required approval gate before
   promotion to `qli`, whether the run was started by a merge or by hand.
 
-Direct `build-kernel-debian.yml` and `build-kernel-ubuntu.yml` dispatches are
-build-only: neither has a promotion path to offer. Release promotion is
-initiated exclusively by `release.yml`, which owns the target workspace and
-production release controls, and is the only caller of
-`release-kernel-debian.yml`.
+A `daily.yml` dispatch is build-only: it publishes to the daily S3 path and has
+no promotion path to offer. Release promotion is initiated exclusively by
+`release.yml`, which owns the target workspace and production release controls,
+and is the only caller of `release-kernel-debian.yml`.
 
 Only the Debian family has a release path at all, because promotion runs
 through Debusine. `resolve-matrix.sh` rejects a `Release` row for any other
@@ -318,7 +317,6 @@ flowchart TD
         A2["daily.yml\nManual full or filtered variant + suite"]
         A5["pr-build.yml\nFull Daily matrix on every PR"]
         A3["release.yml\nManual full or filtered variant + suite"]
-        A4["build-kernel-debian.yml\nbuild-kernel-ubuntu.yml\nManual one-off build"]
     end
 
     subgraph matrix[Matrix entry points]
@@ -351,7 +349,6 @@ flowchart TD
     B2 --> C2
     B5 --> C2
     B4 --> C2
-    A4 --> C2
     C2 --> C3 & C4
     C3 --> C5 & C6
     C4 --> D1
@@ -487,37 +484,21 @@ the whole set.
 
 ## Manual Builds
 
-Use **Actions** → **build-kernel-debian** or **build-kernel-ubuntu** for a
-one-off build, picking the one that builds the suite you want. These are
-explicit override workflows, not matrix-derived delivery flows: use `daily.yml`
-and `release.yml` for normal Daily and Release operations. Neither promotes.
-
-`kernel-variant`, `suite`, and `ref-strategy` are the required build selection.
-All remaining package, configuration, and PR inputs are advanced overrides for
-validation or debugging. Variant and suite are free-text matrix values rather
+Use **Actions** → **daily** → **Run workflow** for a one-off build. Its
+**Build scope** selects the whole `Daily` matrix, every suite of one kernel
+variant, or one variant and suite; `daily` routes each selected entry to the
+workflow that builds its family, so a variant with Debian and Ubuntu suites is
+built by one dispatch. Variant and suite are free-text matrix values rather
 than static dropdowns, so adding a matrix entry never requires editing the
-workflow UI. A suite belonging to the other family is rejected by the
-`prepare` job before anything is cloned or built, so the only cost of picking
-the wrong workflow is a fast failure.
+workflow UI, and a selection that matches no entry fails the run.
 
-The available inputs are:
+Everything else about a build — its kernel repository and ref, package names,
+config fragments, DKMS modules and Debian revision — comes from the entry, so
+there is nothing to retype and nothing to get wrong. To build something the
+matrix does not describe, change the matrix in a pull request: `pr-build.yml`
+builds it from the PR's head.
 
-| Input | Default | Purpose |
-| --- | --- | --- |
-| `kernel-variant` | `qcom-next` | Stable variant identifier used in artifact and workspace identity. |
-| `suite` | `trixie` | Target suite. |
-| `ref-strategy` | `latest_tag` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
-| `kernel-branch` | `qcom-next` | Branch for `branch_tip`, or immutable ref for `pinned_ref`; ignored by `latest_tag`. |
-| `tag-pattern` | `qcom-next-*` | Tag glob for `latest_tag`; ignored by `branch_tip` and `pinned_ref`. |
-| `kernel-url` | `qualcomm-linux/kernel` | Advanced alternate kernel repository. |
-| `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
-| `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
-| `kernel-config` | Empty | Advanced extra fragments applied on top of all of `debian/config-available/`, e.g. `intree:arch/arm64/configs/qcom_debug.config`. |
-| `debian-version-stub` | `0qli1` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
-| `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
-| `kver-extra` | Empty | Advanced kernel-release suffix. |
-
-Direct builds are artifact builds; Release promotion is performed only through
+A manual build never promotes; Release promotion is performed only through
 `release.yml`.
 
 ## Configuration
