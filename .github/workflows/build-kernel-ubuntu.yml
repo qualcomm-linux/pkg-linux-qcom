@@ -161,6 +161,9 @@ jobs:
   prepare:
     name: Generate source package
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
     steps:
       # debian/ and ci/ live on the same branch, so one checkout supplies both
       # the packaging and the scripts, the delivery matrix they read, and the
@@ -206,6 +209,9 @@ jobs:
     name: Build package (Docker)
     needs: prepare
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
     env:
       DISTRO: ${{ inputs.suite }}
     defaults:
