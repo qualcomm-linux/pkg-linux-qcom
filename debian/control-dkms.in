@@ -22,7 +22,6 @@ Description: @MODNAME@ kernel modules for Qualcomm ARM64 Linux @KVER@
 Package: @MODNAME@-modules-@KVER@-dbg
 Architecture: arm64
 Section: debug
-Priority: optional
 Depends: ${misc:Depends}, @MODNAME@-modules-@KVER@ (= ${binary:Version})
 Description: @MODNAME@ kernel module debug symbols for @KVER@
  Debug symbols for the @MODNAME@ modules in @MODNAME@-modules-@KVER@, following
