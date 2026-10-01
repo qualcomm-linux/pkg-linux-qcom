@@ -247,9 +247,9 @@ Each flattened leg's final `debian_revision` is derived by
 `suite_suffix_mapping[suite]`, and the delivery type
 (`stub + suffix + "~"` for Daily, `stub + suffix` for Release). This script is
 the single implementation of the formula: `resolve-matrix.sh` calls it once
-per flattened leg, and the `prepare-kernel-source` action's direct-dispatch
-path (which has no full-matrix context) calls the same script for the one
-suite it was given.
+per flattened leg. The build workflows pass their leg's `debian_revision`
+through, and the `prepare-kernel-source` action requires it: there is no
+caller without a leg in hand, so there is no fallback to derive one.
 
 Each leg has a distinct prepared-source artifact, Debusine child workspace, and
 S3 path keyed by `kernel_variant + suite`. This prevents two variants that both

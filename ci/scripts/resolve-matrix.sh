@@ -26,11 +26,10 @@ set -euo pipefail
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
 # ci/scripts/derive-debian-revision.sh, so the formula has exactly one
-# implementation shared with the prepare-kernel-source action's direct-dispatch
-# path. Each row also carries debian_version_suffix ("~" for Daily, "" for
-# Release) as a visible, validated record of that same delivery-type mapping;
-# it is checked against the row's type but never fed into derivation, so a
-# copy/paste error here fails fast instead of silently drifting from the
+# implementation. Each row also carries debian_version_suffix ("~" for Daily,
+# "" for Release) as a visible, validated record of that same delivery-type
+# mapping; it is checked against the row's type but never fed into derivation,
+# so a copy/paste error here fails fast instead of silently drifting from the
 # formula's single implementation.
 #
 # Usage:
@@ -426,9 +425,7 @@ result=$(jq -c \
 
 # Derive each leg's final debian_revision from debian_version_stub,
 # suite_suffix_mapping, and its delivery type. derive-debian-revision.sh is
-# the single implementation of the formula; the prepare-kernel-source
-# action's direct dispatch path calls the same script for the one-suite,
-# no-matrix case.
+# the single implementation of the formula.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 final="[]"

@@ -65,11 +65,8 @@ inputs:
     description: 'Out-of-tree DKMS modules to bundle, comma-separated and without the -dkms suffix'
     default: ''
   debian-revision:
-    description: 'Fully derived Debian revision (empty derives one from debian-version-stub)'
-    default: ''
-  debian-version-stub:
-    description: 'Debian version stub, used only when debian-revision is empty'
-    default: '0qli1'
+    description: 'Fully derived Debian revision, from the matrix entry'
+    required: true
   localversion:
     description: 'LOCALVERSION override (auto-derived from the resolved ref if empty)'
     default: ''
@@ -288,35 +285,6 @@ runs:
           done >> "$GITHUB_OUTPUT"
         fi
 
-    - name: Resolve Debian revision
-      # workflow_call callers (daily.yml, release.yml) pass an already
-      # fully-derived debian-revision from resolve-matrix.sh. Direct
-      # workflow_dispatch runs pass only debian-version-stub and get the
-      # selected suite's mapped suffix applied automatically, always using
-      # Daily semantics since direct dispatch is build-only and
-      # non-promoting.
-      id: revision
-      shell: bash
-      env:
-        DEBIAN_REVISION_INPUT: ${{ inputs.debian-revision }}
-        DEBIAN_VERSION_STUB_INPUT: ${{ inputs.debian-version-stub || '0qli1' }}
-        DISTRO: ${{ steps.env.outputs.distro }}
-      run: |
-        set -euo pipefail
-        INPUT_REVISION="$DEBIAN_REVISION_INPUT"
-        if [[ -n "$INPUT_REVISION" ]]; then
-          DEBIAN_REVISION="$INPUT_REVISION"
-          echo "Using matrix-derived Debian revision: $DEBIAN_REVISION"
-        else
-          DEBIAN_REVISION=$(ci/scripts/derive-debian-revision.sh \
-            --stub "$DEBIAN_VERSION_STUB_INPUT" \
-            --suite "$DISTRO" \
-            --delivery-type Daily \
-            --matrix-file ci/build-matrix.json)
-          echo "Derived Debian revision for direct dispatch: $DEBIAN_REVISION"
-        fi
-        echo "debian_revision=$DEBIAN_REVISION" >> "$GITHUB_OUTPUT"
-
     - name: Prepare source
       shell: bash
       env:
@@ -330,7 +298,7 @@ runs:
         DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
         LOCALVERSION: ${{ steps.localversion.outputs.localversion }}
         SNAPSHOT: ${{ steps.localversion.outputs.snapshot }}
-        DEBIAN_REVISION: ${{ steps.revision.outputs.debian_revision }}
+        DEBIAN_REVISION: ${{ inputs.debian-revision }}
         KERNEL_URL: ${{ steps.env.outputs.kernel_url }}
         KERNEL_REF: ${{ steps.ref.outputs.kernel_ref }}
         KERNEL_SHA: ${{ steps.clone.outputs.kernel_sha }}
@@ -338,6 +306,14 @@ runs:
         # No -x here: keep xtrace off for this step as it assembles the
         # prepare-source.sh argument list which may include sensitive paths.
         set -euo pipefail
+
+        # Composite actions do not enforce required inputs, so check it here:
+        # a caller that forgets the revision fails rather than building at
+        # one nobody chose.
+        [[ -n "$DEBIAN_REVISION" ]] || {
+          echo "::error::debian-revision is required"
+          exit 1
+        }
 
         ARGS=(
           --source-dir "$KERNEL_DIR"
