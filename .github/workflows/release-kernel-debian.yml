@@ -24,23 +24,23 @@ on:
       kernel-variant:
         description: 'Kernel variant identifier'
         type: string
-        default: 'qcom-next'
+        required: true
       suite:
         description: 'Target Debian suite (trixie, forky, sid)'
         type: string
-        default: 'trixie'
+        required: true
       kernel-branch:
         description: 'Immutable ref to build, from the entry branch_or_tag'
         type: string
-        default: 'qcom-next'
+        required: true
       git-clone:
         description: 'Kernel repository URL'
         type: string
-        default: 'https://github.com/qualcomm-linux/kernel'
+        required: true
       ref-strategy:
         description: 'Kernel ref strategy: a Release entry always pins one'
         type: string
-        default: 'pinned_ref'
+        required: true
       tag-pattern:
         description: 'Tag glob, unused by pinned_ref and carried for symmetry with the Daily inputs'
         type: string
@@ -48,11 +48,11 @@ on:
       srcpkg:
         description: 'Source package name'
         type: string
-        default: 'linux-qcom-next'
+        required: true
       binpkg:
         description: 'Binary metapackage name'
         type: string
-        default: 'linux-image-qcom-next'
+        required: true
       kernel-config:
         description: 'Extra config fragments applied on top of all of debian/config-available/ (e.g. intree:arch/arm64/configs/qcom_debug.config)'
         type: string
