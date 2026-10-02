@@ -14,7 +14,7 @@ name: release-kernel-debian
 # and resolve-matrix.sh rejects a Release entry for any other suite.
 #
 # Jobs:
-#   prepare (self-hosted): clone, patch, inject debian/, generate the source.
+#   prepare (self-hosted): clone, patch, inject debian/, build the source package.
 #   build   (debusine-pkg-builder container): submit to Debusine.
 #   release (debusine-pkg-builder container): promote to the target workspace.
 
