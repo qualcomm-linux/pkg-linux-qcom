@@ -13,15 +13,16 @@ set -euo pipefail
 # digits of its own.
 #
 # For dated tag builds (ref ends in -YYYYMMDD, optionally .<respin>):
-#   Produces +<kernel-variant>-<date>[.<respin>]-g<12 hex>.
-#   Example: qcom-next-7.2-rc3-20260722   -> +qcom-next-20260722-g07f50dc44edd
-#            qcom-next-7.2-rc3-20260722.1 -> +qcom-next-20260722.1-g07f50dc44edd
+#   Produces +<date>[.<respin>]-g<12 hex>-<kernel-variant>.
+#   Example: qcom-next-7.2-rc3-20260722   -> +20260722-g07f50dc44edd-qcom-next
+#            qcom-next-7.2-rc3-20260722.1 -> +20260722.1-g07f50dc44edd-qcom-next
 #
 #   The respin ordinal distinguishes a second tag cut on the same day. It is
 #   carried verbatim rather than normalised, so the first tag of a day stays
-#   plain +<variant>-<date>: systemd compares the separator before the chunk
-#   behind it, so an absent ordinal already sorts below a present one and no
-#   build has to spell a ".0".
+#   plain +<date>: systemd compares the separator before the chunk behind it,
+#   so an absent ordinal already sorts below a present one and no build has to
+#   spell a ".0". The variant trailing the whole thing does not disturb that:
+#   the two strings first differ at the ordinal, well before it.
 #
 #   The SHA names the commit the tag pointed at when the build was cut, so a
 #   moved tag cannot silently produce two different kernels under one release.
@@ -30,7 +31,7 @@ set -euo pipefail
 #   Takes the date from the HEAD commit instead of the tag, so the result has
 #   the same shape as a tag build and orders in the same sequence.
 #   Example: qcom-next @ 07f50dc44edd, committed 2026-09-04
-#              -> +qcom-next-20260904-g07f50dc44edd
+#              -> +20260904-g07f50dc44edd-qcom-next
 #   --date is required for these; pass YYYYMMDD.N to separate two branch-tip
 #   builds sharing a commit date.
 #
@@ -52,13 +53,26 @@ set -euo pipefail
 #   chunk behind it, and '-' < '+', so joining with '+' puts every -rcN release
 #   candidate BELOW the final release that follows it:
 #
-#     7.2.0-rc7+qcom-next-20260821  <  7.2.0+qcom-next-20260826
+#     7.2.0-rc7+20260821-qcom-next  <  7.2.0+20260826-qcom-next
 #
 #   Joining with '-' instead falls through to a plain strcmp of "rc" against
-#   "qcom", where 'r' > 'q', and every rc outranks its own final release in the
-#   boot menu. This is the same trick Debian's own kernels rely on
-#   (linux-image-7.1.10+deb14-amd64). It does not affect the Debian version,
-#   which spells the release candidate ~rcN and orders correctly either way.
+#   the digits of the date, where 'r' outranks any digit, and every rc would
+#   outrank its own final release in the boot menu. This is the same trick
+#   Debian's own kernels rely on (linux-image-7.1.10+deb14-amd64). It does not
+#   affect the Debian version, which spells the release candidate ~rcN and
+#   orders correctly either way.
+#
+# Why the variant goes last:
+#   Debian names a kernel package linux-image-$(uname -r), and its uname -r
+#   ends in the flavour: 7.1.12+deb14-amd64, 6.12.0-1-amd64. Putting our
+#   variant in the same place makes linux-image-<variant>, the metapackage
+#   name, exactly what remains after the version -- the relationship Debian's
+#   tooling and documentation assume between the two names.
+#
+#   The consequence to know about is boot-menu order. Sorting is by date
+#   before variant now, so a board carrying two variants interleaves them by
+#   snapshot rather than grouping each variant's builds together. Debian's
+#   menus have always behaved that way.
 #
 # Usage:
 #   ci/scripts/derive-localversion.sh --variant qcom-next --ref qcom-next-7.2-rc3-20260722 --sha 07f50dc44edd
@@ -75,7 +89,7 @@ set -euo pipefail
 # Output:
 #   Three KEY=VALUE lines on stdout, in GITHUB_ENV / 'set -a' form:
 #
-#     LOCALVERSION=+qcom-next-20260722.1-g07f50dc44edd
+#     LOCALVERSION=+20260722.1-g07f50dc44edd-qcom-next
 #     SNAPSHOT=20260722.1
 #     GITSHA=07f50dc44edd
 #
@@ -127,7 +141,7 @@ GITSHA="${SHA:0:12}"
 # package identity used in LOCALVERSION.
 if [[ "$REF" =~ -([0-9]{8}(\.[0-9]+)?)$ ]]; then
     SNAPSHOT="${BASH_REMATCH[1]}"
-    LOCALVERSION="+${VARIANT}-${SNAPSHOT}-g${GITSHA}"
+    LOCALVERSION="+${SNAPSHOT}-g${GITSHA}-${VARIANT}"
 else
     # Branch-tip build: the ref carries no date, so the commit date supplies
     # one. Without it these builds had no snapshot at all, which put their
@@ -141,7 +155,7 @@ else
         exit 1
     }
     SNAPSHOT="$DATE"
-    LOCALVERSION="+${VARIANT}-${SNAPSHOT}-g${GITSHA}"
+    LOCALVERSION="+${SNAPSHOT}-g${GITSHA}-${VARIANT}"
 fi
 
 echo "LOCALVERSION=${LOCALVERSION}"
