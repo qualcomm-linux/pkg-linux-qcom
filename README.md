@@ -253,7 +253,7 @@ per flattened leg. The build workflows pass their leg's `debian_revision`
 through, and the `prepare-kernel-source` action requires it: there is no
 caller without a leg in hand, so there is no fallback to derive one.
 
-Each leg has a distinct prepared-source artifact, Debusine child workspace, and
+Each leg has a distinct source-package artifact, Debusine child workspace, and
 S3 path keyed by `kernel_variant + suite`. This prevents two variants that both
 build, for example, `trixie` from consuming or publishing each other's inputs
 or outputs.
@@ -330,7 +330,7 @@ flowchart TD
     end
 
     subgraph build[One build workflow per leg]
-        C2["prepare\nprepare-kernel-source action\nClone ref, run prepare-source.sh\nUpload kernel-srcpkg-variant-suite"]
+        C2["prepare\nprepare-kernel-source action\nClone ref, run prepare-source.sh\nBuild the source package\nUpload source-package-variant-suite"]
         C3["build\ndebusine-build action"]
         C4["build\nbuild-kernel.sh in Docker"]
         C5["publish\nDownload .deb files, upload to S3"]
@@ -369,24 +369,29 @@ flowchart LR
     K["Matrix-selected kernel repository\nDaily: latest tag or branch tip\nRelease: pinned ref"] --> PS
     M["pkg-linux-qcom\ndebian/ and ci/ from this commit"] --> PS
 
-    PS["prepare-source.sh\n\nInject debian/\nApply all config-available fragments plus any extras\nGenerate control, changelog, localversion, pkgversion"] --> TAR
-    TAR["tar czf kernel-srcpkg-variant-suite.tar.gz\nPreserves execute permissions"] --> ART
-    ART["GitHub Actions artifact\nOne prepared source tree per variant + suite"]
+    PS["prepare-source.sh\n\nInject debian/\nApply all config-available fragments plus any extras\nGenerate control, changelog, localversion, pkgversion"] --> BSP
+    BSP["build-source-package.sh\n\ngit archive the commit → .orig.tar.gz\ndpkg-source -b → .dsc, .debian.tar.xz\ndpkg-genchanges -S → .changes"] --> ART
+    ART["GitHub Actions artifact\nsource-package-variant-suite\nOne .changes set per variant + suite"]
 ```
 
-> **Why `tar.gz`?** `actions/upload-artifact` uses zip internally, which strips
-> Unix execute bits. Kernel build scripts require those permissions. The tar
-> archive preserves them between the prepare and build jobs.
+Both steps run in the pkg-builder container on the self-hosted runner. The
+orig tarball is a function of the kernel commit: `git archive` gives every
+entry the commit's timestamp and root ownership, and `gzip -n` writes no
+timestamp, so two runs on one commit write one tarball and two suites that
+differ only in Debian revision share it. `build-source-package.sh` checks
+that the commit it archives is the one the version names (`~g<sha>`) and
+that the tree matches that commit outside `debian/`. See
+[debian/README.md](debian/README.md#building-a-source-package) for the
+local equivalent.
 
 ### Debian Daily path
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg-variant-suite\nartifact"] --> GSP
+    ART["source-package-variant-suite\nartifact"] --> SUBMIT
 
     subgraph source[GitHub build job: debusine-pkg-builder container]
-        GSP["generate-source-package\nDEBUSINE_ASSEMBLE_ORIG=true\n\nCreate .orig.tar.gz\nRun dpkg-buildpackage -S\nProduce .dsc"] --> SUBMIT
-        SUBMIT["lib/build\nCreate CI child workspace\nSubmit source package to Debusine"]
+        SUBMIT["lib/build\nCreate CI child workspace\nSubmit the .dsc to Debusine"]
     end
 
     SUBMIT --> DEB["Debusine\nBuild binary packages"]
@@ -402,8 +407,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg-variant-suite\nartifact"] --> GSP["generate-source-package\nProduce .dsc"]
-    GSP --> SUBMIT["lib/build\nSubmit source package to a unique\nDebusine CI child workspace"]
+    ART["source-package-variant-suite\nartifact"] --> SUBMIT["lib/build\nSubmit the .dsc to a unique\nDebusine CI child workspace"]
     SUBMIT --> DEB["Debusine\nBuild binary packages"]
     DEB --> WS["CI workspace\nsource and binary artifacts"]
 
@@ -417,19 +421,17 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    ART["kernel-srcpkg-variant-suite\nartifact"] --> EXT
+    ART["source-package-variant-suite\nartifact"] --> BK
 
     subgraph build[Ubuntu build job]
-        EXT["Extract prepared source tree\n--strip-components=1"] --> BK
-        BK["build-kernel.sh\n--skip-prepare\n--local-source\n--build-mode docker\ndpkg-buildpackage -b"] --> S3
+        BK["build-kernel.sh --dsc\n--build-mode docker\nsbuild in the suite's pkg-builder image"] --> S3
     end
 
     S3["S3\nDaily package artifacts"]
 ```
 
-`--skip-prepare` is safe because `prepare-source.sh` has already generated the
-packaging metadata and applied the config fragments before the artifact is
-created.
+Nothing is cloned or prepared here: the `.dsc` the prepare job reported is
+what sbuild builds, as it is what Debusine builds on the Debian path.
 
 ## Packages
 

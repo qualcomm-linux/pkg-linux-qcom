@@ -14,7 +14,7 @@ name: Release Dry Run
 #
 # This is its own workflow rather than more legs in pr-build.yml because a
 # run's artifacts share one namespace: a Release leg and a Daily leg for the
-# same variant and suite would both upload kernel-srcpkg-<variant>-<suite>.
+# same variant and suite would both upload source-package-<variant>-<suite>.
 #
 # No path filter: a PR that doesn't touch the matrix still gets a (fast,
 # empty) result, so this can be made a required check without blocking those
