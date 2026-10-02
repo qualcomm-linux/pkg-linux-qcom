@@ -1,7 +1,7 @@
 name: Prepare kernel source
 description: >
-  Resolve the kernel ref, clone it, inject debian/ and generate the source
-  package, then upload the prepared tree as an artifact.
+  Resolve the kernel ref, clone it, inject debian/, build the Debian source
+  package, and upload it as an artifact alongside the prepared tree.
 
 # Every build takes this path, whichever family it belongs to, so it lives in a
 # composite action rather than a reusable workflow: the two family workflows
@@ -352,6 +352,44 @@ runs:
           -v "$PWD:$PWD" --workdir="$PWD" \
           "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
           ./prepare-source.sh "${ARGS[@]}"
+
+    - name: Build source package
+      # The .orig.tar.gz, .dsc and .changes the binary build starts from,
+      # whichever family builds it. Built here, in the same container that
+      # ran prepare-source.sh, because the runner host has no dpkg-dev and
+      # because the orig's bytes depend on the gzip that wrote them: every
+      # build that must agree on a checksum writes its orig in this image.
+      #
+      # git is told to trust the checkout, which the runner owns and the
+      # container reads as root; the checkout is this job's own clone. The
+      # fields file lands beside the output directory, outside the artifact.
+      shell: bash
+      env:
+        KERNEL_DIR: ${{ steps.clone.outputs.kernel_dir }}
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker_distro }}
+      run: |
+        set -euo pipefail
+        docker run -i --rm \
+          -v "$PWD:$PWD" --workdir="$PWD" \
+          -e GIT_CONFIG_COUNT=1 \
+          -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+          "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
+          ./build-source-package.sh \
+            --source-dir "$KERNEL_DIR" \
+            --output-dir "$PWD/source-package" \
+            --write-fields "$PWD/source-package.fields"
+        echo "Source package:"
+        cat source-package.fields
+
+    - name: Upload source package artifact
+      # The whole .changes set: .changes, .dsc, .debian.tar.xz and the orig.
+      # Plain files with no execute bits to lose, so no tarball around them.
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: source-package-${{ inputs.kernel-variant }}-${{ inputs.suite }}
+        path: source-package/
+        if-no-files-found: error
+        retention-days: 7
 
     - name: Upload prepared source tree
       shell: bash
