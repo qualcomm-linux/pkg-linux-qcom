@@ -14,7 +14,7 @@ name: Release Dry Run
 #
 # This is its own workflow rather than more legs in pr-build.yml because a
 # run's artifacts share one namespace: a Release leg and a Daily leg for the
-# same variant and suite would both upload kernel-srcpkg-<variant>-<suite>.
+# same variant and suite would both upload source-package-<variant>-<suite>.
 #
 # No path filter: a PR that doesn't touch the matrix still gets a (fast,
 # empty) result, so this can be made a required check without blocking those
@@ -44,10 +44,12 @@ jobs:
   configure-matrix:
     name: Configure release dry-run matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
@@ -82,10 +84,11 @@ jobs:
   # build: one parallel job per changed Release leg, built as release.yml would
   # except that nothing is promoted.
   #
-  # target-workspace is left empty, which keeps the build in the Staging
-  # environment and off the release path, and DEBUSINE_RELEASE_TOKEN is not
-  # passed at all. kver-extra marks the version as in pr-build.yml, so these
-  # packages can never be taken for the release itself.
+  # It calls build-kernel-debian.yml rather than release-kernel-debian.yml,
+  # which keeps the build in the Staging environment and off the release path,
+  # and DEBUSINE_RELEASE_TOKEN is not passed at all. kver-extra marks the
+  # version as in pr-build.yml, so these packages can never be taken for the
+  # release itself.
   # ---------------------------------------------------------------------------
   build:
     name: dry-run ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
@@ -95,7 +98,10 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: $/.github/workflows/build-kernel-deb.yml
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
+    uses: ./.github/workflows/build-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}

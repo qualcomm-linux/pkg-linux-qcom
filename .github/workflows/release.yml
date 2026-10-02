@@ -5,8 +5,11 @@ name: release
 # Reads Release rows from ci/build-matrix.json, flattens suites, and builds
 # each entry using the matrix-selected ref strategy and branch_or_tag. After a
 # successful build, packages are promoted from the ephemeral Debusine CI
-# workspace to the stable target workspace (e.g. qli) via debusine-action
-# lib/release.
+# workspace to the release workspace via debusine-action lib/release.
+#
+# The matrix says what to build; this workflow says where it goes. The release
+# workspace is qli unless the DEBUSINE_RELEASE_WORKSPACE variable names
+# another, and it is the same for every entry a run builds.
 #
 # To update a release ref: open a PR that changes the Release row for that
 # kernel variant in ci/build-matrix.json. release-dry-run.yml builds the
@@ -60,10 +63,12 @@ jobs:
   configure-matrix:
     name: Configure release matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # A push compares the matrix against the commit main pointed at
@@ -128,8 +133,9 @@ jobs:
   # build: one parallel job per flat Release matrix entry.
   #
   # Uses the ref strategy and branch_or_tag selected by the matrix.
-  # Passes target_workspace so build-kernel-debusine.yml triggers the Debusine
-  # release path (lib/release) instead of the S3 publish path.
+  # Calls release-kernel-debian.yml with the run's release workspace, which
+  # promotes the build to that Debusine workspace (lib/release) instead of
+  # publishing to S3.
   # ---------------------------------------------------------------------------
   build:
     name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
@@ -141,7 +147,10 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
-    uses: $/.github/workflows/build-kernel-deb.yml
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
+    uses: ./.github/workflows/release-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}
@@ -157,7 +166,7 @@ jobs:
       localversion: ${{ matrix.localversion || '' }}
       kver-extra: ${{ matrix.kver_extra || '' }}
       debusine-parent-workspace: ${{ matrix.debusine_parent_workspace || '' }}
-      target-workspace: ${{ matrix.target_workspace }}
+      target-workspace: ${{ vars.DEBUSINE_RELEASE_WORKSPACE || 'qli' }}
     secrets:
       DEBUSINE_USER: ${{ secrets.DEBUSINE_USER }}
       DEBUSINE_TOKEN: ${{ secrets.DEBUSINE_TOKEN }}

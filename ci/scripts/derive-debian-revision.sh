@@ -9,10 +9,9 @@ set -euo pipefail
 #   debian_revision = stub + suite_suffix_mapping[suite] + delivery_suffix
 #   delivery_suffix: Daily -> "~", Release -> ""
 #
-# This is the single implementation of the formula. It is called both by
-# resolve-matrix.sh (once per flattened Daily/Release leg) and by
-# build-kernel-deb.yml's direct-dispatch path (one suite, no full matrix
-# context), so the derivation and its validation live in exactly one place.
+# This is the single implementation of the formula. resolve-matrix.sh calls
+# it once per flattened Daily/Release leg, so the derivation and its
+# validation live in exactly one place.
 #
 # Usage:
 #   ci/scripts/derive-debian-revision.sh --stub 0qli1 --suite trixie --delivery-type Daily
