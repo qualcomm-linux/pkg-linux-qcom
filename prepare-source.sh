@@ -243,7 +243,7 @@ if [[ -z "$LOCALVERSION" ]]; then
         # Committer date, normalised to UTC, as CI does.
         DERIVE_DATE=$(TZ=UTC git -C "$SOURCE_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
         FIELDS=$("$SCRIPT_DIR/ci/scripts/derive-localversion.sh" \
-            --flavour "$FLAVOUR" \
+            --variant "$FLAVOUR" \
             --ref "$CHECKOUT_REF" \
             --sha "$GIT_SHA" \
             --date "$DERIVE_DATE")
