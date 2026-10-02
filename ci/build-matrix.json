@@ -38,7 +38,7 @@
         ]
       },
       "debian_version_stub": "0qli1",
-      "debian_version_suffix": ""
+      "debian_version_suffix": "~"
     },
     {
       "kernel_variant": "qcom-next",
@@ -102,7 +102,7 @@
         ]
       },
       "debian_version_stub": "0qli1",
-      "debian_version_suffix": ""
+      "debian_version_suffix": "~"
     },
     {
       "kernel_variant": "qcom-next-debug",

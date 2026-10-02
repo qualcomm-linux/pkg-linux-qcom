@@ -6,10 +6,8 @@ set -euo pipefail
 # Derive the suite-specific Debian revision for one delivery leg.
 #
 # Formula:
-#   debian_revision = stub + suite_suffix_mapping[suite]
-#
-# Daily and Release legs derive the same revision: neither carries a trailing
-# ~, so the delivery type is validated but does not change the result.
+#   debian_revision = stub + suite_suffix_mapping[suite] + delivery_suffix
+#   delivery_suffix: Daily -> "~", Release -> ""
 #
 # This is the single implementation of the formula. resolve-matrix.sh calls
 # it once per flattened Daily/Release leg, so the derivation and its
@@ -23,7 +21,8 @@ set -euo pipefail
 #   --stub STUB            Debian version stub, e.g. 0qli1. Must end in a digit:
 #                            that digit is the packaging revision, bumped for a
 #                            rebuild of an unchanged kernel snapshot. Must not
-#                            end in ~. Required.
+#                            end in ~ (the delivery suffix supplies any
+#                            trailing ~). Required.
 #   --suite SUITE          Target suite; must have an entry in
 #                            suite_suffix_mapping. Required.
 #   --delivery-type TYPE   Daily or Release. Required.
@@ -66,8 +65,9 @@ done
 [[ "$STUB" != *"~" ]]     || { echo "ERROR: --stub must not end in ~ (got '$STUB')" >&2; exit 1; }
 # The trailing digit is the packaging revision: it is the only field left to
 # bump when the kernel snapshot is unchanged but the packaging is rebuilt.
-# suite_suffix_mapping is a per-suite constant and cannot carry it, so a stub
-# without a digit leaves a rebuild with nowhere to go.
+# suite_suffix_mapping is a per-suite constant and cannot carry it, and the
+# delivery suffix is the Daily/Release marker, so a stub without a digit leaves
+# a rebuild with nowhere to go.
 [[ "$STUB" =~ [0-9]$ ]]   || {
     echo "ERROR: --stub must end in a digit, the packaging revision (got '$STUB'; use '${STUB}1')" >&2
     exit 1
@@ -119,11 +119,12 @@ SUFFIX=$(jq -r --arg suite "$SUITE" '.suite_suffix_mapping[$suite] // "__MISSING
 }
 
 case "$DELIVERY_TYPE" in
-    Daily|Release) ;;
+    Daily)   DELIVERY_SUFFIX="~" ;;
+    Release) DELIVERY_SUFFIX="" ;;
     *)
         echo "ERROR: --delivery-type must be Daily or Release (got '$DELIVERY_TYPE')" >&2
         exit 1
         ;;
 esac
 
-echo "${STUB}${SUFFIX}"
+echo "${STUB}${SUFFIX}${DELIVERY_SUFFIX}"

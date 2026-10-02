@@ -68,7 +68,7 @@ The final Production matrix is conceptually:
         "resolute": ["kgsl"]
       },
       "debian_version_stub": "0qli1",
-      "debian_version_suffix": ""
+      "debian_version_suffix": "~"
     },
     {
       "kernel_variant": "qcom-next",
@@ -94,27 +94,27 @@ The final Production matrix is conceptually:
 `suite_suffix_mapping` is matrix-wide policy, not duplicated per row: every
 suite referenced by any row's `suites` must have an entry here, and every
 delivery for a variant derives its final `debian_revision` as
-`debian_version_stub + suite_suffix_mapping[suite]`, the same for Daily and
-Release. For the values above:
+`debian_version_stub + suite_suffix_mapping[suite] + delivery_suffix`, where
+`delivery_suffix` is `~` for Daily and empty for Release. For the values
+above:
 
 | Suite | Daily | Release |
 | --- | --- | --- |
-| Trixie | `0qli1~bpo13+1` | `0qli1~bpo13+1` |
-| Forky | `0qli1` | `0qli1` |
-| Resolute | `0qli1~26.04.1` | (not a configured Release suite) |
+| Trixie | `0qli1~bpo13+1~` | `0qli1~bpo13+1` |
+| Forky | `0qli1~` | `0qli1` |
+| Resolute | `0qli1~26.04.1~` | (not a configured Release suite) |
 
-None of them carries a trailing `~`. That marker existed to sort a Daily
-below the Release built from the same ref, but the two never meet in one
-archive: a Daily is published to S3 from a throwaway CI workspace, and only a
-Release is promoted to `qli`. With nothing there for it to sort against, a
-trailing `~` would only make every package look permanently provisional.
-
+`~` always sorts below the same prefix without it in Debian version
+ordering, so Daily always sorts below Release for the same suite and stub.
 Ordering across *different* suites depends entirely on the configured
 suffixes: with the mapping above, Resolute < Trixie < Forky for the same
 delivery type, matching a Debian-backports-then-unstable promotion chain.
 This is a deliberate ordering policy, not an automatic guarantee — adding a
 suite means choosing a suffix that sorts where that suite belongs relative to
-the others.
+the others. One nuance to be aware of: because Forky's suffix is empty, its
+Daily revision ends immediately after the trailing `~`, so Trixie Daily does
+not sort below Forky Daily even though Trixie Release sorts below Forky
+Release. This does not affect the supported Release-to-Release upgrade path.
 
 `ci/build-matrix.json` is the authoritative configuration. Adding a kernel
 variant is a two-row matrix change, not a workflow redesign.
@@ -224,7 +224,7 @@ its own values for:
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
 | `dkms` | Out-of-tree DKMS modules built against this kernel, as an object keyed by suite, each entry a list of modules named as the stem of their `<name>-dkms` package (e.g. `kgsl`). Each module produces its own `<name>-modules-<kernelrelease>` package plus an unversioned `<binpkg>-modules-<name>` metapackage, rather than being installed into the image; a non-empty list also produces one `<binpkg>-modules` metapackage covering them all. A suite's entry is optional: a suite with no entry, and `{}` itself, builds nothing. An empty list does the same for the suite it names. A listed module is a presence contract: a build fails rather than publishing without it. There is no default or fallback, so suites that can't build a given module (e.g. an Ubuntu-family suite lacking a package) simply list less, or omit an entry entirely. `resolve-matrix.sh` joins the resolved leg's suite into the comma-separated `dkms` workflow input; see [debian/README.md](debian/README.md) for what the packaging does with it. |
 | `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
-| `debian_version_suffix` | Empty for both Daily and Release rows: no revision carries a trailing `~`. `resolve-matrix.sh` rejects a row where it is anything else, but derivation never reads this field. |
+| `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
 
@@ -240,14 +240,14 @@ start. It also rejects a matrix where any configured suite has no
 `suite_suffix_mapping` entry, where two suites share the same suffix, where a
 suffix is non-empty and doesn't start with `~`, where a variant's Daily
 and Release rows disagree on `debian_version_stub`, where a row's
-`debian_version_suffix` is not empty, or where a
+`debian_version_suffix` doesn't match what its `type` implies, or where a
 row's `dkms` object names a suite that isn't in `suites` — all before any
 build job starts.
 
 Each flattened leg's final `debian_revision` is derived by
 `ci/scripts/derive-debian-revision.sh` from `debian_version_stub`,
 `suite_suffix_mapping[suite]`, and the delivery type
-(`stub + suffix`, for Daily and Release alike). This script is
+(`stub + suffix + "~"` for Daily, `stub + suffix` for Release). This script is
 the single implementation of the formula: `resolve-matrix.sh` calls it once
 per flattened leg. The build workflows pass their leg's `debian_revision`
 through, and the `prepare-kernel-source` action requires it: there is no
@@ -536,8 +536,9 @@ To add a kernel variant:
 2. Define all package identity, source/ref strategy, configuration,
    `debian_version_stub`, and suite values in both rows. Do not rely on
    another variant's values. `srcpkg`, `binpkg`, and `debian_version_stub`
-   must remain identical across the pair. Set `debian_version_suffix` to `""`
-   on both rows; `resolve-matrix.sh` rejects any other value.
+   must remain identical across the pair. Set `debian_version_suffix` to `~`
+   on the Daily row and `""` on the Release row; `resolve-matrix.sh` rejects
+   the pair if either disagrees with its row's `type`.
 3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use
    `pinned_ref` for Release, and update that ref through a reviewed PR.
 4. Give the variant distinct `srcpkg` and `binpkg` values.
