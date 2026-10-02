@@ -26,11 +26,10 @@ set -euo pipefail
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
 # ci/scripts/derive-debian-revision.sh, so the formula has exactly one
-# implementation. Each row also carries debian_version_suffix ("~" for Daily,
-# "" for Release) as a visible, validated record of that same delivery-type
-# mapping; it is checked against the row's type but never fed into derivation,
-# so a copy/paste error here fails fast instead of silently drifting from the
-# formula's single implementation.
+# implementation. Each row also carries debian_version_suffix, which must be
+# "" for both Daily and Release rows: no revision carries a trailing ~. It is
+# checked but never fed into derivation, so a copy/paste error here fails fast
+# instead of silently drifting from the formula's single implementation.
 #
 # Usage:
 #   ci/scripts/resolve-matrix.sh --type Daily
@@ -239,10 +238,8 @@ validation_errors=$(jq -r "$family_def"'
       else empty end,
       if (has("debian_version_suffix") | not) or (.debian_version_suffix | type) != "string"
       then "missing or invalid debian_version_suffix"
-      elif .type == "Daily" and .debian_version_suffix != "~"
-      then "debian_version_suffix must be \"~\" for Daily rows (got \"" + (.debian_version_suffix | tostring) + "\")"
-      elif .type == "Release" and .debian_version_suffix != ""
-      then "debian_version_suffix must be \"\" for Release rows (got \"" + (.debian_version_suffix | tostring) + "\")"
+      elif .debian_version_suffix != ""
+      then "debian_version_suffix must be \"\" (got \"" + (.debian_version_suffix | tostring) + "\")"
       else empty end,
       if (.type == "Daily" or .type == "Release")
       then empty else "type must be Daily or Release" end,
