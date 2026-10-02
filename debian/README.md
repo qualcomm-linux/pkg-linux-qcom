@@ -14,20 +14,21 @@ Packages follow the standard Debian/Ubuntu kernel naming convention:
 
 | Package | Role | Example |
 |---------|------|---------|
-| `linux-image-<KVER>` | Kernel image, modules, DTBs | `linux-image-7.2.0-qcom-next-20260826` |
-| `linux-headers-<KVER>` | Headers for out-of-tree modules | `linux-headers-7.2.0-qcom-next-20260826` |
-| `linux-image-<KVER>-dbg` | Debug symbols | `linux-image-7.2.0-qcom-next-20260826-dbg` |
+| `linux-image-<KVER>` | Kernel image, modules, DTBs | `linux-image-7.2.0+20260826-qcom-next` |
+| `linux-headers-<KVER>` | Headers for out-of-tree modules | `linux-headers-7.2.0+20260826-qcom-next` |
+| `linux-image-<KVER>-dbg` | Debug symbols | `linux-image-7.2.0+20260826-qcom-next-dbg` |
 | `<BINPKG>` | Image metapackage tracking the newest kernel image | `linux-image-qcom-next` |
 | `<HDRPKG>` | Headers metapackage tracking the newest headers | `linux-headers-qcom-next` |
-| `<name>-modules-<KVER>` | Prebuilt out-of-tree modules, one per `DKMS_MODULES` entry | `kgsl-modules-7.2.0-qcom-next-20260826` |
-| `<name>-modules-<KVER>-dbg` | Debug symbols for the above | `kgsl-modules-7.2.0-qcom-next-20260826-dbg` |
+| `<name>-modules-<KVER>` | Prebuilt out-of-tree modules, one per `DKMS_MODULES` entry | `kgsl-modules-7.2.0+20260826-qcom-next` |
+| `<name>-modules-<KVER>-dbg` | Debug symbols for the above | `kgsl-modules-7.2.0+20260826-qcom-next-dbg` |
 | `<BINPKG>-modules-<name>` | Modules metapackage tracking the newest build of that module | `linux-image-qcom-next-modules-kgsl` |
 | `<BINPKG>-modules` | Metapackage depending on every `<BINPKG>-modules-<name>` above | `linux-image-qcom-next-modules` |
 
 **`<KVER>`** is the full `kernelrelease` string (`uname -r`), which includes the
-base kernel version and the LOCALVERSION suffix encoding the variant and
-snapshot date (e.g., `-qcom-next-20260826`). The variant is part of `<KVER>`, so
-the versioned packages carry no separate flavour suffix.
+base kernel version and the LOCALVERSION suffix encoding the snapshot date and
+the variant (e.g., `+20260826-qcom-next`). The variant is the last component, as
+in Debian's own kernel releases (`7.1.12+deb14-amd64`), so the versioned
+packages carry no separate flavour suffix.
 
 **`<BINPKG>`** and **`<HDRPKG>`** are per-variant metapackage names set from the
 build matrix (`binpkg` / derived headers name). They stay constant across
@@ -161,21 +162,21 @@ in the `.in` templates to produce the final `debian/control` and
 # From the kernel source root (after copying debian/ into it):
 
 # Primary form — auto-detect base version from kernel Makefile + append suffix:
-make -f debian/rules prepare LOCALVERSION=-qcom-next-20260826
+make -f debian/rules prepare LOCALVERSION=+20260826-qcom-next
 
 # Explicit form — pass the full kernelrelease string directly:
-make -f debian/rules prepare KVER=7.2.0-qcom-next-20260826
+make -f debian/rules prepare KVER=7.2.0+20260826-qcom-next
 
 # With optional extra suffix (CI build ID, user tag, etc.):
-make -f debian/rules prepare LOCALVERSION=-qcom-next-20260826 KVER_EXTRA=-ci42
+make -f debian/rules prepare LOCALVERSION=+20260826-qcom-next KVER_EXTRA=-ci42
 
 # Selecting the out-of-tree DKMS modules to build:
-make -f debian/rules prepare LOCALVERSION=-qcom-next-20260826 DKMS_MODULES=kgsl,camx
+make -f debian/rules prepare LOCALVERSION=+20260826-qcom-next DKMS_MODULES=kgsl,camx
 ```
 
 This produces:
 - `debian/control` — with the versioned package names, e.g.
-  `linux-image-7.2.0-qcom-next-20260826`, the metapackage names from the
+  `linux-image-7.2.0+20260826-qcom-next`, the metapackage names from the
   matrix, e.g. `linux-image-qcom-next`, one `<name>-dkms` build dependency per
   `DKMS_MODULES` entry, one group of `<name>-modules-<KVER>` stanzas per entry,
   appended from `debian/control-dkms.in`, and the `<BINPKG>-modules` stanza
@@ -195,8 +196,8 @@ Debian's official `linux` source package and Ubuntu OEM kernels.
 
 ```
 KVER = <base-version> + LOCALVERSION
-     = 7.0.0-rc2        + -qcom-next-20260826
-     = 7.2.0-qcom-next-20260826
+     = 7.2.0-rc7        + +20260826-qcom-next
+     = 7.2.0-rc7+20260826-qcom-next
 ```
 
 `build-kernel.sh` passes `LOCALVERSION` to `prepare`, which determines KVER by:
@@ -243,10 +244,10 @@ clone → prepare → build. Run it from the repo root.
 ./build-kernel.sh --branch qcom-next --distro resolute
 
 # Build with explicit LOCALVERSION
-./build-kernel.sh --tag qcom-next-7.2-rc7-20260826 --localversion qcom-next-20260826
+./build-kernel.sh --tag qcom-next-7.2-rc7-20260826 --localversion +20260826-qcom-next
 
 # Use local kernel source (skip clone)
-./build-kernel.sh --local-source /path/to/kernel-source --localversion qcom-next-20260826
+./build-kernel.sh --local-source /path/to/kernel-source --localversion +20260826-qcom-next
 
 # The script auto-detects debian/ from its own directory — no --debian-dir needed
 
@@ -274,7 +275,7 @@ cp debian/config-available/systemd-boot.config debian/config/
 
 # 4. Prepare packaging — reads base version from kernel Makefile automatically
 #    (single handoff to packaging infrastructure)
-make -f debian/rules prepare LOCALVERSION=-qcom-next-20260826
+make -f debian/rules prepare LOCALVERSION=+20260826-qcom-next
 
 # 5. Build
 dpkg-buildpackage -us -uc -b
@@ -614,9 +615,9 @@ the kernel trees, without re-running the full `dpkg-buildpackage`:
 
 ```bash
 debian/scripts/bundle-dkms-modules.sh \
-  --kver        6.12.0-qcom-next-20260210 \
-  --headers-dir /path/to/kernel-source/debian/linux-headers-6.12.0-qcom-next-20260210/usr/src/linux-headers-6.12.0-qcom-next-20260210 \
-  --image-pkg-dir /path/to/kernel-source/debian/linux-image-6.12.0-qcom-next-20260210 \
+  --kver        6.12.0+20260210-qcom-next \
+  --headers-dir /path/to/kernel-source/debian/linux-headers-6.12.0+20260210-qcom-next/usr/src/linux-headers-6.12.0+20260210-qcom-next \
+  --image-pkg-dir /path/to/kernel-source/debian/linux-image-6.12.0+20260210-qcom-next \
   --stage-root    /path/to/kernel-source/debian
 ```
 
