@@ -53,12 +53,12 @@ OPTIONS:
   Version control:
     --flavour NAME          Kernel flavour carried in LOCALVERSION
                             (default: $DEFAULT_FLAVOUR). Ignored with --localversion.
-    --localversion SUFFIX   LOCALVERSION suffix (e.g. +qcom-next-20260312-g07f50dc44edd)
+    --localversion SUFFIX   LOCALVERSION suffix (e.g. +20260312-g07f50dc44edd-qcom-next)
                             Derived from the checked-out tag or branch if not given,
                             by prepare-source.sh, the same way CI derives it.
     --kver-extra SUFFIX     Extra suffix appended to the derived KVER, e.g.:
                               --kver-extra -mybuild
-                            Results in: 7.0.0-rc2+qcom-next-20260312-g07f50dc44edd-mybuild
+                            Results in: 7.0.0-rc2+20260312-g07f50dc44edd-qcom-next-mybuild
                             Useful for CI build IDs or local user builds.
 
   Build control:

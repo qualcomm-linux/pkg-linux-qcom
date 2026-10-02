@@ -28,7 +28,7 @@ isolated `kernel_variant + suite` build leg.
 
 Both build the same kernel ref. `derive-localversion.sh` folds the variant name
 into LOCALVERSION, so each produces a distinct kernel release
-(`+qcom-next-<date>-g<sha>` and `+qcom-next-debug-<date>-g<sha>`) and therefore a
+(`+<date>-g<sha>-qcom-next` and `+<date>-g<sha>-qcom-next-debug`) and therefore a
 distinct versioned image package that can be installed alongside the other. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
 
@@ -466,7 +466,7 @@ Every build names both its snapshot and the commit it was cut from:
 
 | | Format | Example |
 | --- | --- | --- |
-| Kernel release (`uname -r`) | `<base>+<variant>-<date>[.<respin>]-g<sha>` | `7.2.0-rc7+qcom-next-20260826.1-g011a82096bee` |
+| Kernel release (`uname -r`) | `<base>+<date>[.<respin>]-g<sha>-<variant>` | `7.2.0-rc7+20260826.1-g011a82096bee-qcom-next` |
 | Debian version | `<base>+git<date>[.<respin>]~g<sha>-<revision>` | `7.2.0~rc7+git20260826.1~g011a82096bee-0qli1~bpo13+1` |
 
 The two strings spell the same fields differently because they are compared by
