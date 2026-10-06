@@ -158,6 +158,8 @@ jobs:
   resolve:
     name: Resolve suite family
     runs-on: ubuntu-latest
+    # Classifies the suite from its inputs alone: no checkout, no image.
+    permissions: {}
     outputs:
       family: ${{ steps.classify.outputs.family }}
     steps:
@@ -189,6 +191,9 @@ jobs:
   prepare:
     name: Prepare kernel source
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
 
     env:
       KERNEL_URL: ${{ inputs.git-clone || inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
@@ -503,6 +508,9 @@ jobs:
     name: Build in Debusine
     needs: [resolve, prepare]
     if: ${{ needs.resolve.outputs.family == 'debian' }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
     uses: ./.github/workflows/build-kernel-debusine.yml
     with:
       suite: ${{ inputs.suite || 'trixie' }}
@@ -522,6 +530,9 @@ jobs:
     name: Build (Ubuntu, docker)
     needs: [resolve, prepare]
     if: ${{ needs.resolve.outputs.family == 'ubuntu' }}
+    permissions:
+      contents: read  # actions/checkout in the called workflow
+      packages: read  # ghcr.io images it pulls
     uses: ./.github/workflows/build-kernel-ubuntu.yml
     with:
       distro: ${{ inputs.suite || 'resolute' }}

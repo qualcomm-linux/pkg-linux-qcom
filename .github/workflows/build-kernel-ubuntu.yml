@@ -32,6 +32,9 @@ jobs:
   build:
     name: Build kernel package
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
     env:
       DISTRO: ${{ inputs.distro }}
       KERNEL_DIR: ${{ github.workspace }}/kernel-source
