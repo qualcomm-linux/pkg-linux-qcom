@@ -213,6 +213,8 @@ jobs:
         # both the packaging and resolve-kernel-ref.sh, derive-localversion.sh,
         # derive-debian-revision.sh and the suite_suffix_mapping.
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Pull builder image
         id: image
@@ -245,6 +247,7 @@ jobs:
         if: ${{ steps.image.outputs.source == 'build' }}
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           repository: qualcomm-linux/docker-pkg-build
           ref: main
           path: docker-pkg-build
