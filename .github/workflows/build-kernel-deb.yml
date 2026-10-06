@@ -217,7 +217,7 @@ jobs:
         # debian/ and ci/ live on the same branch, so one checkout supplies
         # both the packaging and resolve-kernel-ref.sh, derive-localversion.sh,
         # derive-debian-revision.sh and the suite_suffix_mapping.
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -250,7 +250,7 @@ jobs:
       # this checkout nor the build below.
       - name: Checkout docker-pkg-build
         if: ${{ steps.image.outputs.source == 'build' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: qualcomm-linux/docker-pkg-build
@@ -494,7 +494,7 @@ jobs:
             "$(basename "$KERNEL_DIR")"
 
       - name: Upload prepared source tree artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.suite }}
           path: /tmp/kernel-srcpkg.tar.gz
