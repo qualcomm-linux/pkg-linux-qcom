@@ -3,7 +3,7 @@ name: build-kernel-ubuntu
 # Reusable workflow: Ubuntu kernel build via build-kernel.sh.
 #
 # Called by build-kernel-deb.yml when the target suite is Ubuntu-family
-# (noble, questing, resolute). The kernel source has already been cloned,
+# (noble, resolute). The kernel source has already been cloned,
 # patched, and prepared (debian/ injected, debian/control + debian/changelog
 # generated) by the prepare job in the caller workflow. This workflow
 # downloads the kernel-srcpkg artifact and runs build-kernel.sh --skip-prepare
@@ -16,7 +16,7 @@ on:
   workflow_call:
     inputs:
       distro:
-        description: Target Ubuntu suite (noble, questing, resolute)
+        description: Target Ubuntu suite (noble, resolute)
         type: string
         required: true
       kernel-variant:

@@ -81,7 +81,7 @@ on:
         type: string
         default: 'qcom-next'
       suite:
-        description: 'Target suite (trixie, forky, noble, questing, resolute, sid)'
+        description: 'Target suite (trixie, forky, noble, resolute, sid)'
         type: string
         default: 'trixie'
       kernel-branch:
@@ -175,7 +175,7 @@ jobs:
             exit 1
           }
           case "$suite" in
-            trixie|forky|sid|unstable|bookworm)
+            trixie|forky|sid|unstable)
               family=debian ;;
             *)
               family=ubuntu ;;
@@ -196,7 +196,7 @@ jobs:
       # For Debian-family suites (trixie, forky, sid) use trixie as the docker
       # image distro: docker-pkg-build and pkg-builder only support trixie for
       # Debian. Debusine handles the actual suite-specific build internally.
-      # For Ubuntu-family suites (noble, questing, resolute) use the real suite.
+      # For Ubuntu-family suites (noble, resolute) use the real suite.
       DOCKER_DISTRO: ${{ (inputs.suite == 'forky' || inputs.suite == 'sid' || inputs.suite == 'unstable') && 'trixie' || inputs.suite || 'trixie' }}
 
     defaults:
@@ -458,7 +458,7 @@ jobs:
       DEBUSINE_RELEASE_TOKEN: ${{ secrets.DEBUSINE_RELEASE_TOKEN }}
 
   # ---------------------------------------------------------------------------
-  # ubuntu-build: Ubuntu suites only (noble, questing, resolute).
+  # ubuntu-build: Ubuntu suites only (noble, resolute).
   # ---------------------------------------------------------------------------
   ubuntu-build:
     name: Build (Ubuntu, docker)
