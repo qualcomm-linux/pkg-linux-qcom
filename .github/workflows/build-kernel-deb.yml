@@ -195,8 +195,11 @@ jobs:
       DISTRO: ${{ inputs.suite || 'trixie' }}
       # For Debian-family suites (trixie, forky, sid) use trixie as the docker
       # image distro: docker-pkg-build and pkg-builder only support trixie for
-      # Debian. Debusine handles the actual suite-specific build internally.
-      # For Ubuntu-family suites (noble, resolute) use the real suite.
+      # Debian, and publish no forky image. That costs nothing, because
+      # Debusine handles the actual suite-specific build; this container only
+      # runs prepare-source.sh, which generates packaging rather than
+      # compiling anything. For Ubuntu-family suites (noble, resolute) use the
+      # real suite.
       DOCKER_DISTRO: ${{ (inputs.suite == 'forky' || inputs.suite == 'sid' || inputs.suite == 'unstable') && 'trixie' || inputs.suite || 'trixie' }}
 
     defaults:
@@ -210,15 +213,45 @@ jobs:
         # derive-debian-revision.sh and the suite_suffix_mapping.
         uses: actions/checkout@v4
 
+      - name: Pull builder image
+        id: image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # No -x: REGISTRY_TOKEN is in env.
+          set -euo pipefail
+          # qualcomm-linux/docker-pkg-build's container-build-and-upload.yml
+          # builds trixie, noble and resolute, validates each with a test
+          # package build, and pushes them on every push to main and weekly,
+          # so rebuilding them here from the same Dockerfile repeats work
+          # already done. The package is not public, so the pull needs a
+          # login even though the image is only ever read.
+          case "$DOCKER_DISTRO" in
+            trixie|noble|resolute)
+              echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+              docker pull "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO"
+              echo "source=pull" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "No published pkg-builder image for $DOCKER_DISTRO; building it here."
+              echo "source=build" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      # Only for a suite with no published image: the pull path needs neither
+      # this checkout nor the build below.
       - name: Checkout docker-pkg-build
+        if: ${{ steps.image.outputs.source == 'build' }}
         uses: actions/checkout@v4
         with:
           repository: qualcomm-linux/docker-pkg-build
           ref: main
           path: docker-pkg-build
 
-      - name: Build docker image
+      - name: Build builder image
+        if: ${{ steps.image.outputs.source == 'build' }}
         run: |
+          set -euo pipefail
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DOCKER_DISTRO"
           docker image ls
 
