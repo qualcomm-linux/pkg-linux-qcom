@@ -3,11 +3,10 @@ name: build-kernel-ubuntu
 # Reusable workflow: Ubuntu kernel build via build-kernel.sh.
 #
 # Called by build-kernel-deb.yml when the target suite is Ubuntu-family
-# (noble, resolute). The kernel source has already been cloned,
-# patched, and prepared (debian/ injected, debian/control + debian/changelog
-# generated) by the prepare job in the caller workflow. This workflow
-# downloads the kernel-srcpkg artifact and runs build-kernel.sh --skip-prepare
-# to go directly to the build step.
+# (noble, resolute). The kernel source has already been cloned, patched,
+# prepared and built into a source package by the prepare job in the caller
+# workflow. This workflow downloads the source-package artifact and runs
+# build-kernel.sh --dsc, which builds that .dsc with sbuild.
 #
 # The artifact is shared from the caller via github.run_id. Build and S3 upload
 # run on the self-hosted runner, which has direct IAM access.
@@ -20,7 +19,7 @@ on:
         type: string
         required: true
       kernel-variant:
-        description: 'Kernel variant identifier used to isolate prepared-source artifacts and published packages'
+        description: 'Kernel variant identifier used to isolate source-package artifacts and published packages'
         type: string
         required: true
 
@@ -37,7 +36,6 @@ jobs:
       packages: read  # docker pull ghcr.io/qualcomm-linux/pkg-builder
     env:
       DISTRO: ${{ inputs.distro }}
-      KERNEL_DIR: ${{ github.workspace }}/kernel-source
     defaults:
       run:
         shell: bash
@@ -80,33 +78,28 @@ jobs:
           esac
           docker image ls
 
-      - name: Download prepared source tree
+      - name: Download source package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: kernel-srcpkg-${{ inputs.kernel-variant }}-${{ inputs.distro }}
-          path: /tmp/srcpkg-artifact
-
-      - name: Extract prepared source tree
-        run: |
-          # tar.gz preserves the execute bits that upload-artifact's zip would
-          # strip (see README); --strip-components=1 drops the archive's top dir.
-          mkdir -p kernel-source
-          tar xzf /tmp/srcpkg-artifact/*.tar.gz \
-            -C kernel-source --strip-components=1
+          name: source-package-${{ inputs.kernel-variant }}-${{ inputs.distro }}
+          path: source-package
 
       - name: Build kernel package
         run: |
-          # Kernel source was cloned, patched, and prepared by the caller's
-          # prepare job. Pass --local-source and --skip-prepare so
-          # build-kernel.sh goes directly to the build step.
-          # debian/control, debian/changelog, and all config fragments are
-          # already baked into the extracted source tree; no re-derivation
-          # of LOCALVERSION, kver-extra, or debug config is needed here.
+          # The caller's prepare job built the source package; --dsc hands it
+          # to sbuild in the suite's pkg-builder image, so what is built here
+          # is the .dsc the run reported, as Debusine builds it for the Debian
+          # family. Nothing is cloned or prepared again.
+          set -euo pipefail
+          DSC=$(ls source-package/*.dsc)
+          [[ $(wc -l <<<"$DSC") -eq 1 ]] || {
+            echo "::error::Expected exactly one .dsc in the source package artifact, found: $DSC"
+            exit 1
+          }
           ./build-kernel.sh \
             --build-mode docker \
             --distro "$DISTRO" \
-            --local-source "$KERNEL_DIR" \
-            --skip-prepare \
+            --dsc "$DSC" \
             --docker-build "$GITHUB_WORKSPACE/docker-pkg-build/docker_deb_build.py"
 
       - name: Upload .deb packages to S3
