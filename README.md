@@ -476,7 +476,6 @@ The available inputs are:
 | `debian-version-stub` | `0qli1` | Advanced Debian version stub. The selected suite's mapped suffix and a Daily-style trailing `~` are applied automatically; direct builds always use Daily semantics since they are build-only and non-promoting. |
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
-| `debug-build` | `false` | Advanced debug configuration toggle. |
 
 The workflow also supports advanced Qualcomm-only PR overrides for validation
 builds. Direct builds are artifact builds; Release promotion is performed only

@@ -62,11 +62,6 @@ on:
         description: 'Advanced: extra KVER suffix (e.g. -ci42), appended to the kernel release verbatim'
         required: false
         default: ''
-      debug-build:
-        description: 'Advanced: enable the debug build configuration'
-        type: boolean
-        required: false
-        default: false
       qcom-next-pr:
         description: 'Advanced Qualcomm-only override: qcom-next PR numbers to merge (e.g. "42 43")'
         type: string
@@ -395,7 +390,6 @@ jobs:
           KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
           KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
           DKMS_INPUT: ${{ inputs.dkms }}
-          DEBUG_BUILD_INPUT: ${{ inputs.debug-build }}
         run: |
           # No -x here: keep xtrace off for this step as it assembles the
           # prepare-source.sh argument list which may include sensitive paths.
@@ -424,7 +418,6 @@ jobs:
           # Always passed, unlike the optional inputs above: an empty list is a
           # genuine "bundle nothing" rather than a request for some default.
           ARGS+=(--dkms "$DKMS_INPUT")
-          [[ "$DEBUG_BUILD_INPUT" == "true" ]] && ARGS+=(--debug)
 
           docker run -i --rm \
             -v "$PWD:$PWD" --workdir="$PWD" \
