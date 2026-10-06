@@ -34,6 +34,7 @@ jobs:
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     env:
       DISTRO: ${{ inputs.distro }}
+      KERNEL_DIR: ${{ github.workspace }}/kernel-source
     defaults:
       run:
         shell: bash
@@ -86,7 +87,6 @@ jobs:
           mkdir -p kernel-source
           tar xzf /tmp/srcpkg-artifact/*.tar.gz \
             -C kernel-source --strip-components=1
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel-source" >> "$GITHUB_ENV"
 
       - name: Build kernel package
         run: |
