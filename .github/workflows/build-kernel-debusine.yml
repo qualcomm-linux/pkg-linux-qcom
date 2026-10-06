@@ -66,6 +66,9 @@ jobs:
   build:
     name: Build (Debusine)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
       options: --user 0:0
@@ -150,6 +153,9 @@ jobs:
     needs: build
     if: ${{ needs.build.result == 'success' && inputs.target-workspace == '' }}
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    # Reads the built packages out of Debusine over HTTP; pulls no image.
+    permissions:
+      contents: read  # actions/checkout
     defaults:
       run:
         shell: bash
@@ -213,6 +219,9 @@ jobs:
     needs: build
     if: ${{ needs.build.result == 'success' && inputs.target-workspace != '' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
     environment: Production
     container:
       image: ghcr.io/qualcomm-linux/debusine-pkg-builder:trixie
