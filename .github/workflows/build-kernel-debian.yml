@@ -60,9 +60,9 @@ on:
         type: string
         default: ''
       debian-revision:
-        description: 'Debian revision component of the package version'
+        description: 'Debian revision component of the package version, from the matrix entry'
         type: string
-        default: '0qli1~'
+        required: true
       localversion:
         description: 'Override LOCALVERSION suffix (auto-derived from the resolved ref if empty)'
         type: string
