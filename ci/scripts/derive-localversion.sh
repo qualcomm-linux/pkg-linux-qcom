@@ -108,8 +108,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$REF" ]] || { echo "ERROR: --ref is required" >&2; exit 1; }
-[[ "$VARIANT" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
-    echo "ERROR: --variant must use lowercase letters, digits, and internal hyphens" >&2
+[[ "$VARIANT" =~ ^[a-z0-9]+([a-z0-9.-]*[a-z0-9])?$ ]] || {
+    echo "ERROR: --variant must use lowercase letters, digits, and internal hyphens or dots" >&2
     exit 1
 }
 # Every build identifies its commit, so --sha is required for all of them, not

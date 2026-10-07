@@ -195,7 +195,7 @@ its own values for:
 
 | Field | Purpose |
 | --- | --- |
-| `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens only. |
+| `kernel_variant` | Stable identifier for a separately packaged kernel variant. Lowercase letters, digits, and internal hyphens or dots only. |
 | `type` | `Daily` or `Release`. |
 | `suites` | Suites to flatten into individual build legs. Each must have a `suite_suffix_mapping` entry. |
 | `git_clone` | Kernel source repository. |
