@@ -49,7 +49,7 @@
         "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next-7.3-rc2-20260930",
+      "branch_or_tag": "qcom-next-7.3-rc4-20261007",
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
@@ -114,7 +114,7 @@
         "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next-7.3-rc2-20260930",
+      "branch_or_tag": "qcom-next-7.3-rc4-20261007",
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
@@ -136,6 +136,80 @@
           "audioreach"
         ]
       },
+      "debian_version_stub": "0qli1",
+      "debian_version_suffix": ""
+    },
+    {
+      "kernel_variant": "qcom-7-2",
+      "type": "Daily",
+      "suites": [
+        "trixie"
+      ],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "qcom-7.2",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "qcom-7.2-*",
+      "srcpkg": "linux-qcom-7-2",
+      "binpkg": "linux-image-qcom-7-2",
+      "kernel_config": [],
+      "dkms": {},
+      "debian_version_stub": "0qli1",
+      "debian_version_suffix": "~"
+    },
+    {
+      "kernel_variant": "qcom-7-2",
+      "type": "Release",
+      "target_workspace": "qli",
+      "suites": [
+        "trixie"
+      ],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "qcom-7.2-20260915",
+      "ref_strategy": "pinned_ref",
+      "srcpkg": "linux-qcom-7-2",
+      "binpkg": "linux-image-qcom-7-2",
+      "kernel_config": [],
+      "dkms": {},
+      "debian_version_stub": "0qli1",
+      "debian_version_suffix": ""
+    },
+    {
+      "kernel_variant": "qcom-7-2-debug",
+      "type": "Daily",
+      "suites": [
+        "trixie"
+      ],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "qcom-7.2",
+      "ref_strategy": "latest_tag",
+      "tag_pattern": "qcom-7.2-*",
+      "srcpkg": "linux-qcom-7-2-debug",
+      "binpkg": "linux-image-qcom-7-2-debug",
+      "kernel_config": [
+        "intree:arch/arm64/configs/qcom_debug.config",
+        "intree:kernel/configs/debug.config"
+      ],
+      "dkms": {},
+      "debian_version_stub": "0qli1",
+      "debian_version_suffix": "~"
+    },
+    {
+      "kernel_variant": "qcom-7-2-debug",
+      "type": "Release",
+      "target_workspace": "qli",
+      "suites": [
+        "trixie"
+      ],
+      "git_clone": "https://github.com/qualcomm-linux/kernel",
+      "branch_or_tag": "qcom-7.2-20260915",
+      "ref_strategy": "pinned_ref",
+      "srcpkg": "linux-qcom-7-2-debug",
+      "binpkg": "linux-image-qcom-7-2-debug",
+      "kernel_config": [
+        "intree:arch/arm64/configs/qcom_debug.config",
+        "intree:kernel/configs/debug.config"
+      ],
+      "dkms": {},
       "debian_version_stub": "0qli1",
       "debian_version_suffix": ""
     }

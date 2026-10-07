@@ -25,11 +25,14 @@ isolated `kernel_variant + suite` build leg.
 |---------|----------------|-------------------|--------------|----------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
+| `qcom-7-2` | `linux-qcom-7-2` | `linux-image-qcom-7-2` | trixie | trixie | Builds the newest `qcom-7.2-*` tag (Daily) and a pinned `qcom-7.2-*` tag (Release); no DKMS modules |
+| `qcom-7-2-debug` | `linux-qcom-7-2-debug` | `linux-image-qcom-7-2-debug` | trixie | trixie | As `qcom-7-2`, plus the same debug fragments as `qcom-next-debug` |
 
-Both build the same kernel ref. `derive-localversion.sh` folds the variant name
-into LOCALVERSION, so each produces a distinct kernel release
-(`+qcom-next-<date>-g<sha>` and `+qcom-next-debug-<date>-g<sha>`) and therefore a
-distinct versioned image package that can be installed alongside the other. See
+Each debug variant builds the same kernel ref as its standard variant.
+`derive-localversion.sh` folds the variant name into LOCALVERSION, so each
+produces a distinct kernel release (for example `+qcom-next-<date>-g<sha>` and
+`+qcom-next-debug-<date>-g<sha>`) and therefore a distinct versioned image
+package that can be installed alongside the others. See
 [docs/version.md](docs/version.md) for how the version strings are composed.
 
 `ci/build-matrix.json` is the source of truth; this table is a summary.
@@ -294,9 +297,9 @@ flowchart TD
 
     subgraph matrix[Matrix entry points]
         B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute\nqcom-next-debug / trixie · forky"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute\nqcom-next-debug / trixie · forky\nqcom-7-2 / trixie\nqcom-7-2-debug / trixie"]
         B3["Release configure-matrix\nFlatten Release rows"]
-        B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky"]
+        B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\nqcom-7-2 / trixie\nqcom-7-2-debug / trixie"]
     end
 
     subgraph orchestrator[build-kernel-deb.yml]
