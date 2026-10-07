@@ -265,10 +265,8 @@ validation_errors=$(jq -r "$family_def"'
       then "Release rows must list only Debian suites; Ubuntu suites have no release path"
       else empty
       end,
-      if .type == "Release"
-      then required_string("target_workspace")
-      elif has("target_workspace")
-      then "target_workspace is only valid for Release"
+      if has("target_workspace")
+      then "target_workspace is not a matrix field; release.yml names the workspace a release is promoted to"
       else empty
         end
       ] | .[] | "row " + ($index | tostring) + " (" + (($row.kernel_variant // "unknown") | tostring) + "): " + .
