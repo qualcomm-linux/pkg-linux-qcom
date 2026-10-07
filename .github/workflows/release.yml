@@ -146,7 +146,7 @@ jobs:
     permissions:
       contents: read  # actions/checkout in the called workflow
       packages: read  # ghcr.io images it pulls
-    uses: $/.github/workflows/build-kernel-deb.yml
+    uses: ./.github/workflows/build-kernel-deb.yml
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}
