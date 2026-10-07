@@ -269,6 +269,10 @@ Daily S3 outputs use these layouts, where `<run>` is
 <org>/pkg/temp/<repo>/<kernel_variant>/<suite>/<run>/
 ```
 
+Each holds the `.deb` files, and a `source/` directory beneath it holds the
+source package they were built from: the `.changes`, `.dsc`, `.debian.tar.xz`
+and `.orig.tar.gz`.
+
 The first layout is for Debian/Debusine builds; the second is for Ubuntu Docker
 builds. Consumers must select the intended kernel variant and suite.
 
