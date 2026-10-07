@@ -38,6 +38,7 @@ set -euo pipefail
 #   ci/scripts/resolve-matrix.sh --type Release
 #   ci/scripts/resolve-matrix.sh --type Daily --single-suite trixie
 #   ci/scripts/resolve-matrix.sh --type Daily --kernel-variant qcom-next
+#   ci/scripts/resolve-matrix.sh --type Daily --family debian
 #   ci/scripts/resolve-matrix.sh --type Daily --matrix-file path/to/matrix.json
 #
 # Options:
@@ -45,6 +46,13 @@ set -euo pipefail
 #                                Required.
 #   --single-suite SUITE       Emit only entries for this suite.
 #   --kernel-variant VARIANT   Emit only entries for this kernel variant.
+#   --family FAMILY            Emit only entries whose suite belongs to this
+#                                family (debian or ubuntu). Debian suites
+#                                build in Debusine, Ubuntu suites on the
+#                                self-hosted runner, so each caller job takes
+#                                one family. Unlike the other filters, a
+#                                family with no entries is not an error: it
+#                                prints [] so the caller can skip that job.
 #   --matrix-file FILE         Path to the matrix JSON file
 #                                (default: ci/build-matrix.json relative to CWD).
 #
@@ -58,13 +66,15 @@ set -euo pipefail
 #   --kernel-config and --dkms — expect.
 #
 # Exit codes:
-#   0  Success, at least one entry emitted.
+#   0  Success, at least one entry emitted (or, with --family, the
+#      selection matched but none of it is in that family).
 #   1  Error (invalid arguments, matrix validation failure, no matching
 #      entry, revision derivation failure).
 
 TYPE=""
 SINGLE_SUITE=""
 KERNEL_VARIANT=""
+FAMILY=""
 MATRIX_FILE="ci/build-matrix.json"
 
 usage() {
@@ -77,6 +87,7 @@ while [[ $# -gt 0 ]]; do
         --type)           TYPE="$2";           shift 2 ;;
         --single-suite)   SINGLE_SUITE="$2";   shift 2 ;;
         --kernel-variant) KERNEL_VARIANT="$2"; shift 2 ;;
+        --family)         FAMILY="$2";         shift 2 ;;
         --matrix-file)    MATRIX_FILE="$2";    shift 2 ;;
         -h|--help)        usage ;;
         *) echo "ERROR: Unknown option: $1" >&2; usage ;;
@@ -87,12 +98,26 @@ done
     echo "ERROR: --type must be Daily or Release" >&2
     exit 1
 }
+[[ -z "$FAMILY" || "$FAMILY" == "debian" || "$FAMILY" == "ubuntu" ]] || {
+    echo "ERROR: --family must be debian or ubuntu" >&2
+    exit 1
+}
 [[ -f "$MATRIX_FILE" ]] || { echo "ERROR: Matrix file not found: $MATRIX_FILE" >&2; exit 1; }
 
 jq empty "$MATRIX_FILE" 2>/dev/null \
     || { echo "ERROR: Invalid JSON in $MATRIX_FILE" >&2; exit 1; }
 
-validation_errors=$(jq -r '
+# The suites that build in Debusine. Every other suite is Ubuntu and builds
+# on the self-hosted runner. The prepare-kernel-source action classifies a
+# suite with the same list, so keep the two in step.
+# shellcheck disable=SC2016  # jq source, not shell
+family_def='
+  def suite_family:
+    if IN("trixie", "forky", "sid", "unstable")
+    then "debian" else "ubuntu" end;
+'
+
+validation_errors=$(jq -r "$family_def"'
   def required_string($field):
     if (has($field) and (.[$field] | type == "string") and (.[$field] | length > 0))
     then empty
@@ -236,6 +261,11 @@ validation_errors=$(jq -r '
       then "tag_pattern is only valid with ref_strategy=latest_tag"
       else empty
       end,
+      if .type == "Release" and (.suites | type) == "array"
+        and any(.suites[]; type == "string" and suite_family == "ubuntu")
+      then "Release rows must list only Debian suites; Ubuntu suites have no release path"
+      else empty
+      end,
       if .type == "Release"
       then required_string("target_workspace")
       elif has("target_workspace")
@@ -354,7 +384,8 @@ fi
 result=$(jq -c \
     --arg type "$TYPE" \
     --arg single_suite "$SINGLE_SUITE" \
-    --arg kernel_variant "$KERNEL_VARIANT" '
+    --arg kernel_variant "$KERNEL_VARIANT" \
+    --arg family "$FAMILY" "$family_def"'
       [
         .deliveries[]
         | select(.type == $type)
@@ -384,8 +415,12 @@ result=$(jq -c \
         )
         else .
         end
+      # Applied after the check above: a selection that matches nothing is
+      # still an error, but one whose matches all fall in the other family
+      # gives [] for the caller to skip.
+      | map(select($family == "" or (.suite | suite_family) == $family))
     ' "$MATRIX_FILE") || {
-    echo "ERROR: Matrix resolution failed for type=$TYPE${KERNEL_VARIANT:+ kernel_variant=$KERNEL_VARIANT}${SINGLE_SUITE:+ suite=$SINGLE_SUITE}" >&2
+    echo "ERROR: Matrix resolution failed for type=$TYPE${KERNEL_VARIANT:+ kernel_variant=$KERNEL_VARIANT}${SINGLE_SUITE:+ suite=$SINGLE_SUITE}${FAMILY:+ family=$FAMILY}" >&2
     exit 1
 }
 
