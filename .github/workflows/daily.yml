@@ -126,9 +126,16 @@ jobs:
   # threaded through as inputs. fail-fast is disabled so a failed trixie
   # build does not cancel the forky build.
   #
-  # The if: guards only matter for a narrowed dispatch that selects nothing on
-  # one path; an empty matrix is an error rather than an empty job list. The
-  # scheduled full-matrix run has entries on both.
+  # The if: guards catch a family the run selects nothing on -- a narrowed
+  # dispatch, or a matrix with no entries for it. They are not optional: an
+  # empty matrix is a workflow error rather than an empty job list.
+  #
+  # A skipped family shows up as a check named after the name: expressions'
+  # source text rather than a variant and suite: GitHub never expands a job it
+  # skips, so it prints the expressions as written, and a || fallback prints
+  # just the same. Only a name that never mentions matrix would read well,
+  # which would mean renaming every check in every workflow to tidy up one
+  # that appears when a family is empty. So it stands.
   # ---------------------------------------------------------------------------
   build-debian:
     name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
