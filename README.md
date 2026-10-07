@@ -522,9 +522,8 @@ The available inputs are:
 | `localversion` | Auto-derived | Advanced explicit `LOCALVERSION` override. |
 | `kver-extra` | Empty | Advanced kernel-release suffix. |
 
-The workflow also supports advanced Qualcomm-only PR overrides for validation
-builds. Direct builds are artifact builds; Release promotion is performed only
-through `release.yml`.
+Direct builds are artifact builds; Release promotion is performed only through
+`release.yml`.
 
 ## Configuration
 
