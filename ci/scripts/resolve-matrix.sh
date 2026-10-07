@@ -26,12 +26,12 @@ set -euo pipefail
 # Each flattened leg's final debian_revision is derived from
 # debian_version_stub, suite_suffix_mapping[suite], and the delivery type via
 # ci/scripts/derive-debian-revision.sh, so the formula has exactly one
-# implementation shared with build-kernel-deb.yml's direct-dispatch path. Each
-# row also carries debian_version_suffix ("~" for Daily, "" for Release) as a
-# visible, validated record of that same delivery-type mapping; it is checked
-# against the row's type but never fed into derivation, so a copy/paste error
-# here fails fast instead of silently drifting from the formula's single
-# implementation.
+# implementation shared with the prepare-kernel-source action's direct-dispatch
+# path. Each row also carries debian_version_suffix ("~" for Daily, "" for
+# Release) as a visible, validated record of that same delivery-type mapping;
+# it is checked against the row's type but never fed into derivation, so a
+# copy/paste error here fails fast instead of silently drifting from the
+# formula's single implementation.
 #
 # Usage:
 #   ci/scripts/resolve-matrix.sh --type Daily
@@ -61,7 +61,7 @@ set -euo pipefail
 #   kernel_variant that scopes its artifacts, Debusine workspace, and logs,
 #   and a suite-specific debian_revision (debian_version_stub and
 #   debian_version_suffix are consumed and removed). kernel_config and dkms are
-#   joined into the comma-separated strings that build-kernel-deb.yml's
+#   joined into the comma-separated strings that the build workflows'
 #   kernel-config and dkms inputs — and in turn prepare-source.sh's
 #   --kernel-config and --dkms — expect.
 #
@@ -426,8 +426,9 @@ result=$(jq -c \
 
 # Derive each leg's final debian_revision from debian_version_stub,
 # suite_suffix_mapping, and its delivery type. derive-debian-revision.sh is
-# the single implementation of the formula; build-kernel-deb.yml's direct
-# dispatch path calls the same script for the one-suite, no-matrix case.
+# the single implementation of the formula; the prepare-kernel-source
+# action's direct dispatch path calls the same script for the one-suite,
+# no-matrix case.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 final="[]"
