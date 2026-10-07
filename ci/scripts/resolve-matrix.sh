@@ -108,9 +108,9 @@ validation_errors=$(jq -r '
   def variant_name_valid:
     if (.kernel_variant | type) != "string"
     then empty
-    elif (.kernel_variant | test("^[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$"))
+    elif (.kernel_variant | test("^[a-z0-9]+(?:[a-z0-9.-]*[a-z0-9])?$"))
     then empty
-    else "kernel_variant must use lowercase letters, digits, and internal hyphens"
+    else "kernel_variant must use lowercase letters, digits, and internal hyphens or dots"
     end;
 
   # An "intree:" entry names a fragment shipped by the kernel source, as a

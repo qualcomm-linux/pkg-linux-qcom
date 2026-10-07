@@ -172,8 +172,8 @@ jobs:
         run: |
           suite="$SUITE_INPUT"
           kernel_variant="$KERNEL_VARIANT_INPUT"
-          [[ "$kernel_variant" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
-            echo "ERROR: kernel variant must use lowercase letters, digits, and internal hyphens" >&2
+          [[ "$kernel_variant" =~ ^[a-z0-9]+([a-z0-9.-]*[a-z0-9])?$ ]] || {
+            echo "ERROR: kernel variant must use lowercase letters, digits, and internal hyphens or dots" >&2
             exit 1
           }
           case "$suite" in
