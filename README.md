@@ -335,7 +335,7 @@ flowchart TD
     subgraph build[One build workflow per leg]
         C2["prepare\nprepare-kernel-source action\nClone ref, run prepare-source.sh\nBuild the source package\nUpload source-package-variant-suite"]
         C3["build\ndebusine-build action"]
-        C4["build\nbuild-kernel.sh --dsc in Docker"]
+        C4["build\nprepare-kernel-source action, then\nbuild-kernel.sh --dsc in Docker"]
         C5["publish\nDownload .deb files, upload to S3"]
         C6["release\nPromote to target workspace"]
     end
@@ -352,9 +352,9 @@ flowchart TD
     B1 --> B2 & B5
     B3 --> B4
     B2 --> C2
-    B5 --> C2
+    B5 --> C4
     B4 --> C2
-    C2 --> C3 & C4
+    C2 --> C3
     C3 --> C5 & C6
     C4 --> D1
     C5 --> D1
@@ -424,7 +424,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    ART["source-package-variant-suite\nartifact"] --> BK
+    ART["source-package/\nwritten by the prepare action\nin the same job"] --> BK
 
     subgraph build[Ubuntu build job]
         BK["build-kernel.sh --dsc\n--build-mode docker\nsbuild in the suite's pkg-builder image"] --> S3
@@ -433,7 +433,7 @@ flowchart LR
     S3["S3\nDaily package artifacts"]
 ```
 
-Nothing is cloned or prepared here: the `.dsc` the prepare job reported is
+Nothing is cloned or prepared again: the `.dsc` the prepare action wrote is
 what sbuild builds, as it is what Debusine builds on the Debian path.
 
 ## Packages
