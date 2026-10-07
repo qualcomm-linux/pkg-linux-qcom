@@ -84,10 +84,11 @@ jobs:
   # build: one parallel job per changed Release leg, built as release.yml would
   # except that nothing is promoted.
   #
-  # target-workspace is left empty, which keeps the build in the Staging
-  # environment and off the release path, and DEBUSINE_RELEASE_TOKEN is not
-  # passed at all. kver-extra marks the version as in pr-build.yml, so these
-  # packages can never be taken for the release itself.
+  # It calls build-kernel-debian.yml rather than release-kernel-debian.yml,
+  # which keeps the build in the Staging environment and off the release path,
+  # and DEBUSINE_RELEASE_TOKEN is not passed at all. kver-extra marks the
+  # version as in pr-build.yml, so these packages can never be taken for the
+  # release itself.
   # ---------------------------------------------------------------------------
   build:
     name: dry-run ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
@@ -100,7 +101,7 @@ jobs:
     permissions:
       contents: read  # actions/checkout in the called workflow
       packages: read  # ghcr.io images it pulls
-    uses: $/.github/workflows/build-kernel-deb.yml
+    uses: ./.github/workflows/build-kernel-debian.yml
     with:
       suite: ${{ matrix.suite }}
       kernel-variant: ${{ matrix.kernel_variant }}

@@ -1,0 +1,382 @@
+name: Prepare kernel source
+description: >
+  Resolve the kernel ref, clone it, inject debian/, build the Debian source
+  package, and upload it as an artifact for the build job to consume.
+
+# Every build takes this path, whichever family it belongs to, so it lives in a
+# composite action rather than a reusable workflow: the two family workflows
+# call it as a step of their own prepare job, which keeps one copy of these
+# steps without adding a nesting level to every job name in the checks list.
+#
+# The caller must have checked out pkg-linux-qcom into the workspace first:
+# debian/ and ci/ come from that checkout, and so does this action.
+#
+# Runs on the self-hosted arm64 runner, and leaves nothing behind in the job
+# environment: values pass between these steps as step outputs, each consumer
+# naming what it reads.
+
+inputs:
+  kernel-variant:
+    description: 'Kernel variant identifier'
+    required: true
+  suite:
+    description: 'Target suite'
+    required: true
+  registry-token:
+    description: >
+      Token used to pull the pkg-builder image from ghcr.io, which is not a
+      public package. Defaults to the job's own GITHUB_TOKEN, which needs the
+      packages: read permission the calling workflows declare. The secrets
+      context does not reach a composite action, hence an input.
+    default: ${{ github.token }}
+  expect-family:
+    description: >
+      Build family the calling workflow builds, debian or ubuntu. The suite is
+      a free-text input, so this catches one handed to the workflow for the
+      other family before anything is cloned or built.
+    required: true
+  kernel-url:
+    description: 'Kernel repository URL'
+    default: 'https://github.com/qualcomm-linux/kernel'
+  ref-strategy:
+    description: 'Kernel ref strategy: latest_tag, branch_tip, or pinned_ref'
+    default: 'latest_tag'
+  kernel-branch:
+    description: 'Branch for branch_tip or immutable ref for pinned_ref (ignored for latest_tag)'
+    default: 'qcom-next'
+  tag-pattern:
+    description: 'Tag glob used only by latest_tag'
+    default: 'qcom-next-*'
+  srcpkg:
+    description: 'Debian source package name'
+    default: 'linux-qcom-next'
+  binpkg:
+    description: 'Kernel image metapackage name'
+    default: 'linux-image-qcom-next'
+  kernel-config:
+    description: 'Extra config fragments applied on top of all of debian/config-available/'
+    default: ''
+  dkms:
+    description: 'Out-of-tree DKMS modules to bundle, comma-separated and without the -dkms suffix'
+    default: ''
+  debian-revision:
+    description: 'Fully derived Debian revision, from the matrix entry'
+    required: true
+  localversion:
+    description: 'LOCALVERSION override (auto-derived from the resolved ref if empty)'
+    default: ''
+  kver-extra:
+    description: 'Extra KVER suffix, appended to the kernel release verbatim'
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve build environment
+      id: env
+      shell: bash
+      env:
+        KERNEL_URL_INPUT: ${{ inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
+        SUITE_INPUT: ${{ inputs.suite }}
+        EXPECT_FAMILY: ${{ inputs.expect-family }}
+      run: |
+        set -euo pipefail
+        # Family and docker image in one place, because they answer the same
+        # question about a suite. The family list here is the one in
+        # ci/scripts/resolve-matrix.sh, which routes a leg to the workflow
+        # that calls this action.
+        #
+        # For Debian-family suites (trixie, forky, sid) use trixie as the
+        # docker image distro: docker-pkg-build and pkg-builder only support
+        # trixie for Debian, and publish no forky image. That costs nothing,
+        # because Debusine handles the actual suite-specific build; this
+        # container only runs prepare-source.sh, which generates packaging
+        # rather than compiling anything. For Ubuntu-family suites (noble,
+        # resolute) use the real suite.
+        case "$SUITE_INPUT" in
+          trixie|forky|sid|unstable) FAMILY=debian; DOCKER_DISTRO=trixie ;;
+          *)                         FAMILY=ubuntu; DOCKER_DISTRO="$SUITE_INPUT" ;;
+        esac
+
+        if [[ "$FAMILY" != "$EXPECT_FAMILY" ]]; then
+          echo "::error::Suite $SUITE_INPUT is $FAMILY-family, but this workflow builds the $EXPECT_FAMILY family."
+          echo "::error::Dispatch the $FAMILY build workflow for it instead."
+          exit 1
+        fi
+
+        {
+          echo "kernel-url=$KERNEL_URL_INPUT"
+          echo "distro=$SUITE_INPUT"
+          echo "docker-distro=$DOCKER_DISTRO"
+          echo "kernel-dir=$GITHUB_WORKSPACE/kernel-source"
+        } >> "$GITHUB_OUTPUT"
+        echo "Suite $SUITE_INPUT is $FAMILY-family and builds in the $DOCKER_DISTRO image"
+
+    - name: Pull builder image
+      id: image
+      shell: bash
+      env:
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker-distro }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+      run: |
+        # No -x: REGISTRY_TOKEN is in env.
+        set -euo pipefail
+        # qualcomm-linux/docker-pkg-build's container-build-and-upload.yml
+        # builds trixie, noble and resolute, validates each with a test
+        # package build, and pushes them on every push to main and weekly,
+        # so rebuilding them here from the same Dockerfile repeats work
+        # already done. The package is not public, so the pull needs a
+        # login even though the image is only ever read.
+        case "$DOCKER_DISTRO" in
+          trixie|noble|resolute)
+            echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            docker pull "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO"
+            echo "source=pull" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "No published pkg-builder image for $DOCKER_DISTRO; building it here."
+            echo "source=build" >> "$GITHUB_OUTPUT"
+            ;;
+        esac
+
+    # Only for a suite with no published image: the pull path needs neither
+    # this checkout nor the build below.
+    - name: Checkout docker-pkg-build
+      if: ${{ steps.image.outputs.source == 'build' }}
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        repository: qualcomm-linux/docker-pkg-build
+        ref: main
+        path: docker-pkg-build
+
+    - name: Build builder image
+      if: ${{ steps.image.outputs.source == 'build' }}
+      shell: bash
+      env:
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker-distro }}
+      run: |
+        set -euo pipefail
+        ./docker-pkg-build/docker_deb_build.py --rebuild -d "$DOCKER_DISTRO"
+        docker image ls
+
+    - name: Resolve kernel ref
+      id: kernel-ref
+      shell: bash
+      env:
+        KERNEL_URL: ${{ steps.env.outputs.kernel-url }}
+        BRANCH_INPUT: ${{ inputs.kernel-branch || 'qcom-next' }}
+        REF_STRATEGY_INPUT: ${{ inputs.ref-strategy || 'latest_tag' }}
+        TAG_PATTERN_INPUT: ${{ inputs.tag-pattern || 'qcom-next-*' }}
+        KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant }}
+      run: |
+        set -euo pipefail
+        [[ "$KERNEL_VARIANT_INPUT" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]] || {
+          echo "::error::kernel variant must use lowercase letters, digits, and internal hyphens"
+          exit 1
+        }
+        BRANCH="$BRANCH_INPUT"
+        REF_STRATEGY="$REF_STRATEGY_INPUT"
+        TAG_PATTERN="$TAG_PATTERN_INPUT"
+
+        case "$REF_STRATEGY" in
+          latest_tag)
+            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh \
+              --url "$KERNEL_URL" \
+              --latest-tag "$TAG_PATTERN")
+            ;;
+          branch_tip|pinned_ref)
+            KERNEL_REF=$(ci/scripts/resolve-kernel-ref.sh --url "$KERNEL_URL" --ref "$BRANCH")
+            ;;
+          *)
+            echo "ERROR: unsupported ref strategy: $REF_STRATEGY" >&2
+            exit 1
+            ;;
+        esac
+
+        # The ref is whatever the remote's tag list offers, the furthest of
+        # these values from our control, and a newline in it would let it
+        # write step outputs of its own.
+        [[ "$KERNEL_REF" != *$'\n'* ]] || {
+          echo "::error::resolved kernel ref contains a newline"
+          exit 1
+        }
+        echo "ref=$KERNEL_REF" >> "$GITHUB_OUTPUT"
+        echo "Kernel variant: $KERNEL_VARIANT_INPUT"
+        echo "Ref strategy: $REF_STRATEGY"
+        echo "Resolved kernel ref: $KERNEL_REF"
+
+    - name: Clone kernel source
+      id: clone
+      shell: bash
+      env:
+        KERNEL_URL: ${{ steps.env.outputs.kernel-url }}
+        KERNEL_DIR: ${{ steps.env.outputs.kernel-dir }}
+        KERNEL_REF: ${{ steps.kernel-ref.outputs.ref }}
+      run: |
+        set -euo pipefail
+        echo "Cloning $KERNEL_URL @ $KERNEL_REF (shallow)..."
+        git clone --depth 1 --single-branch --branch "$KERNEL_REF" --no-tags \
+          "$KERNEL_URL" "$KERNEL_DIR"
+        KERNEL_SHA=$(git -C "$KERNEL_DIR" rev-parse HEAD)
+        echo "sha=$KERNEL_SHA" >> "$GITHUB_OUTPUT"
+        echo "Kernel HEAD SHA: $KERNEL_SHA"
+
+        # Committer date of HEAD, normalised to UTC. Committer rather than
+        # author date: an author date can be months old on a backported
+        # patch, which would date the build by when someone first wrote the
+        # code rather than by when this snapshot came to exist.
+        KERNEL_DATE=$(TZ=UTC git -C "$KERNEL_DIR" log -1 --format=%cd --date=format-local:%Y%m%d)
+        [[ "$KERNEL_DATE" =~ ^[0-9]{8}$ ]] || {
+          echo "::error::could not read a YYYYMMDD commit date from $KERNEL_REF (got '$KERNEL_DATE')"
+          exit 1
+        }
+        echo "date=$KERNEL_DATE" >> "$GITHUB_OUTPUT"
+        echo "Kernel HEAD commit date (UTC): $KERNEL_DATE"
+
+        # The same instant in RFC 2822 form, for the changelog entry. Read
+        # here, on the host that owns the clone, because prepare-source.sh
+        # runs in a container as root and git will not read a checkout owned
+        # by someone else.
+        CHANGELOG_DATE=$(git -C "$KERNEL_DIR" log -1 --format=%cD)
+        echo "changelog-date=$CHANGELOG_DATE" >> "$GITHUB_OUTPUT"
+
+    - name: Derive version fields
+      id: version
+      shell: bash
+      env:
+        LOCALVERSION_INPUT: ${{ inputs.localversion }}
+        KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant }}
+        KERNEL_REF: ${{ steps.kernel-ref.outputs.ref }}
+        KERNEL_SHA: ${{ steps.clone.outputs.sha }}
+        KERNEL_DATE: ${{ steps.clone.outputs.date }}
+      run: |
+        set -euo pipefail
+        OVERRIDE_LV="$LOCALVERSION_INPUT"
+        if [[ -n "$OVERRIDE_LV" ]]; then
+          # An override supplies no snapshot, and the ref it was chosen to
+          # replace cannot be trusted to describe it. The Debian version then
+          # carries no +git<date>; prepare-source.sh warns about the same.
+          echo "Using explicit LOCALVERSION override: $OVERRIDE_LV"
+          {
+            echo "LOCALVERSION=$OVERRIDE_LV"
+            echo "SNAPSHOT="
+            echo "GITSHA="
+          } >> "$GITHUB_OUTPUT"
+        else
+          # Emits LOCALVERSION=, SNAPSHOT= and GITSHA= lines, already in
+          # GITHUB_OUTPUT form.
+          #
+          # --date is only consulted for branch-tip builds, where the ref
+          # carries no snapshot of its own. It comes from the commit rather
+          # than the clock, so rebuilding a commit reproduces its version
+          # instead of inventing a higher one, and it lands in the same space
+          # as upstream's tag dates.
+          FIELDS=$(ci/scripts/derive-localversion.sh \
+            --variant "$KERNEL_VARIANT_INPUT" \
+            --ref "$KERNEL_REF" \
+            --sha "$KERNEL_SHA" \
+            --date "$KERNEL_DATE")
+          echo "$FIELDS" >> "$GITHUB_OUTPUT"
+          echo "Derived version fields:"
+          echo "$FIELDS"
+        fi
+
+    - name: Prepare source
+      shell: bash
+      env:
+        SRCPKG_INPUT: ${{ inputs.srcpkg || 'linux-qcom-next' }}
+        BINPKG_INPUT: ${{ inputs.binpkg || 'linux-image-qcom-next' }}
+        KVER_EXTRA_INPUT: ${{ inputs.kver-extra }}
+        KERNEL_CONFIG_INPUT: ${{ inputs.kernel-config }}
+        DKMS_INPUT: ${{ inputs.dkms }}
+        KERNEL_URL: ${{ steps.env.outputs.kernel-url }}
+        KERNEL_DIR: ${{ steps.env.outputs.kernel-dir }}
+        DISTRO: ${{ steps.env.outputs.distro }}
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker-distro }}
+        KERNEL_REF: ${{ steps.kernel-ref.outputs.ref }}
+        KERNEL_SHA: ${{ steps.clone.outputs.sha }}
+        LOCALVERSION: ${{ steps.version.outputs.LOCALVERSION }}
+        SNAPSHOT: ${{ steps.version.outputs.SNAPSHOT }}
+        DEBIAN_REVISION: ${{ inputs.debian-revision }}
+        CHANGELOG_DATE: ${{ steps.clone.outputs.changelog-date }}
+      run: |
+        # No -x here: keep xtrace off for this step as it assembles the
+        # prepare-source.sh argument list which may include sensitive paths.
+        set -euo pipefail
+
+        # Composite actions do not enforce required inputs, so check it here:
+        # a caller that forgets the revision fails rather than building at
+        # one nobody chose.
+        [[ -n "$DEBIAN_REVISION" ]] || {
+          echo "::error::debian-revision is required"
+          exit 1
+        }
+
+        ARGS=(
+          --source-dir "$KERNEL_DIR"
+          --distro "$DISTRO"
+          --srcpkg "$SRCPKG_INPUT"
+          --binpkg "$BINPKG_INPUT"
+          --debian-revision "$DEBIAN_REVISION"
+          --changelog-date "$CHANGELOG_DATE"
+        )
+
+        # All three version fields come from derive-localversion.sh, which
+        # composed them from the ref and HEAD together. Nothing here appends
+        # to them: the SHA is already inside LOCALVERSION, and GITSHA carries
+        # it separately for the Debian version, which joins it differently.
+        [[ -n "$LOCALVERSION" ]]        && ARGS+=(--localversion "$LOCALVERSION")
+        [[ -n "$SNAPSHOT" ]]            && ARGS+=(--snapshot "$SNAPSHOT")
+        # Full SHA: prepare-source.sh takes the first 12 for the version
+        # strings and records the whole thing in the changelog, alongside the
+        # repository and ref that the version strings do not name.
+        ARGS+=(--git-sha "$KERNEL_SHA" --git-clone "$KERNEL_URL" --git-ref "$KERNEL_REF")
+        [[ -n "$KVER_EXTRA_INPUT" ]]    && ARGS+=(--kver-extra "$KVER_EXTRA_INPUT")
+        [[ -n "$KERNEL_CONFIG_INPUT" ]] && ARGS+=(--kernel-config "$KERNEL_CONFIG_INPUT")
+        # Always passed, unlike the optional inputs above: an empty list is a
+        # genuine "bundle nothing" rather than a request for some default.
+        ARGS+=(--dkms "$DKMS_INPUT")
+
+        docker run -i --rm \
+          -v "$PWD:$PWD" --workdir="$PWD" \
+          "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
+          ./prepare-source.sh "${ARGS[@]}"
+
+    - name: Build source package
+      # The .orig.tar.gz, .dsc and .changes the binary build starts from,
+      # whichever family builds it. Built here, in the same container that
+      # ran prepare-source.sh, because the runner host has no dpkg-dev and
+      # because the orig's bytes depend on the gzip that wrote them: every
+      # build that must agree on a checksum writes its orig in this image.
+      #
+      # git is told to trust the checkout, which the runner owns and the
+      # container reads as root; the checkout is this job's own clone. The
+      # fields file lands beside the output directory, outside the artifact.
+      shell: bash
+      env:
+        KERNEL_DIR: ${{ steps.env.outputs.kernel-dir }}
+        DOCKER_DISTRO: ${{ steps.env.outputs.docker-distro }}
+      run: |
+        set -euo pipefail
+        docker run -i --rm \
+          -v "$PWD:$PWD" --workdir="$PWD" \
+          -e GIT_CONFIG_COUNT=1 \
+          -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+          "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO" \
+          ./build-source-package.sh \
+            --source-dir "$KERNEL_DIR" \
+            --output-dir "$PWD/source-package" \
+            --write-fields "$PWD/source-package.fields"
+        echo "Source package:"
+        cat source-package.fields
+
+    - name: Upload source package artifact
+      # The whole .changes set: .changes, .dsc, .debian.tar.xz and the orig.
+      # Plain files with no execute bits to lose, so no tarball around them.
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: source-package-${{ inputs.kernel-variant }}-${{ inputs.suite }}
+        path: source-package/
+        if-no-files-found: error
+        retention-days: 7
