@@ -72,69 +72,6 @@ on:
         type: string
         default: ''
 
-  # Ad-hoc build of one Ubuntu suite.
-  workflow_dispatch:
-    inputs:
-      kernel-variant:
-        description: 'Kernel variant identifier'
-        required: true
-        default: 'qcom-next'
-        type: string
-      suite:
-        description: 'Target Ubuntu suite (noble, resolute). A Debian suite here is rejected before anything is built; dispatch build-kernel-debian for those.'
-        required: true
-        default: 'resolute'
-        type: string
-      ref-strategy:
-        description: 'Kernel ref strategy'
-        required: true
-        default: 'latest_tag'
-        type: choice
-        options:
-          - latest_tag
-          - branch_tip
-          - pinned_ref
-      kernel-branch:
-        description: 'Branch for branch_tip or immutable ref for pinned_ref (ignored for latest_tag)'
-        required: false
-        default: 'qcom-next'
-      tag-pattern:
-        description: 'Tag glob used only by latest_tag (ignored for branch_tip and pinned_ref)'
-        required: false
-        default: 'qcom-next-*'
-      kernel-url:
-        description: 'Advanced: custom kernel repository URL (empty uses qualcomm-linux/kernel)'
-        required: false
-        default: ''
-      srcpkg:
-        description: 'Advanced: Debian source package name'
-        required: false
-        default: 'linux-qcom-next'
-      binpkg:
-        description: 'Advanced: kernel image metapackage name'
-        required: false
-        default: 'linux-image-qcom-next'
-      kernel-config:
-        description: 'Advanced: extra config fragments applied on top of all of debian/config-available/ (e.g. intree:arch/arm64/configs/qcom_debug.config)'
-        required: false
-        default: ''
-      dkms:
-        description: 'Advanced: out-of-tree DKMS modules to build and bundle into the kernel image, comma-separated and without the -dkms suffix (e.g. kgsl,camx); empty bundles nothing'
-        required: false
-        default: ''
-      debian-version-stub:
-        description: 'Advanced: Debian version stub; the selected suite''s mapped suffix and a Daily-style trailing ~ are applied automatically'
-        required: false
-        default: '0qli1'
-      localversion:
-        description: 'Advanced: LOCALVERSION override (auto-derived from the resolved ref if empty)'
-        required: false
-        default: ''
-      kver-extra:
-        description: 'Advanced: extra KVER suffix (e.g. -ci42), appended to the kernel release verbatim'
-        required: false
-        default: ''
-
 permissions:
   contents: read
   packages: read
@@ -154,8 +91,8 @@ jobs:
       # the packaging and the scripts, the delivery matrix they read, and the
       # prepare-kernel-source action below.
       #
-      # An empty ref leaves actions/checkout on github.sha, the commit this run
-      # was dispatched from or the one the calling workflow runs at.
+      # An empty ref leaves actions/checkout on github.sha, the commit the
+      # calling workflow runs at.
       - name: Checkout pkg-linux-qcom
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -167,7 +104,7 @@ jobs:
           kernel-variant: ${{ inputs.kernel-variant || 'qcom-next' }}
           suite: ${{ inputs.suite }}
           expect-family: ubuntu
-          kernel-url: ${{ inputs.git-clone || inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
+          kernel-url: ${{ inputs.git-clone }}
           ref-strategy: ${{ inputs.ref-strategy }}
           kernel-branch: ${{ inputs.kernel-branch }}
           tag-pattern: ${{ inputs.tag-pattern }}
@@ -176,7 +113,6 @@ jobs:
           kernel-config: ${{ inputs.kernel-config }}
           dkms: ${{ inputs.dkms }}
           debian-revision: ${{ inputs.debian-revision }}
-          debian-version-stub: ${{ inputs.debian-version-stub || '0qli1' }}
           localversion: ${{ inputs.localversion }}
           kver-extra: ${{ inputs.kver-extra }}
 
