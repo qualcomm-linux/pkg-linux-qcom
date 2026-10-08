@@ -116,7 +116,8 @@ git -C "$SOURCE_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
 # The changelog is what prepare-source.sh generated and what the .dsc will be
 # built from, so it is the only source of the name and version here. The sed
 # filters keep the values to what Debian policy allows in a package name and
-# version, as debusine-action does, so they are safe in filenames.
+# version, as qli-ci's lib/generate-source-package does, so they are safe in
+# filenames.
 PKG=$(dpkg-parsechangelog -l "$SOURCE_DIR/debian/changelog" -SSource | sed 's/[^a-z0-9.+-]//g')
 VER=$(dpkg-parsechangelog -l "$SOURCE_DIR/debian/changelog" -SVersion | sed 's/[^A-Za-z0-9.+~:-]//g')
 [[ -n "$PKG" && -n "$VER" ]] || { log_error "Could not read Source and Version from debian/changelog"; exit 1; }
