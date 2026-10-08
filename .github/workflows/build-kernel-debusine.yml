@@ -57,7 +57,8 @@ permissions:
   packages: read
 
 env:
-  QLI_CI_REF: main
+  # WIP: drop once qualcomm-linux/qli-ci#120 merges and lib/ is on main.
+  QLI_CI_REF: issue-101-move-debusine-workflow
 
 jobs:
   # ---------------------------------------------------------------------------
