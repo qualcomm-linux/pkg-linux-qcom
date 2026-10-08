@@ -57,7 +57,7 @@ permissions:
   packages: read
 
 env:
-  DEBUSINE_ACTION_REF: main
+  QLI_CI_REF: main
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -84,20 +84,19 @@ jobs:
         shell: bash
     environment: ${{ inputs.target-workspace != '' && 'Production' || 'Staging' }}
     steps:
-      - name: Checkout debusine-action helpers
+      - name: Checkout qli-ci helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: qualcomm-linux/debusine-action
-          ref: ${{ env.DEBUSINE_ACTION_REF }}
-          path: debusine-action
+          repository: qualcomm-linux/qli-ci
+          ref: ${{ env.QLI_CI_REF }}
+          path: qli-ci
           fetch-depth: 1
           sparse-checkout: |
             lib
 
       # Into the workspace root: lib/build takes the .dsc from its working
-      # directory, and reaches its own helpers by a path relative to it, so the
-      # two have to be the same directory.
+      # directory.
       - name: Download source package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -141,7 +140,7 @@ jobs:
         run: |
           # No -x here: DEBUSINE_TOKEN is in env, keep xtrace off.
           set -euo pipefail
-          debusine-action/lib/build
+          qli-ci/lib/build
           workspace=$(sed -n 's/^workspace=//p' "$GITHUB_OUTPUT")
           echo "workspace_url=https://${DEBUSINE_HOST}/${DEBUSINE_SCOPE}/${workspace}/" >> "$GITHUB_OUTPUT"
 
@@ -167,13 +166,13 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Checkout debusine-action helpers
+      - name: Checkout qli-ci helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: qualcomm-linux/debusine-action
-          ref: ${{ env.DEBUSINE_ACTION_REF }}
-          path: debusine-action
+          repository: qualcomm-linux/qli-ci
+          ref: ${{ env.QLI_CI_REF }}
+          path: qli-ci
           fetch-depth: 1
           sparse-checkout: |
             lib
@@ -187,7 +186,7 @@ jobs:
           DEBUSINE_WORKSPACE: ${{ needs.build.outputs.workspace }}
           SUITE: ${{ inputs.suite }}
         run: |
-          debusine-action/lib/generate-apt-config
+          qli-ci/lib/generate-apt-config
 
       - name: Download .deb packages from Debusine workspace
         run: |
@@ -240,13 +239,13 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Checkout debusine-action helpers
+      - name: Checkout qli-ci helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          repository: qualcomm-linux/debusine-action
-          ref: ${{ env.DEBUSINE_ACTION_REF }}
-          path: debusine-action
+          repository: qualcomm-linux/qli-ci
+          ref: ${{ env.QLI_CI_REF }}
+          path: qli-ci
           fetch-depth: 1
           sparse-checkout: |
             lib
@@ -263,4 +262,4 @@ jobs:
           SUITE: ${{ inputs.suite }}
         run: |
           set -ex
-          debusine-action/lib/release
+          qli-ci/lib/release
