@@ -10,7 +10,7 @@ name: build-debusine
 # Publish path is determined by target-workspace:
 #   target-workspace == ''  -> daily path: download .deb files, upload to S3.
 #   target-workspace != ''  -> release path: promote from CI workspace to the
-#                              target Debusine workspace via debusine-action lib/release.
+#                              target Debusine workspace via qli-ci lib/release.
 #
 # The same input picks the GitHub environment and the workspaces the build
 # resolves its build-dependencies from: a Staging run also reads qli-staging,
