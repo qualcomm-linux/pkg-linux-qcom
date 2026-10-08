@@ -5,7 +5,7 @@ name: release
 # Reads Release rows from ci/build-matrix.json, flattens suites, and builds
 # each entry using the matrix-selected ref strategy and branch_or_tag. After a
 # successful build, packages are promoted from the ephemeral Debusine CI
-# workspace to the stable target workspace (e.g. qli) via debusine-action
+# workspace to the stable target workspace (e.g. qli) via qli-ci
 # lib/release.
 #
 # To update a release ref: open a PR that changes the Release row for that
