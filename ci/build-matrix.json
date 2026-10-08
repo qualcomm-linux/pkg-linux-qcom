@@ -164,7 +164,7 @@
         "trixie"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-7.2-20260915",
+      "branch_or_tag": "qcom-7.2-20261008",
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-7.2",
       "binpkg": "linux-image-qcom-7.2",
@@ -201,7 +201,7 @@
         "trixie"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-7.2-20260915",
+      "branch_or_tag": "qcom-7.2-20261008",
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-7.2-debug",
       "binpkg": "linux-image-qcom-7.2-debug",
