@@ -152,7 +152,14 @@
       "srcpkg": "linux-qcom-7.2",
       "binpkg": "linux-image-qcom-7.2",
       "kernel_config": [],
-      "dkms": {},
+      "dkms": {
+        "trixie": [
+          "kgsl",
+          "camx",
+          "iris-vpu",
+          "audioreach"
+        ]
+      },
       "debian_version_stub": "0qli1",
       "debian_version_suffix": "~"
     },
@@ -169,7 +176,14 @@
       "srcpkg": "linux-qcom-7.2",
       "binpkg": "linux-image-qcom-7.2",
       "kernel_config": [],
-      "dkms": {},
+      "dkms": {
+        "trixie": [
+          "kgsl",
+          "camx",
+          "iris-vpu",
+          "audioreach"
+        ]
+      },
       "debian_version_stub": "0qli1",
       "debian_version_suffix": ""
     },
@@ -189,7 +203,14 @@
         "intree:arch/arm64/configs/qcom_debug.config",
         "intree:kernel/configs/debug.config"
       ],
-      "dkms": {},
+      "dkms": {
+        "trixie": [
+          "kgsl",
+          "camx",
+          "iris-vpu",
+          "audioreach"
+        ]
+      },
       "debian_version_stub": "0qli1",
       "debian_version_suffix": "~"
     },
@@ -209,7 +230,14 @@
         "intree:arch/arm64/configs/qcom_debug.config",
         "intree:kernel/configs/debug.config"
       ],
-      "dkms": {},
+      "dkms": {
+        "trixie": [
+          "kgsl",
+          "camx",
+          "iris-vpu",
+          "audioreach"
+        ]
+      },
       "debian_version_stub": "0qli1",
       "debian_version_suffix": ""
     }
