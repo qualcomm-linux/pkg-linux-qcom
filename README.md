@@ -25,7 +25,7 @@ isolated `kernel_variant + suite` build leg.
 |---------|----------------|-------------------|--------------|----------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
-| `qcom-7.2` | `linux-qcom-7.2` | `linux-image-qcom-7.2` | trixie | trixie | Builds the newest `qcom-7.2-*` tag (Daily) and a pinned `qcom-7.2-*` tag (Release); no DKMS modules |
+| `qcom-7.2` | `linux-qcom-7.2` | `linux-image-qcom-7.2` | trixie | trixie | Builds the newest `qcom-7.2-*` tag (Daily) and a pinned `qcom-7.2-*` tag (Release); same DKMS modules as `qcom-next` on trixie |
 | `qcom-7.2-debug` | `linux-qcom-7.2-debug` | `linux-image-qcom-7.2-debug` | trixie | trixie | As `qcom-7.2`, plus the same debug fragments as `qcom-next-debug` |
 
 Each debug variant builds the same kernel ref as its standard variant.
