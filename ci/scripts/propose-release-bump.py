@@ -34,7 +34,7 @@ Options:
   --remote NAME       Remote to fetch <base> from and push to (default:
                       origin).
   --base BRANCH       Branch to bump and open the PR against (default: main).
-  --branch NAME       Branch to push (default: bump/<newest tag>).
+  --branch NAME       Branch to push (default: bump/<UTC timestamp>).
   --auto-merge        Arm auto-merge (merge commit) on the PR, so it merges
                       once the required checks pass and it is approved.
   --dry-run           Show what would change (the diff, in the worktree
@@ -52,8 +52,7 @@ Output:
   followed by the PR URL when one is opened.
 
 Exit codes:
-  0  Success, including when everything is up to date or a PR for <branch>
-     is already open.
+  0  Success, including when everything is up to date.
   1  Error.
 """
 
@@ -65,6 +64,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -210,17 +210,8 @@ def github_repo(remote):
 
 
 def open_pr(wt, repo, args, bumps):
-    branch = args.branch or f"bump/{newest_tag(bumps)}"
-
-    step(f"Checking for an open PR from {branch}")
-    existing = run(
-        ["gh", "pr", "list", "--repo", repo, "--head", branch,
-         "--state", "open", "--json", "url", "--jq", ".[].url"],
-        capture=True,
-    )
-    if existing:
-        print(f"PR for {branch} already open: {existing}")
-        return
+    now = datetime.now(timezone.utc)
+    branch = args.branch or f"bump/{now:%Y%m%d-%H%M%S}"
 
     message = commit_message(bumps)
     step("Proposed change")
