@@ -114,7 +114,7 @@
         "forky"
       ],
       "git_clone": "https://github.com/qualcomm-linux/kernel",
-      "branch_or_tag": "qcom-next-7.3-rc4-20261007",
+      "branch_or_tag": "qcom-next-7.3-rc4-20261013",
       "ref_strategy": "pinned_ref",
       "srcpkg": "linux-qcom-next-debug",
       "binpkg": "linux-image-qcom-next-debug",
