@@ -168,8 +168,9 @@ Release is the controlled promotion path.
   `bump/<timestamp>` branch, after showing the diff and asking. It then asks
   again before pushing the branch and opening the PR with `gh`; `--no-push`
   stops after the commit. Run it by hand, not from a workflow, so the PR
-  triggers `release-dry-run.yml`. With `--auto-merge` the PR merges once the
-  required checks pass and it is approved; `--dry-run` only shows the diff.
+  triggers `release-dry-run.yml`. The PR merges once the required checks
+  pass and it is approved, unless `--no-auto-merge`; `--dry-run` only shows
+  the diff.
 - A manual run uses one **Release scope** for a kernel variant:
   - **Selected variant (all suites)** promotes every configured Release suite
     for that variant.
