@@ -2,7 +2,7 @@
 # Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 
-"""Bump the Release refs in ci/build-matrix.json and propose a PR.
+"""Bump the Release refs in ci/build-matrix.json and optionally propose a PR.
 
 For each kernel variant with a Release row, resolve the newest tag of its
 Daily row (ref_strategy latest_tag) with ci/scripts/resolve-kernel-ref.sh, the
@@ -12,9 +12,10 @@ moves backwards.
 
 By default this works in a temporary git worktree of <remote>/<base>, so the
 current checkout is never touched. Every stale Release row is bumped in one
-signed-off commit, pushed to <branch>, and proposed as a PR to <base> with gh.
-Merging that PR starts release.yml for the bumped variants;
-release-dry-run.yml builds them on the PR first.
+signed-off commit on a local <branch>. Then <branch> is pushed and proposed
+as a PR to <base> with gh, unless --no-push. Merging that PR starts
+release.yml for the bumped variants; release-dry-run.yml builds them on the
+PR first.
 
 Run it by hand as a maintainer: a PR opened with a workflow's GITHUB_TOKEN
 would not trigger release-dry-run.yml.
@@ -27,29 +28,34 @@ Repository settings needed for --auto-merge:
     auto-merge.
 
 Usage:
-  ci/scripts/propose-release-bump.py [--auto-merge] [--dry-run] [--yes]
+  ci/scripts/propose-release-bump.py [--no-push | --auto-merge] [--dry-run]
+                                     [--yes]
   ci/scripts/propose-release-bump.py --matrix-path PATH [--dry-run] [--yes]
 
 Options:
   --remote NAME       Remote to fetch <base> from and push to (default:
                       origin).
   --base BRANCH       Branch to bump and open the PR against (default: main).
-  --branch NAME       Branch to push (default: bump/<UTC timestamp>).
+  --branch NAME       Branch to commit on (default: bump/<UTC timestamp>).
+  --no-push           Only commit on the local <branch>; do not push it or
+                      open the PR.
   --auto-merge        Arm auto-merge (merge commit) on the PR, so it merges
                       once the required checks pass and it is approved.
   --dry-run           Show what would change (the diff, in the worktree
                       mode); commit, push and write nothing.
   --matrix-path PATH  Only bump PATH in place: no worktree, git or gh.
-  -y, --yes           Do not ask before committing, pushing and opening the
-                      PR (or writing PATH).
+  -y, --yes           Do not ask before committing, before pushing and
+                      opening the PR, or before writing PATH.
 
 Before changing anything, the script shows the diff, the commit message and
-what it will push, and asks for confirmation. Progress, including every
-command it runs, goes to stderr.
+what it will push, and asks before committing. After the commit it asks
+again before pushing and opening the PR; answering no leaves the commit on
+the local <branch>. Progress, including every command it runs, goes to
+stderr.
 
 Output:
   One "variant: old -> new" line per bumped Release row, or "up to date",
-  followed by the PR URL when one is opened.
+  followed by the PR URL, or the local branch name when not pushed.
 
 Exit codes:
   0  Success, including when everything is up to date.
@@ -219,11 +225,13 @@ def open_pr(wt, repo, args, bumps):
     log("")
     log("Commit message:")
     log(textwrap.indent(message, "    "))
-    log(f"Push:       {branch} to {args.remote}")
-    log(f"PR:         {repo} {args.base} <- {branch}")
-    log(f"Auto-merge: {'yes (merge commit)' if args.auto_merge else 'no'}")
+    log(f"Branch:     {branch}")
+    if args.push:
+        log(f"Push:       {branch} to {args.remote}")
+        log(f"PR:         {repo} {args.base} <- {branch}")
+        log(f"Auto-merge: {'yes (merge commit)' if args.auto_merge else 'no'}")
     log("")
-    if not confirm("Commit, push and open the PR?", args):
+    if not confirm(f"Commit on {branch}?", args):
         log("Aborted; nothing was committed or pushed.")
         return
 
@@ -232,6 +240,11 @@ def open_pr(wt, repo, args, bumps):
     run(["git", "add", MATRIX_REL_PATH], cwd=wt)
     run(["git", "commit", "-q", "-s", "-F", "-"], cwd=wt,
         stdin=message)
+    if not (args.push and confirm(
+            f"Push {branch} to {args.remote} and open the PR?", args)):
+        log(f"Not pushed; the bump is on the local branch {branch}.")
+        print(branch)
+        return
     step(f"Pushing {branch} to {args.remote}")
     run(["git", "push", args.remote, f"HEAD:refs/heads/{branch}"], cwd=wt)
     step("Opening the PR")
@@ -262,14 +275,16 @@ def open_pr(wt, repo, args, bumps):
 
 
 def propose(args):
-    if not shutil.which("gh"):
-        raise SystemExit("ERROR: gh is not installed")
-    repo = github_repo(args.remote)
-    log(f"Repository: {repo}")
-    if not args.dry_run:
-        step("Checking gh authentication")
-        run(["gh", "auth", "status", "--hostname", "github.com"],
-            capture=True)
+    repo = None
+    if args.push:
+        if not shutil.which("gh"):
+            raise SystemExit("ERROR: gh is not installed")
+        repo = github_repo(args.remote)
+        log(f"Repository: {repo}")
+        if not args.dry_run:
+            step("Checking gh authentication")
+            run(["gh", "auth", "status", "--hostname", "github.com"],
+                capture=True)
 
     step(f"Fetching {args.remote}/{args.base}")
     run(["git", "fetch", "-q", args.remote, args.base])
@@ -325,11 +340,15 @@ def main():
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--base", default="main")
     parser.add_argument("--branch")
+    parser.add_argument("--push", action=argparse.BooleanOptionalAction,
+                        default=True)
     parser.add_argument("--auto-merge", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--matrix-path", type=Path)
     parser.add_argument("-y", "--yes", action="store_true")
     args = parser.parse_args()
+    if args.auto_merge and not args.push:
+        parser.error("--auto-merge needs a PR; drop --no-push")
 
     try:
         if args.matrix_path:
