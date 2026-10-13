@@ -17,6 +17,9 @@ proposed as a PR to <base> with gh, unless --no-push, and auto-merge is
 armed on the PR unless --no-auto-merge. Merging that PR starts release.yml
 for the bumped variants; release-dry-run.yml builds them on the PR first.
 
+With --variant only the named variants are bumped, so a PR for one variant
+does not overlap an open PR for another.
+
 Run it by hand as a maintainer: a PR opened with a workflow's GITHUB_TOKEN
 would not trigger release-dry-run.yml.
 
@@ -28,15 +31,22 @@ Repository settings needed for auto-merge (or pass --no-auto-merge):
     auto-merge.
 
 Usage:
-  ci/scripts/propose-release-bump.py [--no-push] [--no-auto-merge]
+  ci/scripts/propose-release-bump.py [--variant NAME[,NAME...]]
+                                     [--no-push] [--no-auto-merge]
                                      [--dry-run] [--yes]
-  ci/scripts/propose-release-bump.py --matrix-path PATH [--dry-run] [--yes]
+  ci/scripts/propose-release-bump.py --matrix-path PATH
+                                     [--variant NAME[,NAME...]] [--dry-run]
+                                     [--yes]
 
 Options:
   --remote NAME       Remote to fetch <base> from and push to (default:
                       origin).
   --base BRANCH       Branch to bump and open the PR against (default: main).
   --branch NAME       Branch to commit on (default: bump/<UTC timestamp>).
+  --variant NAME[,NAME...]
+                      Only bump the Release rows of these kernel variants
+                      (exact names, so qcom-next does not include
+                      qcom-next-debug). Default: every variant.
   --no-push           Only commit on the local <branch>; do not push it or
                       open the PR.
   --no-auto-merge     Do not arm auto-merge on the PR. By default it is armed
@@ -128,12 +138,21 @@ def write_matrix(path, matrix):
     path.write_text(out, encoding="utf-8")
 
 
-def bump_matrix(matrix):
+def bump_matrix(matrix, variants=None):
     """Bump the stale Release rows of matrix in memory.
 
-    Returns a list of (variant, old, new) tuples, one per bumped row.
+    With variants, only the Release rows of those kernel variants. Returns a
+    list of (variant, old, new) tuples, one per bumped row.
     """
     rows = matrix["deliveries"]
+
+    if variants:
+        known = {r["kernel_variant"] for r in rows if r["type"] == "Release"}
+        unknown = [v for v in variants if v not in known]
+        if unknown:
+            raise SystemExit(
+                f"ERROR: no Release row for {', '.join(unknown)} "
+                f"(known: {', '.join(sorted(known))})")
 
     daily = {r["kernel_variant"]: r for r in rows if r["type"] == "Daily"}
     newest = {}
@@ -143,6 +162,8 @@ def bump_matrix(matrix):
         if row["type"] != "Release":
             continue
         variant = row["kernel_variant"]
+        if variants and variant not in variants:
+            continue
         src = daily.get(variant)
         if not src or src.get("ref_strategy") != "latest_tag":
             log(f"{variant}: no latest_tag Daily row, skipping")
@@ -257,6 +278,9 @@ def open_pr(wt, repo, args, base, bumps):
         run(["gh", "pr", "merge", "--repo", repo, "--auto", "--rebase", url])
         print("auto-merge armed")
 
+    if args.variant:
+        # Bump PRs for other variants are not superseded by this one.
+        return
     step("Looking for other open bump/* PRs")
     others = run(
         ["gh", "pr", "list", "--repo", repo, "--state", "open",
@@ -294,7 +318,7 @@ def propose(args):
             path = wt / MATRIX_REL_PATH
             base = load_matrix(path)
             matrix = load_matrix(path)
-            bumps = bump_matrix(matrix)
+            bumps = bump_matrix(matrix, args.variant)
             report(bumps)
             if bumps:
                 # Only the temporary worktree; nothing is committed yet.
@@ -313,7 +337,7 @@ def bump_file(args):
     path = args.matrix_path
     step(f"Checking {path}")
     matrix = load_matrix(path)
-    bumps = bump_matrix(matrix)
+    bumps = bump_matrix(matrix, args.variant)
     report(bumps)
     if not bumps or args.dry_run:
         return
@@ -338,6 +362,8 @@ def main():
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--base", default="main")
     parser.add_argument("--branch")
+    parser.add_argument(
+        "--variant", type=lambda s: [v for v in s.split(",") if v])
     parser.add_argument("--push", action=argparse.BooleanOptionalAction,
                         default=True)
     parser.add_argument("--auto-merge", action=argparse.BooleanOptionalAction,

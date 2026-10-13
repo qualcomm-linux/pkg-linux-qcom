@@ -173,7 +173,8 @@ Release is the controlled promotion path.
   stops after the commit. Run it by hand, not from a workflow, so the PR
   triggers `release-dry-run.yml`. The PR merges once the required checks
   pass and it is approved, unless `--no-auto-merge`; `--dry-run` only shows
-  the diff.
+  the diff. `--variant qcom-next[,...]` bumps only those variants, so the PR
+  does not overlap another open one.
 - A manual run uses one **Release scope** for a kernel variant:
   - **Selected variant (all suites)** promotes every configured Release suite
     for that variant.
