@@ -11,11 +11,11 @@ the Release row's branch_or_tag, the row is bumped to it. A Release row never
 moves backwards.
 
 By default this works in a temporary git worktree of <remote>/<base>, so the
-current checkout is never touched. Every stale Release row is bumped in one
-signed-off commit on a local <branch>. Then <branch> is pushed and proposed
-as a PR to <base> with gh, unless --no-push, and auto-merge is armed on
-the PR unless --no-auto-merge. Merging that PR starts release.yml for the
-bumped variants; release-dry-run.yml builds them on the PR first.
+current checkout is never touched. Each stale Release row is bumped in its
+own signed-off commit on a local <branch>. Then <branch> is pushed and
+proposed as a PR to <base> with gh, unless --no-push, and auto-merge is
+armed on the PR unless --no-auto-merge. Merging that PR starts release.yml
+for the bumped variants; release-dry-run.yml builds them on the PR first.
 
 Run it by hand as a maintainer: a PR opened with a workflow's GITHUB_TOKEN
 would not trigger release-dry-run.yml.
@@ -48,11 +48,11 @@ Options:
   -y, --yes           Do not ask before committing, before pushing and
                       opening the PR, or before writing PATH.
 
-Before changing anything, the script shows the diff, the commit message and
-what it will push, and asks before committing. After the commit it asks
-again before pushing and opening the PR; answering no leaves the commit on
-the local <branch>. Progress, including every command it runs, goes to
-stderr.
+Before changing anything, the script shows the diff, the commit messages
+and what it will push, and asks before committing. After the commits it
+asks again before pushing and opening the PR; answering no leaves the
+commits on the local <branch>. Progress, including every command it runs,
+goes to stderr.
 
 Output:
   One "variant: old -> new" line per bumped Release row, or "up to date",
@@ -176,35 +176,18 @@ def bump_matrix(matrix):
     return bumps
 
 
-def newest_tag(bumps):
-    return max((new for _, _, new in bumps), key=date_key)
+def apply_bump(matrix, bump):
+    """Set the Release row of matrix that bump is for to its new ref."""
+    variant, old, new = bump
+    for row in matrix["deliveries"]:
+        if (row["type"] == "Release" and row["kernel_variant"] == variant
+                and row["branch_or_tag"] == old):
+            row["branch_or_tag"] = new
 
 
-def commit_message(bumps):
-    news = {new for _, _, new in bumps}
-    olds = {old for _, old, _ in bumps}
-    variants = [v for v, _, _ in bumps]
-
-    if len(news) == 1:
-        title = f"ci: update the Release ref to {newest_tag(bumps)}"
-    else:
-        title = "ci: update the Release refs to the newest tags"
-
-    if len(news) == 1 and len(olds) == 1:
-        new, old = next(iter(news)), next(iter(olds))
-        if len(bumps) == 1:
-            body = (f"The {variants[0]} Release row pins {old}. Bump it to "
-                    f"the newer {new} snapshot.")
-        else:
-            who = ("Both" if len(bumps) == 2 else f"All {len(bumps)}")
-            body = (f"{who} Release rows ({', '.join(variants)}) pin {old}. "
-                    f"Bump them to the newer {new} snapshot.")
-        body = textwrap.fill(body, width=72, break_on_hyphens=False)
-    else:
-        body = "Bump the Release rows to the newer snapshots:\n\n" + "\n".join(
-            f"  {v}: {old} -> {new}" for v, old, new in bumps)
-
-    return f"{title}\n\n{body}\n"
+def commit_message(bump):
+    variant, _, new = bump
+    return f"ci: bump {variant} Release ref to {new}\n"
 
 
 def github_repo(remote):
@@ -216,16 +199,16 @@ def github_repo(remote):
     return m.group(1)
 
 
-def open_pr(wt, repo, args, bumps):
+def open_pr(wt, repo, args, base, bumps):
     now = datetime.now(timezone.utc)
     branch = args.branch or f"bump/{now:%Y%m%d-%H%M%S}"
 
-    message = commit_message(bumps)
+    messages = [commit_message(b) for b in bumps]
     step("Proposed change")
     run(["git", "--no-pager", "diff"], cwd=wt)
     log("")
-    log("Commit message:")
-    log(textwrap.indent(message, "    "))
+    log("Commits:")
+    log(textwrap.indent("".join(messages), "    "))
     log(f"Branch:     {branch}")
     if args.push:
         log(f"Push:       {branch} to {args.remote}")
@@ -238,20 +221,33 @@ def open_pr(wt, repo, args, bumps):
 
     step(f"Committing on {branch}")
     run(["git", "switch", "-q", "-c", branch], cwd=wt)
-    run(["git", "add", MATRIX_REL_PATH], cwd=wt)
-    run(["git", "commit", "-q", "-s", "-F", "-"], cwd=wt,
-        stdin=message)
+    for bump, message in zip(bumps, messages):
+        apply_bump(base, bump)
+        write_matrix(wt / MATRIX_REL_PATH, base)
+        run(["git", "add", MATRIX_REL_PATH], cwd=wt)
+        # A throwaway worktree that never merges: rerere and detached
+        # auto-maintenance only race the next commit for MERGE_RR.lock.
+        run(["git", "-c", "rerere.enabled=false", "-c",
+             "maintenance.auto=false", "commit", "-q", "-s", "-F", "-"],
+            cwd=wt, stdin=message)
     if not (args.push and confirm(
             f"Push {branch} to {args.remote} and open the PR?", args)):
-        log(f"Not pushed; the bump is on the local branch {branch}.")
+        log(f"Not pushed; the commits are on the local branch {branch}.")
         print(branch)
         return
     step(f"Pushing {branch} to {args.remote}")
     run(["git", "push", args.remote, f"HEAD:refs/heads/{branch}"], cwd=wt)
     step("Opening the PR")
+    if len(messages) == 1:
+        fill = ["--fill"]
+    else:
+        # --fill would title a multi-commit PR after the branch name.
+        tags = ", ".join(dict.fromkeys(new for _, _, new in bumps))
+        fill = ["--title", f"Bump the Release refs ({tags})",
+                "--body", "".join(f"- {m}" for m in messages)]
     url = run(
         ["gh", "pr", "create", "--repo", repo, "--base", args.base,
-         "--head", branch, "--fill"],
+         "--head", branch, *fill],
         cwd=wt, capture=True,
     )
     print(url)
@@ -296,6 +292,7 @@ def propose(args):
              f"{args.remote}/{args.base}"])
         try:
             path = wt / MATRIX_REL_PATH
+            base = load_matrix(path)
             matrix = load_matrix(path)
             bumps = bump_matrix(matrix)
             report(bumps)
@@ -306,7 +303,7 @@ def propose(args):
                 step("Proposed change (--dry-run: stopping here)")
                 run(["git", "--no-pager", "diff"], cwd=wt)
             elif bumps:
-                open_pr(wt, repo, args, bumps)
+                open_pr(wt, repo, args, base, bumps)
         finally:
             step("Removing the temporary worktree")
             run(["git", "worktree", "remove", "--force", str(wt)])
