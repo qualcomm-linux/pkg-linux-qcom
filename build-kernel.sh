@@ -62,7 +62,7 @@ OPTIONS:
                             Useful for CI build IDs or local user builds.
 
   Build control:
-    -d, --distro DISTRO     Target distro: questing|resolute|trixie|sid
+    -d, --distro DISTRO     Target distro: trixie|forky|sid|unstable|resolute|questing
                             (default: $DEFAULT_DISTRO)
     --build-mode MODE       docker|native|sbuild (default: $DEFAULT_BUILD_MODE)
     --docker-build PATH     Path to docker_deb_build.py (docker mode)
@@ -95,19 +95,20 @@ OPTIONS:
 EXAMPLES:
     $0 --latest-tag
     $0 --latest-tag --build-mode native
-    $0 --tag qcom-next-6.12.0-20260210 --distro resolute
+    $0 --tag qcom-next-7.3-rc4-20261014 --distro resolute
     $0 --local-source /path/to/kernel --build-mode native
     $0 --local-source /path/to/kernel --kver-extra -mybuild
-    $0 --latest-tag --kernel-config docker,systemd-boot
+    $0 --latest-tag --kernel-config intree:arch/arm64/configs/qcom_debug.config
     $0 --latest-tag --dkms kgsl
     $0 --latest-tag --source-package
     $0 --dsc kernel-build/trixie/linux-qcom-next_*.dsc
 
 DISTRIBUTIONS:
-    questing  Ubuntu 25.10
-    resolute  Ubuntu 26.04
     trixie    Debian 13 (default)
-    sid       Debian unstable
+    forky     Debian 14
+    sid       Debian unstable (also accepted as: unstable)
+    resolute  Ubuntu 26.04
+    questing  Ubuntu 25.10
 EOF
     exit 0
 }
@@ -116,7 +117,7 @@ EOF
 TAG=""; LATEST_TAG=false; BRANCH="$DEFAULT_BRANCH"; REPO="$DEFAULT_REPO"
 DISTRO="$DEFAULT_DISTRO"; BUILD_MODE="$DEFAULT_BUILD_MODE"; FLAVOUR="$DEFAULT_FLAVOUR"
 LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
-LOCAL_SOURCE=""; ENABLE_CONFIGS="squashfs,systemd-boot,qcom-imsdk,docker,qemu-boot,usb-can"; SKIP_PREPARE=false
+LOCAL_SOURCE=""; ENABLE_CONFIGS=""; SKIP_PREPARE=false
 DKMS_MODULES=""; DSC=""; SOURCE_PACKAGE=false
 
 while [[ $# -gt 0 ]]; do
