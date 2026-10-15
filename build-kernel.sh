@@ -150,6 +150,15 @@ done
 
 [[ -z "${OUTPUT_DIR:-}" ]] && OUTPUT_DIR="$OUTPUT_BASE_DIR/$DISTRO"
 
+# Resolve every path option against the directory the script was started
+# from, before anything changes directory: the build runs from inside the
+# kernel tree, where a relative path would name somewhere else.
+abspath() { [[ "$1" == /* ]] && printf '%s\n' "$1" || printf '%s\n' "$PWD/$1"; }
+KERNEL_DIR="$(abspath "$KERNEL_DIR")"
+OUTPUT_DIR="$(abspath "$OUTPUT_DIR")"
+DEBIAN_DIR="$(abspath "$DEBIAN_DIR")"
+[[ -n "$DOCKER_PKG_BUILD" ]] && DOCKER_PKG_BUILD="$(abspath "$DOCKER_PKG_BUILD")"
+
 # Validate distro and build mode
 VALID_DISTROS=(questing resolute trixie forky sid unstable)
 VALID_MODES=(docker native sbuild)
