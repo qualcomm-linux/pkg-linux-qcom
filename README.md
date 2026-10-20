@@ -8,6 +8,9 @@ This branch owns both halves of the chain: the build matrix and GitHub Actions
 workflows, and the Debian packaging tree and local packaging tools. Every build
 takes its packaging and its CI scripts from the same commit.
 
+To build the packages locally, see
+[docs/local-build.md](docs/local-build.md).
+
 ## Overview
 
 The CI model is matrix-driven. This single repository can deliver multiple
@@ -452,7 +455,10 @@ the whole set.
 
 ## Manual Builds
 
-Use **Actions** → **build-kernel-deb** for a one-off build. It is an explicit
+To build locally instead of in CI, see
+[docs/local-build.md](docs/local-build.md).
+
+Use **Actions** → **build-kernel-deb** for a one-off build in CI. It is an explicit
 override workflow, not a matrix-derived delivery flow: use `daily.yml` and
 `release.yml` for normal Daily and Release operations.
 
