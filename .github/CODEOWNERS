@@ -1,0 +1,5 @@
+# Reviewers requested automatically on pull requests into main.
+# Owners need a maintainer role on this repository, otherwise GitHub
+# ignores them.
+
+*  @bjordiscollaku @obbardc
