@@ -49,6 +49,16 @@ OPTIONS:
     -s, --source-dir DIR      Kernel source directory (must exist and contain
                               a kernel Makefile)
 
+  Matrix leg:
+    --variant NAME            Prepare the Daily leg of kernel variant NAME for
+                              --distro, as CI's daily build does: flavour,
+                              package names, Debian revision, config fragments
+                              and DKMS list come from ci/build-matrix.json,
+                              resolved by ci/scripts/resolve-matrix.sh. Any of
+                              those flags given explicitly wins, and a list
+                              flag replaces the leg's list (--dkms '' builds
+                              no modules). Needs jq.
+
   Version control:
     -d, --distro DISTRO       Target suite: trixie|forky|sid|questing|resolute
                               (default: $DEFAULT_DISTRO)
@@ -130,6 +140,9 @@ EXAMPLES:
     # Minimal: derive LOCALVERSION from the checkout, default package names
     $0 --source-dir /path/to/kernel
 
+    # The qcom-next-debug Daily leg for forky, as CI prepares it
+    $0 --source-dir /path/to/kernel --variant qcom-next-debug --distro forky
+
     # Full CI invocation with all options
     $0 --source-dir /path/to/kernel \\
        --distro trixie \\
@@ -160,24 +173,31 @@ GIT_CLONE=""
 GIT_REF=""
 GIT_SHA=""
 CHANGELOG_DATE=""
+VARIANT=""
+# Whether each flag a matrix leg also sets was given, so that --variant can
+# tell an explicit value, empty included, from the default.
+FLAVOUR_SET=false; LOCALVERSION_SET=false; KVER_EXTRA_SET=false
+SRCPKG_SET=false; BINPKG_SET=false; DEBIAN_REVISION_SET=false
+KERNEL_CONFIG_SET=false; DKMS_MODULES_SET=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -s|--source-dir)      SOURCE_DIR="$2";       shift 2 ;;
         -d|--distro)          DISTRO="$2";            shift 2 ;;
-        --flavour)            FLAVOUR="$2";           shift 2 ;;
-        --localversion)       LOCALVERSION="$2";      shift 2 ;;
+        --variant)            VARIANT="$2";           shift 2 ;;
+        --flavour)            FLAVOUR="$2"; FLAVOUR_SET=true; shift 2 ;;
+        --localversion)       LOCALVERSION="$2"; LOCALVERSION_SET=true; shift 2 ;;
         --snapshot)           SNAPSHOT="$2";          shift 2 ;;
         --git-sha)            GIT_SHA="$2";           shift 2 ;;
-        --kver-extra)         KVER_EXTRA="$2";        shift 2 ;;
+        --kver-extra)         KVER_EXTRA="$2"; KVER_EXTRA_SET=true; shift 2 ;;
         --git-clone)          GIT_CLONE="$2";         shift 2 ;;
         --git-ref)            GIT_REF="$2";           shift 2 ;;
         --changelog-date)     CHANGELOG_DATE="$2";    shift 2 ;;
-        --srcpkg)             SRCPKG="$2";            shift 2 ;;
-        --binpkg)             BINPKG="$2";            shift 2 ;;
-        --debian-revision)    DEBIAN_REVISION="$2";   shift 2 ;;
-        --kernel-config)      KERNEL_CONFIG="$2";     shift 2 ;;
-        --dkms)               DKMS_MODULES="$2";      shift 2 ;;
+        --srcpkg)             SRCPKG="$2"; SRCPKG_SET=true; shift 2 ;;
+        --binpkg)             BINPKG="$2"; BINPKG_SET=true; shift 2 ;;
+        --debian-revision)    DEBIAN_REVISION="$2"; DEBIAN_REVISION_SET=true; shift 2 ;;
+        --kernel-config)      KERNEL_CONFIG="$2"; KERNEL_CONFIG_SET=true; shift 2 ;;
+        --dkms)               DKMS_MODULES="$2"; DKMS_MODULES_SET=true; shift 2 ;;
         --debian-dir)         DEBIAN_DIR="$2";        shift 2 ;;
         -h|--help)            usage ;;
         *) log_error "Unknown option: $1"; exit 1 ;;
@@ -196,6 +216,52 @@ VALID_DISTROS=(questing resolute trixie forky sid unstable)
 }
 
 [[ -d "$DEBIAN_DIR" ]] || { log_error "Debian dir not found: $DEBIAN_DIR"; exit 1; }
+
+# ── Resolve the matrix leg (--variant) ───────────────────────────────────────
+# The one place a matrix row becomes prepare flags. The leg comes from
+# resolve-matrix.sh, the resolver CI's daily build uses, so its values
+# (the Debian revision with its suite suffix included) are the ones CI
+# passes. build-kernel.sh forwards --variant here rather than mapping the
+# row itself. CI passes explicit flags and never --variant.
+if [[ -n "$VARIANT" ]]; then
+    command -v jq >/dev/null || { log_error "--variant needs jq to read ci/build-matrix.json"; exit 1; }
+    MATRIX_FILE="$SCRIPT_DIR/ci/build-matrix.json"
+    VARIANT_SUITES=$(jq -r --arg v "$VARIANT" \
+        '.deliveries[] | select(.type == "Daily" and .kernel_variant == $v) | .suites | join(" ")' "$MATRIX_FILE")
+    [[ -n "$VARIANT_SUITES" ]] || {
+        log_error "No Daily row for variant: $VARIANT"
+        log_error "Known variants: $(jq -r '[.deliveries[] | select(.type == "Daily") | .kernel_variant] | join(" ")' "$MATRIX_FILE")"
+        exit 1
+    }
+    [[ " $VARIANT_SUITES " == *" $DISTRO "* ]] || {
+        log_error "Variant $VARIANT has no $DISTRO leg (suites: $VARIANT_SUITES)"
+        exit 1
+    }
+    LEG=$("$SCRIPT_DIR/ci/scripts/resolve-matrix.sh" --type Daily --kernel-variant "$VARIANT" \
+        --single-suite "$DISTRO" --matrix-file "$MATRIX_FILE" | jq -c '.[0]')
+
+    log_step "Variant: $VARIANT (Daily, $DISTRO), from ci/build-matrix.json"
+    # VAR GIVEN FIELD: set VAR from the leg's FIELD unless its flag was GIVEN,
+    # and log which it was. The leg's optional fields are logged only when set.
+    from_leg() {
+        if [[ "$2" == true ]]; then
+            log_info "  $3: ${!1:-(none)} (given)"
+        else
+            printf -v "$1" '%s' "$(jq -r --arg k "$3" '.[$k] // empty' <<< "$LEG")"
+            [[ -n "${!1}" || "$4" != optional ]] && log_info "  $3: ${!1:-(none)}"
+        fi
+        return 0
+    }
+    from_leg FLAVOUR         "$FLAVOUR_SET"         kernel_variant
+    from_leg SRCPKG          "$SRCPKG_SET"          srcpkg
+    from_leg BINPKG          "$BINPKG_SET"          binpkg
+    from_leg DEBIAN_REVISION "$DEBIAN_REVISION_SET" debian_revision
+    from_leg KERNEL_CONFIG   "$KERNEL_CONFIG_SET"   kernel_config
+    from_leg DKMS_MODULES    "$DKMS_MODULES_SET"    dkms
+    from_leg LOCALVERSION    "$LOCALVERSION_SET"    localversion optional
+    from_leg KVER_EXTRA      "$KVER_EXTRA_SET"      kver_extra   optional
+    echo
+fi
 
 # ── Resolve the commit, once ─────────────────────────────────────────────────
 # One SHA, used at two widths: the first 12 characters go in the version strings
