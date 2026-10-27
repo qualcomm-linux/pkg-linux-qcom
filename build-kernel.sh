@@ -31,10 +31,25 @@ Usage: $0 [OPTIONS]
 Build linux-image-<kver>-qcom Debian/Ubuntu kernel packages.
 
 OPTIONS:
+  Matrix leg:
+    --variant NAME          Build the Daily leg of kernel variant NAME for
+                            --distro, as CI's daily build does. The leg picks
+                            the repo and the ref (the latest tag matching its
+                            tag pattern, or its branch tip) unless --tag,
+                            --branch, --repo or --local-source is given, and
+                            prepare-source.sh --variant fills flavour, package
+                            names, Debian revision, config fragments and DKMS
+                            list from it. Explicit flags win; --kernel-config
+                            and --dkms replace the leg's list. Output goes to
+                            $OUTPUT_BASE_DIR/<variant>/<distro>. With
+                            --skip-prepare, checks the tree was prepared for
+                            this variant. Needs jq. Not with --dsc.
+
   Source selection (mutually exclusive):
     --local-source DIR      Use existing local kernel source (skip clone/fetch)
     -t, --tag TAG           Checkout specific tag
     -l, --latest-tag        Select the latest qcom-next-* tag automatically
+                            (with --variant, the latest tag matching its row)
     -b, --branch BRANCH     Branch to use (default: $DEFAULT_BRANCH)
     -r, --repo URL          Kernel repository URL (default: $DEFAULT_REPO)
     --dsc FILE              Build from an existing Debian source package
@@ -86,7 +101,8 @@ OPTIONS:
 
   Paths:
     -k, --kernel-dir DIR    Kernel source directory (default: $KERNEL_DIR)
-    -o, --output-dir DIR    Output directory (default: $OUTPUT_BASE_DIR/<distro>)
+    -o, --output-dir DIR    Output directory (default: $OUTPUT_BASE_DIR/<distro>,
+                            or $OUTPUT_BASE_DIR/<variant>/<distro> with --variant)
     --debian-dir DIR        debian/ packaging directory (default: $DEBIAN_DIR)
 
   Misc:
@@ -107,6 +123,9 @@ EXAMPLES:
     $0 --latest-tag --dkms kgsl
     $0 --latest-tag --source-package
     $0 --dsc kernel-build/trixie/linux-qcom-next_*.dsc
+    $0 --variant qcom-7.2 --source-package
+    $0 --variant qcom-next-debug --distro forky --dkms ''
+    $0 --variant qcom-next-debug --local-source /path/to/kernel --skip-prepare
 
 DISTRIBUTIONS:
     trixie    Debian 13 (default)
@@ -125,13 +144,18 @@ LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
 LOCAL_SOURCE=""; ENABLE_CONFIGS=""; SKIP_PREPARE=false
 DKMS_MODULES=""; DSC=""; SOURCE_PACKAGE=false
 SRCPKG=""; BINPKG=""; DEBIAN_REVISION=""
+VARIANT=""; TAG_PATTERN='qcom-next-*'
+# Whether each flag a matrix leg also sets was given, so that --variant can
+# tell an explicit value, empty included, from the default.
+FLAVOUR_SET=false; ENABLE_CONFIGS_SET=false; DKMS_MODULES_SET=false
+REPO_SET=false; BRANCH_SET=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -t|--tag)           TAG="$2";           shift 2 ;;
         -l|--latest-tag)    LATEST_TAG=true;    shift   ;;
-        -b|--branch)        BRANCH="$2";        shift 2 ;;
-        -r|--repo)          REPO="$2";          shift 2 ;;
+        -b|--branch)        BRANCH="$2"; BRANCH_SET=true; shift 2 ;;
+        -r|--repo)          REPO="$2"; REPO_SET=true; shift 2 ;;
         -k|--kernel-dir)    KERNEL_DIR="$2";    shift 2 ;;
         -o|--output-dir)    OUTPUT_DIR="$2";    shift 2 ;;
         --debian-dir)       DEBIAN_DIR="$2";    shift 2 ;;
@@ -140,16 +164,17 @@ while [[ $# -gt 0 ]]; do
         --dsc)              DSC="$2";           shift 2 ;;
         --source-package)   SOURCE_PACKAGE=true; shift  ;;
         --docker-build)     DOCKER_PKG_BUILD="$2"; shift 2 ;;
-        --flavour)          FLAVOUR="$2";       shift 2 ;;
+        --variant)          VARIANT="$2";       shift 2 ;;
+        --flavour)          FLAVOUR="$2"; FLAVOUR_SET=true; shift 2 ;;
         --localversion)     LOCALVERSION="$2";  shift 2 ;;
         --kver-extra)       KVER_EXTRA="$2";    shift 2 ;;
         --srcpkg)           SRCPKG="$2";        shift 2 ;;
         --binpkg)           BINPKG="$2";        shift 2 ;;
         --debian-revision)  DEBIAN_REVISION="$2"; shift 2 ;;
         --profiles)         PROFILES="$2";      shift 2 ;;
-        --kernel-config)    ENABLE_CONFIGS="$2"; shift 2 ;;
-        --dkms)             DKMS_MODULES="$2";  shift 2 ;;
-        --enable-configs)   ENABLE_CONFIGS="$2"; shift 2 ;; # deprecated alias
+        --kernel-config)    ENABLE_CONFIGS="$2"; ENABLE_CONFIGS_SET=true; shift 2 ;;
+        --dkms)             DKMS_MODULES="$2"; DKMS_MODULES_SET=true; shift 2 ;;
+        --enable-configs)   ENABLE_CONFIGS="$2"; ENABLE_CONFIGS_SET=true; shift 2 ;; # deprecated alias
         --build-mode)       BUILD_MODE="$2";    shift 2 ;;
         --skip-prepare)     SKIP_PREPARE=true;  shift   ;;
         --clean)            CLEAN=true;         shift   ;;
@@ -158,7 +183,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ -z "${OUTPUT_DIR:-}" ]] && OUTPUT_DIR="$OUTPUT_BASE_DIR/$DISTRO"
+# Per variant with --variant, so one variant's stage-1 .dsc or binaries are
+# never picked up as another's.
+[[ -z "${OUTPUT_DIR:-}" ]] && OUTPUT_DIR="$OUTPUT_BASE_DIR${VARIANT:+/$VARIANT}/$DISTRO"
 
 # Resolve every path option against the directory the script was started
 # from, before anything changes directory: the build runs from inside the
@@ -192,6 +219,54 @@ if [[ -n "$DSC" ]]; then
     }
     [[ -f "$DSC" ]] || { log_error "Source package not found: $DSC"; exit 1; }
     DSC="$(cd "$(dirname "$DSC")" && pwd)/$(basename "$DSC")"
+    [[ -z "$VARIANT" ]] || {
+        log_error "--variant cannot be combined with --dsc: the source package is already prepared"
+        exit 1
+    }
+fi
+
+# ── Matrix leg (--variant) ───────────────────────────────────────────────────
+# Only what prepare-source.sh cannot do is taken from the leg here: where the
+# source comes from, and which tree a --skip-prepare build expects. The leg's
+# packaging values are mapped by prepare-source.sh --variant, the one place
+# that mapping lives; this script forwards --variant and the flags the caller
+# gave. The leg is resolved by resolve-matrix.sh, as CI resolves it.
+if [[ -n "$VARIANT" ]]; then
+    command -v jq >/dev/null || { log_error "--variant needs jq to read ci/build-matrix.json"; exit 1; }
+    MATRIX_FILE="$SCRIPT_DIR/ci/build-matrix.json"
+    VARIANT_SUITES=$(jq -r --arg v "$VARIANT" \
+        '.deliveries[] | select(.type == "Daily" and .kernel_variant == $v) | .suites | join(" ")' "$MATRIX_FILE")
+    [[ -n "$VARIANT_SUITES" ]] || {
+        log_error "No Daily row for variant: $VARIANT"
+        log_error "Known variants: $(jq -r '[.deliveries[] | select(.type == "Daily") | .kernel_variant] | join(" ")' "$MATRIX_FILE")"
+        exit 1
+    }
+    [[ " $VARIANT_SUITES " == *" $DISTRO "* ]] || {
+        log_error "Variant $VARIANT has no $DISTRO leg (suites: $VARIANT_SUITES)"
+        exit 1
+    }
+    LEG=$("$SCRIPT_DIR/ci/scripts/resolve-matrix.sh" --type Daily --kernel-variant "$VARIANT" \
+        --single-suite "$DISTRO" --matrix-file "$MATRIX_FILE" | jq -c '.[0]')
+    leg() { jq -r --arg k "$1" '.[$k] // empty' <<< "$LEG"; }
+    VARIANT_SRCPKG=$(leg srcpkg)
+
+    # The row's tag pattern serves an explicit --latest-tag too.
+    [[ -n "$(leg tag_pattern)" ]] && TAG_PATTERN=$(leg tag_pattern)
+    [[ "$REPO_SET" == true ]] || REPO=$(leg git_clone)
+    # The leg's ref, unless the caller chose one. CI clones a branch_tip or
+    # pinned_ref leg at branch_or_tag, and a latest_tag leg at the newest tag
+    # matching the pattern.
+    if [[ -z "$LOCAL_SOURCE$TAG" && "$BRANCH_SET" == false ]]; then
+        case "$(leg ref_strategy)" in
+            latest_tag) LATEST_TAG=true ;;
+            *)          BRANCH=$(leg branch_or_tag) ;;
+        esac
+    fi
+    # Reproducing an older run, or building another line's tag on purpose, is
+    # legitimate, so a tag outside the row's pattern only warns.
+    # shellcheck disable=SC2053
+    [[ -n "$TAG" && -n "$(leg tag_pattern)" && "$TAG" != $TAG_PATTERN ]] && \
+        log_warn "Tag $TAG does not match $VARIANT's tag pattern $TAG_PATTERN"
 fi
 
 # Locate docker_deb_build.py (docker mode). Building binaries from a tree goes
@@ -221,10 +296,16 @@ if [[ -n "$LOCAL_SOURCE" ]]; then
 fi
 
 log_step "Configuration:"
+[[ -n "$VARIANT" ]] && log_info "  Variant:      $VARIANT (Daily, $DISTRO), from ci/build-matrix.json"
 if [[ -n "$DSC" ]]; then
     log_info "  Source:       $DSC"
 elif [[ -n "$LOCAL_SOURCE" ]]; then
     log_info "  Source:       local ($KERNEL_DIR)"
+elif [[ -n "$VARIANT" ]]; then
+    if [[ -n "$TAG" ]]; then             log_info "  Repo:         $REPO  tag: $TAG"
+    elif [[ "$LATEST_TAG" == true ]]; then log_info "  Repo:         $REPO  latest $TAG_PATTERN tag"
+    else                                 log_info "  Repo:         $REPO  branch: $BRANCH"
+    fi
 else
     log_info "  Repo:         $REPO  branch: $BRANCH"
 fi
@@ -235,8 +316,11 @@ log_info "  Distro:       $DISTRO   mode: $BUILD_MODE"
 [[ -n "$PROFILES" ]]        && log_info "  Profiles:     $PROFILES"
 # The rest describes preparing a tree, which a .dsc has already had done.
 if [[ -z "$DSC" ]]; then
-    [[ -n "$LOCALVERSION" ]]  && log_info "  LOCALVERSION: $LOCALVERSION" \
-                              || log_info "  Flavour:      $FLAVOUR"
+    if [[ -n "$LOCALVERSION" ]]; then
+        log_info "  LOCALVERSION: $LOCALVERSION"
+    elif [[ -z "$VARIANT" || "$FLAVOUR_SET" == true ]]; then
+        log_info "  Flavour:      $FLAVOUR"
+    fi
     [[ -n "$KVER_EXTRA" ]]    && log_info "  KVER_EXTRA:   $KVER_EXTRA"
     [[ -n "$ENABLE_CONFIGS" ]]  && log_info "  Extra configs: $ENABLE_CONFIGS"
     [[ -n "$DKMS_MODULES" ]]    && log_info "  DKMS modules: $DKMS_MODULES"
@@ -255,8 +339,8 @@ elif [[ -z "$LOCAL_SOURCE" ]]; then
     # all tags). The same script CI uses, so "latest" means the same thing
     # here: the newest trailing date, not the highest kernel version.
     if [[ "$LATEST_TAG" == true ]]; then
-        log_step "Finding latest qcom-next-* tag from remote..."
-        TAG=$("$SCRIPT_DIR/ci/scripts/resolve-kernel-ref.sh" --url "$REPO" --latest-tag 'qcom-next-*')
+        log_step "Finding latest $TAG_PATTERN tag from remote..."
+        TAG=$("$SCRIPT_DIR/ci/scripts/resolve-kernel-ref.sh" --url "$REPO" --latest-tag "$TAG_PATTERN")
         log_info "Latest tag: $TAG"
     fi
 
@@ -305,12 +389,24 @@ fi
 if [[ -n "$DSC" ]]; then
     :
 elif [[ "$SKIP_PREPARE" != true ]]; then
-    PREPARE_ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO" --debian-dir "$DEBIAN_DIR"
-                  --flavour "$FLAVOUR")
-    [[ -n "$LOCALVERSION" ]]   && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
-    [[ -n "$KVER_EXTRA" ]]     && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
-    [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--kernel-config "$ENABLE_CONFIGS")
-    [[ -n "$DKMS_MODULES" ]]   && PREPARE_ARGS+=(--dkms "$DKMS_MODULES")
+    PREPARE_ARGS=(--source-dir "$KERNEL_DIR" --distro "$DISTRO" --debian-dir "$DEBIAN_DIR")
+    if [[ -n "$VARIANT" ]]; then
+        # prepare-source.sh maps the leg. Only what the caller gave goes
+        # with it, so that only those flags override the leg; the list flags
+        # go even when empty, which means "none".
+        PREPARE_ARGS+=(--variant "$VARIANT")
+        [[ "$FLAVOUR_SET" == true ]]        && PREPARE_ARGS+=(--flavour "$FLAVOUR")
+        [[ -n "$LOCALVERSION" ]]            && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
+        [[ -n "$KVER_EXTRA" ]]              && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
+        [[ "$ENABLE_CONFIGS_SET" == true ]] && PREPARE_ARGS+=(--kernel-config "$ENABLE_CONFIGS")
+        [[ "$DKMS_MODULES_SET" == true ]]   && PREPARE_ARGS+=(--dkms "$DKMS_MODULES")
+    else
+        PREPARE_ARGS+=(--flavour "$FLAVOUR")
+        [[ -n "$LOCALVERSION" ]]   && PREPARE_ARGS+=(--localversion "$LOCALVERSION")
+        [[ -n "$KVER_EXTRA" ]]     && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
+        [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--kernel-config "$ENABLE_CONFIGS")
+        [[ -n "$DKMS_MODULES" ]]   && PREPARE_ARGS+=(--dkms "$DKMS_MODULES")
+    fi
     [[ -n "$SRCPKG" ]]          && PREPARE_ARGS+=(--srcpkg "$SRCPKG")
     [[ -n "$BINPKG" ]]          && PREPARE_ARGS+=(--binpkg "$BINPKG")
     [[ -n "$DEBIAN_REVISION" ]] && PREPARE_ARGS+=(--debian-revision "$DEBIAN_REVISION")
@@ -325,6 +421,16 @@ else
         log_error "debian/control not found — did prepare-source.sh complete successfully?"
         exit 1
     }
+    # The output directory is chosen by --variant, so a tree prepared for
+    # another variant would land its packages under the wrong name.
+    if [[ -n "$VARIANT" ]]; then
+        PREPARED_SRCPKG=$(sed -n 's/^Source: *//p' "$KERNEL_DIR/debian/control" | head -n1)
+        [[ "$PREPARED_SRCPKG" == "${SRCPKG:-$VARIANT_SRCPKG}" ]] || {
+            log_error "$KERNEL_DIR is prepared as $PREPARED_SRCPKG, not ${SRCPKG:-$VARIANT_SRCPKG} ($VARIANT)"
+            log_error "Prepare it with: prepare-source.sh --source-dir $KERNEL_DIR --variant $VARIANT --distro $DISTRO"
+            exit 1
+        }
+    fi
 fi
 
 # ── Source package ───────────────────────────────────────────────────────────
@@ -334,7 +440,7 @@ if [[ "$SOURCE_PACKAGE" == true ]]; then
     "$SCRIPT_DIR/build-source-package.sh" --source-dir "$KERNEL_DIR" --output-dir "$OUTPUT_DIR"
     echo
     log_info "Build binaries from it with:"
-    log_info "  $0 --dsc $OUTPUT_DIR/$(cd "$OUTPUT_DIR" && ls -- *.dsc | tail -1) --distro $DISTRO"
+    log_info "  $0 --dsc $OUTPUT_DIR/$(cd "$OUTPUT_DIR" && ls -- *.dsc | tail -1) --distro $DISTRO${VARIANT:+ -o $OUTPUT_DIR}"
     exit 0
 fi
 
