@@ -66,7 +66,8 @@ the tag's date and the commit. See [version.md](version.md) for the scheme.
 `build-kernel.sh` clones the kernel shallowly into `kernel-source/`, copies
 `debian/` into it, derives the version from the tag the same way CI does, and
 writes the `.orig.tar.gz`, `.debian.tar.xz`, `.dsc` and `_source.changes` to
-`kernel-build/<suite>/`. It ends by printing the command for stage 2.
+`kernel-build/<suite>/`, or `kernel-build/<variant>/<suite>/` with `--variant`.
+It ends by printing the command for stage 2.
 
 This stage needs only `git`, `make` and `dpkg-dev` on the host, no Docker. The
 orig tarball is reproducible: two runs on one commit produce the same file,
@@ -82,6 +83,7 @@ These options select the source, so they go on the stage 1 command:
 
 | To build | Add |
 | --- | --- |
+| A CI leg: a variant for a suite, as the daily build makes it | `--variant qcom-7.2`, see [Matching a CI build](#matching-a-ci-build) |
 | The newest `qcom-next` tag | `--latest-tag` |
 | A specific tag | `--tag qcom-next-7.3-rc4-20261014` |
 | A branch tip | `--branch qcom-next`, which is also what you get with no tag option |
@@ -92,13 +94,8 @@ These options select the source, so they go on the stage 1 command:
 | The out-of-tree modules | `--dkms kgsl,camx,iris-vpu,audioreach` |
 | A distinct kernel release | `--kver-extra -dev`, see [Testing local kernel changes](#testing-local-kernel-changes) |
 
-- `--latest-tag` only looks at `qcom-next-*` tags. For another kernel line,
-  find its newest tag and pass it with `--tag`:
-
-  ```bash
-  ci/scripts/resolve-kernel-ref.sh --url https://github.com/qualcomm-linux/kernel --latest-tag 'qcom-7.2-*'
-  ```
-
+- `--latest-tag` looks at `qcom-next-*` tags. With `--variant` it looks at
+  the variant's own tag pattern instead, `qcom-7.2-*` for `qcom-7.2`.
 - Every fragment in `debian/config-available/` is applied to every build.
   `--kernel-config` only adds fragments beyond that set, today the in-tree
   debug fragments.
@@ -110,48 +107,45 @@ These options select the source, so they go on the stage 1 command:
 
 ### Matching a CI build
 
-CI builds one leg per row and suite in `ci/build-matrix.json`. The quick start
-matches CI's trixie build of `qcom-next` in everything but three ways:
-
-- **The out-of-tree modules.** CI builds `kgsl,camx,iris-vpu,audioreach` for
-  trixie and forky, and `kgsl` for resolute. Add the matching `--dkms` list.
-- **Package names** for every variant other than `qcom-next`.
-  `build-kernel.sh` always names the source package `linux-qcom-next` and the
-  metapackage `linux-image-qcom-next`.
-- **The Debian revision.** A local build uses `0qcom1`, CI uses the matrix
-  stub plus a per-suite suffix, for example `0qli1~bpo13+1~` for a trixie
-  daily.
-
-To reproduce a CI leg exactly, read its inputs from the matrix and pass them to
-`prepare-source.sh`, then build the source package from the prepared tree. This
-needs `jq`:
+CI builds one leg per Daily row and suite in `ci/build-matrix.json`.
+`--variant` builds the same leg: it reads the row with the resolver CI uses
+and sets the repository, the ref, the package names, the Debian revision, the
+config fragments and the `--dkms` list from it. `--distro` picks the suite,
+trixie by default. This needs `jq`.
 
 ```bash
-VARIANT=qcom-next-debug SUITE=trixie
-ROW=$(ci/scripts/resolve-matrix.sh --type Daily --kernel-variant "$VARIANT" --single-suite "$SUITE" | jq -c '.[0]')
-get() { jq -r ".$1 // empty" <<< "$ROW"; }
-
-if [[ "$(get ref_strategy)" == latest_tag ]]; then
-  REF=$(ci/scripts/resolve-kernel-ref.sh --url "$(get git_clone)" --latest-tag "$(get tag_pattern)")
-else
-  REF=$(get branch_or_tag)
-fi
-
-git clone --depth 1 --branch "$REF" "$(get git_clone)" "kernel-$VARIANT"
-./prepare-source.sh --source-dir "kernel-$VARIANT" --distro "$SUITE" \
-  --flavour "$VARIANT" \
-  --srcpkg "$(get srcpkg)" --binpkg "$(get binpkg)" \
-  --debian-revision "$(get debian_revision)" \
-  --kernel-config "$(get kernel_config)" \
-  --dkms "$(get dkms)"
-./build-kernel.sh --local-source "kernel-$VARIANT" --skip-prepare --distro "$SUITE" --source-package
+./build-kernel.sh --variant qcom-next-debug --distro forky --source-package
 ```
 
-Then run stage 2 with the command it prints. The kernel release, package names
-and version come out as CI's daily build of the same commit. The recipe reads
-the Daily row on purpose: release versions are published only by CI, and a
-local build of one would have the same name and version as the released
-package with different contents.
+The output goes to `kernel-build/qcom-next-debug/forky/`, and the stage 2
+command printed at the end writes there too. Options given explicitly win over
+the row, and `--kernel-config` or `--dkms` replace its list: `--dkms ''` builds
+no modules, `--tag` builds a tag other than the newest.
+
+To prepare a tree you manage yourself, the way CI does, give `--variant` to
+`prepare-source.sh` and build the prepared tree:
+
+```bash
+./prepare-source.sh --source-dir <dir> --variant qcom-next-debug --distro forky
+./build-kernel.sh --variant qcom-next-debug --distro forky --local-source <dir> --skip-prepare --source-package
+```
+
+With `--skip-prepare`, `--variant` only chooses the output directory, and
+refuses a tree prepared for another variant.
+
+The kernel release, package names and version come out as CI's daily build of
+the same commit. A few inputs are not in the matrix and can still differ:
+
+| Input | Locally | To match a given CI run |
+| --- | --- | --- |
+| The tag | The newest when you run it | `--tag` with the tag from the run's log |
+| The packaging | Your `pkg-linux-qcom` checkout | Check out the commit the run built |
+| Build-Depends (stage 2) | The builder image and the native recipe use the `qli` repository | Debian dailies build on Debusine against `qli` and `qli-staging`, so a `-dkms` version still in staging is not picked up locally |
+| PR inputs | Not used | The PR build's `--kver-extra -pr<N>` and patches are not reproduced |
+
+Only Daily rows are read, on purpose: release versions are published only by
+CI, and a local build of one would have the same name and version as the
+released package with different contents.
 
 ## Stage 2: the binary packages
 
@@ -171,7 +165,8 @@ repositories the out-of-tree modules' `-dkms` packages come from.
 
 The first build for a suite also builds that image from the Dockerfile in
 `docker-pkg-build`, because the published image is not publicly pullable. That
-takes about 6 minutes and 2 GB, once per suite.
+takes about 6 minutes and 2 GB, once per suite. `docker-pkg-build` has images
+for trixie, forky and resolute.
 
 ### Native
 
