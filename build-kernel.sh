@@ -61,6 +61,11 @@ OPTIONS:
                             Results in: 7.0.0-rc2+qcom-next-20260312-g07f50dc44edd-mybuild
                             Useful for CI build IDs or local user builds.
 
+  Package naming (passed to prepare-source.sh, which owns the defaults):
+    --srcpkg NAME           Source package name
+    --binpkg NAME           Binary metapackage name
+    --debian-revision REV   Debian revision component of the package version
+
   Build control:
     -d, --distro DISTRO     Target distro: trixie|forky|sid|unstable|resolute|questing
                             (default: $DEFAULT_DISTRO)
@@ -119,6 +124,7 @@ DISTRO="$DEFAULT_DISTRO"; BUILD_MODE="$DEFAULT_BUILD_MODE"; FLAVOUR="$DEFAULT_FL
 LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
 LOCAL_SOURCE=""; ENABLE_CONFIGS=""; SKIP_PREPARE=false
 DKMS_MODULES=""; DSC=""; SOURCE_PACKAGE=false
+SRCPKG=""; BINPKG=""; DEBIAN_REVISION=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -137,6 +143,9 @@ while [[ $# -gt 0 ]]; do
         --flavour)          FLAVOUR="$2";       shift 2 ;;
         --localversion)     LOCALVERSION="$2";  shift 2 ;;
         --kver-extra)       KVER_EXTRA="$2";    shift 2 ;;
+        --srcpkg)           SRCPKG="$2";        shift 2 ;;
+        --binpkg)           BINPKG="$2";        shift 2 ;;
+        --debian-revision)  DEBIAN_REVISION="$2"; shift 2 ;;
         --profiles)         PROFILES="$2";      shift 2 ;;
         --kernel-config)    ENABLE_CONFIGS="$2"; shift 2 ;;
         --dkms)             DKMS_MODULES="$2";  shift 2 ;;
@@ -231,6 +240,9 @@ if [[ -z "$DSC" ]]; then
     [[ -n "$KVER_EXTRA" ]]    && log_info "  KVER_EXTRA:   $KVER_EXTRA"
     [[ -n "$ENABLE_CONFIGS" ]]  && log_info "  Extra configs: $ENABLE_CONFIGS"
     [[ -n "$DKMS_MODULES" ]]    && log_info "  DKMS modules: $DKMS_MODULES"
+    [[ -n "$SRCPKG" ]]          && log_info "  Source pkg:   $SRCPKG"
+    [[ -n "$BINPKG" ]]          && log_info "  Binary pkg:   $BINPKG"
+    [[ -n "$DEBIAN_REVISION" ]] && log_info "  Debian rev:   $DEBIAN_REVISION"
     [[ "$SKIP_PREPARE" == true ]] && log_info "  Skip prepare: yes (source already prepared by prepare-source.sh)"
 fi
 echo
@@ -299,6 +311,9 @@ elif [[ "$SKIP_PREPARE" != true ]]; then
     [[ -n "$KVER_EXTRA" ]]     && PREPARE_ARGS+=(--kver-extra "$KVER_EXTRA")
     [[ -n "$ENABLE_CONFIGS" ]] && PREPARE_ARGS+=(--kernel-config "$ENABLE_CONFIGS")
     [[ -n "$DKMS_MODULES" ]]   && PREPARE_ARGS+=(--dkms "$DKMS_MODULES")
+    [[ -n "$SRCPKG" ]]          && PREPARE_ARGS+=(--srcpkg "$SRCPKG")
+    [[ -n "$BINPKG" ]]          && PREPARE_ARGS+=(--binpkg "$BINPKG")
+    [[ -n "$DEBIAN_REVISION" ]] && PREPARE_ARGS+=(--debian-revision "$DEBIAN_REVISION")
     "$SCRIPT_DIR/prepare-source.sh" "${PREPARE_ARGS[@]}"
 else
     log_info "Skipping source preparation (--skip-prepare set)."
