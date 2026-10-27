@@ -8,7 +8,7 @@ name: build-debusine
 # kernel_variant and suite so parallel variants cannot share inputs or outputs.
 #
 # Publish path is determined by target-workspace:
-#   target-workspace == ''  -> daily path: download .deb files, upload to S3.
+#   target-workspace == ''  -> daily path: upload the .deb files to S3.
 #   target-workspace != ''  -> release path: promote from CI workspace to the
 #                              target Debusine workspace via qli-ci lib/release.
 #
@@ -18,8 +18,8 @@ name: build-debusine
 #
 # Jobs:
 #   build   (debusine-pkg-builder container): submits prepare's .dsc to Debusine.
-#   publish (self-hosted runner): S3 upload (daily path only).
-#   image   (self-hosted runner): qcom-deb-images build with the kernel (daily path only).
+#   publish (self-hosted runner): fetches the .deb files; S3 upload (daily path only).
+#   image   (self-hosted runner): qcom-deb-images build with the kernel.
 #   release (debusine-pkg-builder container): Debusine promotion (release path only).
 
 on:
@@ -153,13 +153,13 @@ jobs:
           echo "Debusine Workspace URL: $WORKSPACE_URL" >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
-  # publish: download .deb files from Debusine and upload to S3.
-  # Daily path only (target-workspace is empty).
+  # publish: download .deb files from Debusine for the image job, and upload
+  # them to S3 on the daily path (target-workspace is empty).
   # ---------------------------------------------------------------------------
   publish:
     name: Publish to S3
     needs: build
-    if: ${{ needs.build.result == 'success' && inputs.target-workspace == '' }}
+    if: ${{ needs.build.result == 'success' }}
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     # Reads the built packages out of Debusine over HTTP; pulls no image.
     permissions:
@@ -219,6 +219,7 @@ jobs:
           retention-days: 7
 
       - name: Upload .deb packages to S3
+        if: ${{ inputs.target-workspace == '' }}
         uses: qualcomm-linux/upload-private-artifact-action@4940e9327cd7386acdb908b61c714c079b7d754b # aws-v4
         with:
           s3_bucket: ${{ vars.ARTIFACT_S3_BUCKET }}
@@ -227,12 +228,11 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # image: build a qcom-deb-images disk image with the kernel publish fetched.
-  # Daily path only (target-workspace is empty).
   # ---------------------------------------------------------------------------
   image:
     name: Build Debian image
     needs: [build, publish]
-    if: ${{ needs.publish.result == 'success' && inputs.target-workspace == '' }}
+    if: ${{ needs.publish.result == 'success' }}
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     permissions:
       contents: read  # actions/checkout
