@@ -166,6 +166,15 @@ Release is the controlled promotion path.
   counts as a change, so it releases the ref reverted to.
 - Before merge, `release-dry-run.yml` builds the same variants from the PR's
   new ref, chosen by the same script, and promotes nothing.
+- `ci/scripts/propose-release-bump.py` prepares that PR: it bumps every
+  Release row whose Daily row has a newer tag and commits that on a local
+  `bump/<timestamp>` branch, after showing the diff and asking. It then asks
+  again before pushing the branch and opening the PR with `gh`; `--no-push`
+  stops after the commit. Run it by hand, not from a workflow, so the PR
+  triggers `release-dry-run.yml`. The PR merges once the required checks
+  pass and it is approved, unless `--no-auto-merge`; `--dry-run` only shows
+  the diff. `--variant qcom-next[,...]` bumps only those variants, so the PR
+  does not overlap another open one.
 - A manual run uses one **Release scope** for a kernel variant:
   - **Selected variant (all suites)** promotes every configured Release suite
     for that variant.
