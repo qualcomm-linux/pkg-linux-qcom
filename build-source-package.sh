@@ -186,7 +186,8 @@ log_step "Writing $ORIG from commit $COMMIT_SHA..."
 # --format=tar piped through gzip rather than --format=tar.gz: git's own
 # gzip is also deterministic, but this spells out which compressor decides
 # the bytes. The bytes depend on the gzip implementation, so every build
-# that must agree on a checksum runs this in the same builder image.
+# that must agree on a checksum runs this with GNU gzip, whose -9n output is
+# the same from 1.9 to 1.14.
 git -C "$SOURCE_DIR" archive --format=tar --prefix="${PKG}-${UPSTREAM_VER}/" "$COMMIT_SHA" \
     | gzip -9n > "$ORIG.tmp"
 mv "$ORIG.tmp" "$ORIG"
