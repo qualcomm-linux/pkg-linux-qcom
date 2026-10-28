@@ -198,14 +198,11 @@ jobs:
     env:
       KERNEL_URL: ${{ inputs.git-clone || inputs.kernel-url || 'https://github.com/qualcomm-linux/kernel' }}
       DISTRO: ${{ inputs.suite || 'trixie' }}
-      # For Debian-family suites (trixie, forky, sid) use trixie as the docker
-      # image distro: docker-pkg-build and pkg-builder only support trixie for
-      # Debian, and publish no forky image. That costs nothing, because
-      # Debusine handles the actual suite-specific build; this container only
-      # runs prepare-source.sh, which generates packaging rather than
-      # compiling anything. For Ubuntu-family suites (noble, resolute) use the
-      # real suite.
-      DOCKER_DISTRO: ${{ (inputs.suite == 'forky' || inputs.suite == 'sid' || inputs.suite == 'unstable') && 'trixie' || inputs.suite || 'trixie' }}
+      # The builder image for the suite, so each leg's source package is made
+      # by its own suite's dpkg-dev. sid and unstable use trixie:
+      # docker-pkg-build publishes no sid image, and this container only
+      # prepares the source, while Debusine does the suite-specific build.
+      DOCKER_DISTRO: ${{ (inputs.suite == 'sid' || inputs.suite == 'unstable') && 'trixie' || inputs.suite || 'trixie' }}
       KERNEL_DIR: ${{ github.workspace }}/kernel-source
 
     defaults:
@@ -229,13 +226,13 @@ jobs:
           # No -x: REGISTRY_TOKEN is in env.
           set -euo pipefail
           # qualcomm-linux/docker-pkg-build's container-build-and-upload.yml
-          # builds trixie, noble and resolute, validates each with a test
-          # package build, and pushes them on every push to main and weekly,
-          # so rebuilding them here from the same Dockerfile repeats work
-          # already done. The package is not public, so the pull needs a
+          # builds trixie, forky, noble and resolute, validates each with a
+          # test package build, and pushes them on every push to main and
+          # weekly, so rebuilding them here from the same Dockerfile repeats
+          # work already done. The package is not public, so the pull needs a
           # login even though the image is only ever read.
           case "$DOCKER_DISTRO" in
-            trixie|noble|resolute)
+            trixie|forky|noble|resolute)
               echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
               docker pull "ghcr.io/qualcomm-linux/pkg-builder:$DOCKER_DISTRO"
               echo "source=pull" >> "$GITHUB_OUTPUT"
@@ -500,8 +497,10 @@ jobs:
         # The .orig.tar.gz, .dsc and .changes the binary build starts from,
         # whichever path builds it. Built here, in the same container that
         # ran prepare-source.sh, because the runner host has no dpkg-dev and
-        # because the orig's bytes depend on the gzip that wrote them: every
-        # build that must agree on a checksum writes its orig in this image.
+        # because the orig's bytes depend on the gzip that wrote them. Legs
+        # that share an orig, such as trixie and forky released into qli,
+        # write it in their own images, so they rely on each image shipping
+        # GNU gzip, whose -9n output is the same from 1.9 to 1.14.
         #
         # git is told to trust the checkout, which the runner owns and the
         # container reads as root; the checkout is this job's own clone. The
