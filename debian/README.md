@@ -665,7 +665,6 @@ Fragments here mirror
 [`kernel-configs/`](https://github.com/qualcomm-linux/qcom-deb-images/tree/main/kernel-configs)
 in qcom-deb-images, which is the upstream source of truth. Content is kept
 verbatim so drift is a plain diff; only the SPDX header is added locally.
-`squashfs.config` is specific to this repository and has no upstream counterpart.
 
 **Fragments (all applied):**
 
@@ -673,13 +672,15 @@ verbatim so drift is a plain diff; only the SPDX header is added locally.
 |----------|----------|----------|
 | `arduino-accessories.config` | `VIDEO_OV5647` | Accessories used with Arduino boards (camera sensors, displays) |
 | `docker.config` | Namespaces, cgroups, nftables, netfilter, overlay FS, VXLAN, AppArmor | Builds targeting Docker/container workloads |
+| `incus.config` | Namespaces, cgroups, KVM, vhost/vsock, VFIO, virtio, overlay FS, Btrfs, device mapper | Incus hosts running system containers and VMs |
 | `monza.config` | `SENSORS_EMC2305`, `LEDS_PCA963X`, `SENSORS_INA2XX`, `SND_SOC_MAX98090`, `POWER_SEQUENCING_PCIE_M2` | Monza devboards |
 | `qcom-imsdk.config` | DMABUF heaps | Multimedia/camera pipelines (Qualcomm IMSDK) |
-| `qcom-laptops.config` | `POWER_SEQUENCING_PCIE_M2` | Qualcomm laptops (M.2 pwrseq driver) |
+| `qcom-laptops.config` | `POWER_SEQUENCING_PCIE_M2`, `DRM_SIMPLE_BRIDGE`, `QCOM_SPEL`, `VIDEO_OV02C10`, `HID_ASUS`, Bluetooth LE/RFCOMM/BNEP, `UHID`, `INPUT_UINPUT`; disables `DMABUF_DEBUG` | Qualcomm laptops |
 | `qemu-boot.config` | `SCSI_VIRTIO`, `DRM_VIRTIO_GPU` | QEMU test builds |
-| `squashfs.config` | `SQUASHFS` with XZ, LZO, ZLIB and LZ4 compression and xattrs | Ubuntu compatibility; local to this repository |
+| `squashfs.config` | `SQUASHFS` with XZ, LZO, ZLIB and LZ4 compression and xattrs | Ubuntu compatibility |
 | `systemd-boot.config` | `CONFIG_EFI_ZBOOT=y` | EFI systems using systemd-boot |
 | `usb-can.config` | slcan, gs_usb, peak_usb | USB CAN adapter demos/testing |
+| `watchdog.config` | `QCOM_WDT=y` | Pick up the already-running apps watchdog early on Qualcomm platforms |
 
 **In-tree fragments.** `--kernel-config` carries fragments applied *in addition*
 to the set above. Today that means fragments shipped by the kernel source,
