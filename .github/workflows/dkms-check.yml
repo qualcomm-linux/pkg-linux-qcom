@@ -1,0 +1,148 @@
+name: dkms-check
+
+# Reusable workflow: build a candidate DKMS package's module against the kernels
+# in qli, one job per Release matrix leg of the suite that lists the module. No
+# kernel is built, so this needs no Debusine build and no secrets beyond the
+# image pull. See ci/scripts/check-dkms-module.sh.
+#
+# A source package with no -dkms binary, or none in the matrix for this suite,
+# has nothing to check and passes.
+
+on:
+  workflow_call:
+    inputs:
+      suite:
+        description: 'Suite the candidate is built for (e.g. trixie)'
+        type: string
+        required: true
+      source-package-artifact:
+        description: 'Name of the artifact in this run holding the candidate source package'
+        type: string
+        required: true
+      pkg-linux-qcom-ref:
+        description: 'Ref of pkg-linux-qcom supplying the matrix and scripts'
+        type: string
+        default: main
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # configure-matrix: the legs of this suite that list a module of this package.
+  # ---------------------------------------------------------------------------
+  configure-matrix:
+    name: Configure DKMS check matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout pkg-linux-qcom
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: qualcomm-linux/pkg-linux-qcom
+          ref: ${{ inputs.pkg-linux-qcom-ref }}
+
+      - name: Download source package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.source-package-artifact }}
+          path: candidate
+
+      - name: Generate matrix
+        id: set-matrix
+        env:
+          SUITE: ${{ inputs.suite }}
+        run: |
+          set -euo pipefail
+          MODULES=$(sed -n 's/^Binary: //p' candidate/*.dsc | tr ',' '\n' | tr -d ' ' \
+            | sed -n 's/-dkms$//p' | jq -Rsc 'split("\n") | map(select(length > 0))')
+          # Release rows, not Daily ones: this builds against the kernels in
+          # qli, and a Release row with target_workspace qli is the matrix
+          # saying a kernel is published there. The two sets of rows carry the
+          # same variants and differ only in their suites, so this selects the
+          # same legs while skipping a suite that is built daily but never
+          # published, which has no kernel to compile against. It also keeps
+          # the two dkms lists' meanings apart when they disagree: adding a
+          # module to a Daily row trials it in the daily, adding it to the
+          # Release row turns this check on for it.
+          #
+          # The guard is what keeps resolve-matrix.sh from erroring on a suite
+          # it has no legs for; the select below is what drops a leg released
+          # to some other workspace.
+          LEGS='[]'
+          if jq -e --arg suite "$SUITE" \
+            '[.deliveries[]
+              | select(.type == "Release" and .target_workspace == "qli")
+              | .suites[]] | index($suite)' \
+            ci/build-matrix.json >/dev/null; then
+            LEGS=$(ci/scripts/resolve-matrix.sh --type Release --single-suite "$SUITE")
+          fi
+          MATRIX=$(jq -nc --argjson modules "$MODULES" --argjson legs "$LEGS" \
+            '[$modules[] as $m | $legs[]
+              | select(.target_workspace == "qli")
+              | select(.dkms | split(",") | index($m))
+              | {module: $m, kernel_variant, binpkg}]')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Modules: $MODULES"
+          echo "Legs: $MATRIX"
+          # Selecting nothing is a pass, so say why, or a green check reads as
+          # a check that ran.
+          if [[ "$MATRIX" == '[]' ]]; then
+            if [[ "$MODULES" == '[]' ]]; then
+              REASON="the source package declares no -dkms binary"
+            elif [[ "$LEGS" == '[]' ]]; then
+              REASON="no kernel is published to qli for $SUITE"
+            else
+              REASON="no kernel published for $SUITE lists $(jq -r 'join(", ")' <<< "$MODULES")"
+            fi
+            echo "::notice title=No DKMS legs::Nothing to check: $REASON."
+            echo "Nothing to check for \`$SUITE\`: $REASON." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # check: bundle-dkms-modules.sh against one kernel, in the suite's builder.
+  # ---------------------------------------------------------------------------
+  check:
+    name: ${{ matrix.module }} / ${{ matrix.kernel_variant }} / ${{ inputs.suite }}
+    needs: configure-matrix
+    if: ${{ needs.configure-matrix.outputs.matrix != '[]' }}
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/pkg-builder
+    container:
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite }}
+      options: --user 0:0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.configure-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout pkg-linux-qcom
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: qualcomm-linux/pkg-linux-qcom
+          ref: ${{ inputs.pkg-linux-qcom-ref }}
+
+      - name: Download source package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.source-package-artifact }}
+          path: candidate
+
+      - name: Build the module against the kernel in qli
+        env:
+          MODULE: ${{ matrix.module }}
+          BINPKG: ${{ matrix.binpkg }}
+        run: |
+          set -euo pipefail
+          ci/scripts/check-dkms-module.sh --dsc "$(ls candidate/*.dsc)" --module "$MODULE" --binpkg "$BINPKG"
