@@ -157,7 +157,7 @@ jobs:
   # ---------------------------------------------------------------------------
   resolve:
     name: Resolve suite family
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Classifies the suite from its inputs alone: no checkout, no image.
     permissions: {}
     outputs:
