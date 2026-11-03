@@ -46,7 +46,7 @@ jobs:
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure release dry-run matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read  # actions/checkout
     outputs:
