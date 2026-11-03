@@ -19,8 +19,11 @@ jobs:
   # configure-matrix: flatten the Daily rows from the PR's build-matrix.json.
   #
   # The PR head, not the merge commit: a push mid-run must not change what this
-  # run tested. A SHA also resolves for fork PRs, whose head branch does not
-  # exist in this repository.
+  # run tested.
+  #
+  # GitHub gives a pull request from a fork none of this repository's secrets
+  # or variables, so every Debusine and S3 step would fail without saying why.
+  # Fail here instead, and tell the contributor to push to this repository.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -30,6 +33,14 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: Refuse pull requests from forks
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          echo "::error title=Pull request from a fork::This pull request comes from $HEAD_REPO. GitHub does not pass secrets or variables to pull requests from forks, so the Debusine and S3 builds cannot run. Push the branch to $GITHUB_REPOSITORY instead of a fork and open the pull request from there; ask a maintainer for write access if you do not have it."
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
