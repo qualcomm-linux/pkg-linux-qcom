@@ -11,22 +11,18 @@ In general, contributors should develop on branches based off of `main` and pull
 ## Submitting a pull request
 
 1. Please read our [code of conduct](CODE-OF-CONDUCT.md) and [license](LICENSE.txt).
-1. [Fork](https://github.com/qualcomm-linux/pkg-linux-qcom/fork) and clone the repository.
+1. Clone the repository.
 
     ```bash
-    git clone https://github.com/<username>/pkg-linux-qcom.git
+    git clone https://github.com/qualcomm-linux/pkg-linux-qcom.git
     ```
+
+    Push your branch to this repository rather than to a fork. GitHub does not pass this repository's secrets or variables to pull requests from forks, so their CI builds cannot run and fail with an error asking you to push here instead. If you do not have write access, ask a maintainer for it.
 
 1. Create a new branch based on `main`:
 
     ```bash
     git checkout -b <my-branch-name> main
-    ```
-
-1. Create an upstream `remote` to make it easier to keep your branches up-to-date:
-
-    ```bash
-    git remote add upstream https://github.com/qualcomm-linux/pkg-linux-qcom.git
     ```
 
 1. Make your changes, add tests, and make sure the tests still pass.
@@ -39,10 +35,10 @@ In general, contributors should develop on branches based off of `main` and pull
 1. After committing your changes on the topic branch, sync it with the upstream branch:
 
     ```bash
-    git pull --rebase upstream main
+    git pull --rebase origin main
     ```
 
-1. Push to your fork.
+1. Push your branch to this repository.
 
     ```bash
     git push -u origin <my-branch-name>
