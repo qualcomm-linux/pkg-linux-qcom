@@ -1,0 +1,133 @@
+name: dkms-check-published
+
+# Run dkms-check.yml over the DKMS modules as published in qli, one call per
+# suite and module in the Release matrix rows.
+#
+# This adds no package coverage. The daily already compiles every matrix
+# module against the kernel it builds, with the same bundler and the same
+# options, and dkms-check.yml covers the other direction for a candidate
+# before it is published. What this covers is the check itself: qli-ci calls
+# dkms-check.yml at @main from every pkg-* repository, and nothing else in
+# this repository runs it or ci/scripts/check-dkms-module.sh.
+#
+# Hence the pull_request trigger as well as the schedule: a change to the
+# check should prove itself here rather than on someone else's pull request.
+
+on:
+  schedule:
+    # Well clear of daily.yml's 23:00 UTC, and off the hour, which is when
+    # GitHub's scheduler is most backed up.
+    - cron: '37 7 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/dkms-check.yml'
+      - '.github/workflows/dkms-check-published.yml'
+      - 'ci/scripts/check-dkms-module.sh'
+      - 'ci/scripts/fetch-published-dkms-source.sh'
+      - 'debian/scripts/bundle-dkms-modules.sh'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # resolve: every (suite, module) the Release rows say we publish to qli.
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve published DKMS modules
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # actions/checkout
+    outputs:
+      pairs: ${{ steps.pairs.outputs.pairs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Derive the suite and module pairs
+        id: pairs
+        run: |
+          set -euo pipefail
+          # One pair per module per suite, not per leg: dkms-check.yml expands
+          # a pair into that suite's legs itself, so both read the same rows
+          # and cannot disagree about which legs exist.
+          PAIRS=$(ci/scripts/resolve-matrix.sh --type Release \
+            | jq -c '[.[]
+                      | select(.target_workspace == "qli")
+                      | .suite as $suite
+                      | (.dkms | split(",")[])
+                      | select(length > 0)
+                      | {suite: $suite, module: .}] | unique')
+          echo "pairs=$PAIRS" >> "$GITHUB_OUTPUT"
+          echo "Pairs: $PAIRS"
+          {
+            echo "## DKMS modules published to qli"
+            echo
+            jq -r '.[] | "- `\(.module)-dkms` / \(.suite)"' <<< "$PAIRS"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # fetch: the published source package, as the candidate to check.
+  # ---------------------------------------------------------------------------
+  fetch:
+    name: Fetch ${{ matrix.module }} / ${{ matrix.suite }}
+    needs: resolve
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read  # actions/checkout
+      packages: read  # container: ghcr.io/qualcomm-linux/pkg-builder
+    container:
+      image: ghcr.io/qualcomm-linux/pkg-builder:${{ matrix.suite }}
+      options: --user 0:0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.resolve.outputs.pairs) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the published source package
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          set -euo pipefail
+          ci/scripts/fetch-published-dkms-source.sh --module "$MODULE" --outdir candidate
+
+      - name: Upload the source package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-package-${{ matrix.module }}-${{ matrix.suite }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # check: the same workflow qli-ci calls, on what is already published.
+  # ---------------------------------------------------------------------------
+  check:
+    # A fetch that fails leaves its own leg with no artifact to download, so
+    # run regardless and let the other legs report. One module missing from
+    # qli is not a reason to stop checking the rest.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    needs: [resolve, fetch]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.resolve.outputs.pairs) }}
+    uses: $/.github/workflows/dkms-check.yml
+    with:
+      suite: ${{ matrix.suite }}
+      source-package-artifact: source-package-${{ matrix.module }}-${{ matrix.suite }}
+      # The scripts and the matrix come from the commit under test, not from
+      # main, so a pull request checks its own changes.
+      pkg-linux-qcom-ref: ${{ github.event.pull_request.head.sha || github.sha }}
