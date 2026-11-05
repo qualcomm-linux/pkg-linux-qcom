@@ -191,7 +191,7 @@ jobs:
       - name: Download .deb packages from Debusine workspace
         run: |
           set -euxo pipefail
-          sudo apt-get install -y --no-install-recommends devscripts
+          sudo apt-get install -y -o DPkg::Lock::Timeout=300 --no-install-recommends devscripts
           mkdir -p "$GITHUB_WORKSPACE/deb-artifacts"
           chdist create debusine-workspace
           rm -f ~/.chdist/debusine-workspace/etc/apt/sources.list
