@@ -142,10 +142,10 @@ variant is a two-row matrix change, not a workflow redesign.
 Daily is the recurring build and artifact-publication path.
 
 - The scheduled run resolves the full `Daily` matrix.
-- A manual run selects one **Build scope**:
-  - **Full matrix** builds every configured variant and suite.
-  - **Selected variant (all suites)** builds every configured suite for one variant.
-  - **Selected variant and suite** builds one isolated matrix leg.
+- A manual run builds the Daily rows for one **kernel-variant**, or for every
+  variant when it is `all`:
+  - with **suite** left blank, every configured Daily suite for that variant;
+  - with **suite** set, only that suite, one isolated matrix leg.
 - `latest_tag` resolves the newest matching dated tag; `branch_tip` resolves
   the configured branch directly.
 - Debian suites build in Debusine, then their `.deb` outputs are downloaded and
