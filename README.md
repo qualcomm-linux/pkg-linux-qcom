@@ -166,11 +166,10 @@ Release is the controlled promotion path.
   counts as a change, so it releases the ref reverted to.
 - Before merge, `release-dry-run.yml` builds the same variants from the PR's
   new ref, chosen by the same script, and promotes nothing.
-- A manual run uses one **Release scope** for a kernel variant:
-  - **Selected variant (all suites)** promotes every configured Release suite
-    for that variant.
-  - **Selected variant and suite** promotes one configured Release suite for
-    that variant when a targeted action is required.
+- A manual run promotes the Release rows for one **kernel-variant**:
+  - with **suite** left blank, every configured Release suite for that
+    variant;
+  - with **suite** set, only that suite, when a targeted action is required.
 - It uses the pinned `branch_or_tag` from the selected `Release` matrix row; it
   never resolves a newest tag.
 - Debian source and binary artifacts are built in per-variant, per-suite
