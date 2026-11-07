@@ -15,7 +15,8 @@ name: release
 # the matrix starts a release. Every run still waits for approval in the
 # Production environment before building and again before promoting.
 #
-# Manual dispatch remains for releasing without a ref change and for retries.
+# Manual dispatch remains for releasing without a ref change and for retries,
+# for one variant or, with kernel-variant "all", every variant.
 # There is intentionally no schedule trigger.
 
 on:
@@ -24,24 +25,19 @@ on:
     paths:
       - ci/build-matrix.json
   workflow_dispatch:
+    # No scope choice: GitHub cannot hide one input depending on another, so
+    # a scope dropdown always showed a suite field that some scopes ignored.
+    # A blank suite means every suite instead.
     inputs:
-      release-scope:
-        description: 'Choose all suites for one variant or one variant and suite'
-        type: choice
-        required: true
-        default: 'Selected variant (all suites)'
-        options:
-          - 'Selected variant (all suites)'
-          - 'Selected variant and suite'
       kernel-variant:
-        description: 'Kernel variant to release'
+        description: 'Kernel variant to release, or "all" for every variant'
         required: true
-        default: 'qcom-next'
+        default: 'all'
         type: string
       suite:
-        description: 'Target suite to release (used only for Selected variant and suite)'
-        required: true
-        default: 'trixie'
+        description: 'Suite to release (leave blank for all suites of the variant)'
+        required: false
+        default: ''
         type: string
 
 # No concurrency group, deliberately. GitHub keeps at most one queued run per
@@ -77,7 +73,6 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
-          RELEASE_SCOPE_INPUT: ${{ github.event.inputs.release-scope }}
           INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
           INPUT_SUITE: ${{ github.event.inputs.suite }}
         run: |
@@ -105,22 +100,17 @@ jobs:
             exit 0
           fi
 
-          RELEASE_SCOPE="$RELEASE_SCOPE_INPUT"
-
-          case "$RELEASE_SCOPE" in
-            "Selected variant (all suites)")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
-              args=(--type Release --kernel-variant "$INPUT_VARIANT")
-              ;;
-            "Selected variant and suite")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
-              args=(--type Release --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
-              ;;
-            *)
-              echo "ERROR: unsupported release scope: $RELEASE_SCOPE" >&2
-              exit 1
-              ;;
-          esac
+          # "all" leaves the variant unfiltered. It is spelled out rather
+          # than taken from a blank field so that releasing everything is
+          # never the result of an input left empty by mistake.
+          args=(--type Release)
+          if [[ "$INPUT_VARIANT" != "all" ]]; then
+            args+=(--kernel-variant "$INPUT_VARIANT")
+          fi
+          if [[ -n "$INPUT_SUITE" ]]; then
+            args+=(--single-suite "$INPUT_SUITE")
+          fi
+          echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: ${INPUT_SUITE:-all})"
           MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
