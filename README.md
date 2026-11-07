@@ -166,7 +166,8 @@ Release is the controlled promotion path.
   counts as a change, so it releases the ref reverted to.
 - Before merge, `release-dry-run.yml` builds the same variants from the PR's
   new ref, chosen by the same script, and promotes nothing.
-- A manual run promotes the Release rows for one **kernel-variant**:
+- A manual run promotes the Release rows for one **kernel-variant**, or for
+  every variant when it is `all`:
   - with **suite** left blank, every configured Release suite for that
     variant;
   - with **suite** set, only that suite, when a targeted action is required.
