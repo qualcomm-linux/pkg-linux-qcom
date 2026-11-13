@@ -11,6 +11,14 @@ takes its packaging and its CI scripts from the same commit.
 To build the packages locally, see
 [docs/local-build.md](docs/local-build.md).
 
+## CI Status
+
+| Workflow | Status |
+| -------- | ------ |
+| Daily builds | [![daily][daily-badge]][daily] |
+| Release builds | [![release][release-badge]][release] |
+| DKMS check of published modules | [![dkms-check-published][dkms-check-published-badge]][dkms-check-published] |
+
 ## Overview
 
 The CI model is matrix-driven. This single repository can deliver multiple
@@ -556,3 +564,13 @@ requirements.
 
 pkg-linux-qcom is licensed under the BSD 3-Clause License. See
 [LICENSE.txt](LICENSE.txt).
+
+<!-- link targets for the CI status badges at the top of this file; each
+     workflow needs two: the shields.io image and the Actions page it links to -->
+
+[daily]: https://github.com/qualcomm-linux/pkg-linux-qcom/actions/workflows/daily.yml?query=branch%3Amain+event%3Aschedule
+[daily-badge]: https://img.shields.io/github/actions/workflow/status/qualcomm-linux/pkg-linux-qcom/daily.yml?label=daily&branch=main&event=schedule
+[release]: https://github.com/qualcomm-linux/pkg-linux-qcom/actions/workflows/release.yml?query=branch%3Amain
+[release-badge]: https://img.shields.io/github/actions/workflow/status/qualcomm-linux/pkg-linux-qcom/release.yml?label=release&branch=main
+[dkms-check-published]: https://github.com/qualcomm-linux/pkg-linux-qcom/actions/workflows/dkms-check-published.yml?query=branch%3Amain+event%3Aschedule
+[dkms-check-published-badge]: https://img.shields.io/github/actions/workflow/status/qualcomm-linux/pkg-linux-qcom/dkms-check-published.yml?label=dkms-check-published&branch=main&event=schedule
