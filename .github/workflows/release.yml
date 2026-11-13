@@ -9,11 +9,14 @@ name: release
 # lib/release.
 #
 # To update a release ref: open a PR that changes the Release row for that
-# kernel variant in ci/build-matrix.json. release-dry-run.yml builds the
-# changed rows on the PR, and merging it starts this workflow for exactly the
-# variants whose branch_or_tag changed, every suite of each. Nothing else in
-# the matrix starts a release. Every run still waits for approval in the
-# Production environment before building and again before promoting.
+# kernel variant in ci/build-matrix.json, or run
+# ci/scripts/propose-release-bump.py to open one that bumps every Release row
+# to its newest tag (it merges once checks pass and it is approved).
+# release-dry-run.yml builds the changed rows on the PR, and merging it starts
+# this workflow for exactly the variants whose branch_or_tag changed, every
+# suite of each. Nothing else in the matrix starts a release. Every run still
+# waits for approval in the Production environment before building and again
+# before promoting.
 #
 # Manual dispatch remains for releasing without a ref change and for retries.
 # There is intentionally no schedule trigger.
