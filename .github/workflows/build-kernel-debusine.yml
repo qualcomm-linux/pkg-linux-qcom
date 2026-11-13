@@ -65,7 +65,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build (Debusine)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read  # actions/checkout
       packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
@@ -224,7 +224,7 @@ jobs:
     name: Release to Debusine
     needs: build
     if: ${{ needs.build.result == 'success' && inputs.target-workspace != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read  # actions/checkout
       packages: read  # container: ghcr.io/qualcomm-linux/debusine-pkg-builder
