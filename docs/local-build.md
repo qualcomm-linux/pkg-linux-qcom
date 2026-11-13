@@ -83,7 +83,7 @@ These options select the source, so they go on the stage 1 command:
 
 | To build | Add |
 | --- | --- |
-| A CI leg: a variant for a suite, as the daily build makes it | `--variant qcom-7.2`, see [Matching a CI build](#matching-a-ci-build) |
+| A CI leg: a variant for a suite, as the daily build makes it | `--variant qcom-7.3`, see [Matching a CI build](#matching-a-ci-build) |
 | The newest `qcom-next` tag | `--latest-tag` |
 | A specific tag | `--tag qcom-next-7.3-rc4-20261014` |
 | A branch tip | `--branch qcom-next`, which is also what you get with no tag option |
@@ -95,7 +95,7 @@ These options select the source, so they go on the stage 1 command:
 | A distinct kernel release | `--kver-extra -dev`, see [Testing local kernel changes](#testing-local-kernel-changes) |
 
 - `--latest-tag` looks at `qcom-next-*` tags. With `--variant` it looks at
-  the variant's own tag pattern instead, `qcom-7.2-*` for `qcom-7.2`.
+  the variant's own tag pattern instead, `qcom-7.3-*` for `qcom-7.3`.
 - Every fragment in `debian/config-available/` is applied to every build.
   `--kernel-config` only adds fragments beyond that set, today the in-tree
   debug fragments.
