@@ -11,6 +11,14 @@ takes its packaging and its CI scripts from the same commit.
 To build the packages locally, see
 [docs/local-build.md](docs/local-build.md).
 
+## CI Status
+
+| Workflow | Status |
+| -------- | ------ |
+| Daily builds | [![daily][daily-badge]][daily] |
+| Release builds | [![release][release-badge]][release] |
+| DKMS check of published modules | [![dkms-check-published][dkms-check-published-badge]][dkms-check-published] |
+
 ## Overview
 
 The CI model is matrix-driven. This single repository can deliver multiple
@@ -28,8 +36,8 @@ isolated `kernel_variant + suite` build leg.
 |---------|----------------|-------------------|--------------|----------------|-------|
 | `qcom-next` | `linux-qcom-next` | `linux-image-qcom-next` | trixie, forky, resolute | trixie, forky | Standard kernel |
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
-| `qcom-7.2` | `linux-qcom-7.2` | `linux-image-qcom-7.2` | trixie | trixie | Builds the newest `qcom-7.2-*` tag (Daily) and a pinned `qcom-7.2-*` tag (Release); same DKMS modules as `qcom-next` on trixie |
-| `qcom-7.2-debug` | `linux-qcom-7.2-debug` | `linux-image-qcom-7.2-debug` | trixie | trixie | As `qcom-7.2`, plus the same debug fragments as `qcom-next-debug` |
+| `qcom-7.3` | `linux-qcom-7.3` | `linux-image-qcom-7.3` | trixie | trixie | Builds the newest `qcom-7.3-*` tag (Daily) and a pinned `qcom-7.3-*` tag (Release); same DKMS modules as `qcom-next` on trixie |
+| `qcom-7.3-debug` | `linux-qcom-7.3-debug` | `linux-image-qcom-7.3-debug` | trixie | trixie | As `qcom-7.3`, plus the same debug fragments as `qcom-next-debug` |
 
 Each debug variant builds the same kernel ref as its standard variant.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
@@ -300,9 +308,9 @@ flowchart TD
 
     subgraph matrix[Matrix entry points]
         B1["Daily configure-matrix\nFlatten Daily rows"]
-        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute\nqcom-next-debug / trixie · forky\nqcom-7.2 / trixie\nqcom-7.2-debug / trixie"]
+        B2["Daily variant + suite legs\nqcom-next / trixie · forky · resolute\nqcom-next-debug / trixie · forky\nqcom-7.3 / trixie\nqcom-7.3-debug / trixie"]
         B3["Release configure-matrix\nFlatten Release rows"]
-        B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\nqcom-7.2 / trixie\nqcom-7.2-debug / trixie"]
+        B4["Release variant + suite legs\nqcom-next / trixie · forky\nqcom-next-debug / trixie · forky\nqcom-7.3 / trixie\nqcom-7.3-debug / trixie"]
     end
 
     subgraph orchestrator[build-kernel-deb.yml]
@@ -556,3 +564,13 @@ requirements.
 
 pkg-linux-qcom is licensed under the BSD 3-Clause License. See
 [LICENSE.txt](LICENSE.txt).
+
+<!-- link targets for the CI status badges at the top of this file; each
+     workflow needs two: the shields.io image and the Actions page it links to -->
+
+[daily]: https://github.com/qualcomm-linux/pkg-linux-qcom/actions/workflows/daily.yml?query=branch%3Amain+event%3Aschedule
+[daily-badge]: https://img.shields.io/github/actions/workflow/status/qualcomm-linux/pkg-linux-qcom/daily.yml?label=daily&branch=main&event=schedule
+[release]: https://github.com/qualcomm-linux/pkg-linux-qcom/actions/workflows/release.yml?query=branch%3Amain
+[release-badge]: https://img.shields.io/github/actions/workflow/status/qualcomm-linux/pkg-linux-qcom/release.yml?label=release&branch=main
+[dkms-check-published]: https://github.com/qualcomm-linux/pkg-linux-qcom/actions/workflows/dkms-check-published.yml?query=branch%3Amain+event%3Aschedule
+[dkms-check-published-badge]: https://img.shields.io/github/actions/workflow/status/qualcomm-linux/pkg-linux-qcom/dkms-check-published.yml?label=dkms-check-published&branch=main&event=schedule
