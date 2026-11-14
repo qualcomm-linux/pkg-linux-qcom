@@ -240,6 +240,41 @@
       },
       "debian_version_stub": "0qli1",
       "debian_version_suffix": ""
+    },
+    {
+      "kernel_variant": "qcom-laptops",
+      "type": "Daily",
+      "suites": [
+        "trixie",
+        "forky"
+      ],
+      "git_clone": "https://github.com/linux-msm/laptops-kernel",
+      "branch_or_tag": "qcom-laptops",
+      "ref_strategy": "branch_tip",
+      "srcpkg": "linux-qcom-laptops",
+      "binpkg": "linux-image-qcom-laptops",
+      "kernel_config": [],
+      "dkms": {},
+      "debian_version_stub": "0qli1",
+      "debian_version_suffix": "~"
+    },
+    {
+      "kernel_variant": "qcom-laptops",
+      "type": "Release",
+      "target_workspace": "qli",
+      "suites": [
+        "trixie",
+        "forky"
+      ],
+      "git_clone": "https://github.com/linux-msm/laptops-kernel",
+      "branch_or_tag": "qcom-laptops",
+      "ref_strategy": "pinned_ref",
+      "srcpkg": "linux-qcom-laptops",
+      "binpkg": "linux-image-qcom-laptops",
+      "kernel_config": [],
+      "dkms": {},
+      "debian_version_stub": "0qli1",
+      "debian_version_suffix": ""
     }
   ]
 }
