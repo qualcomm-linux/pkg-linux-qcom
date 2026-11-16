@@ -1,8 +1,10 @@
 # pkg-linux-qcom
 
-CI orchestration for ARM64 Linux kernel package variants. The configured
+CI orchestration for ARM64 Linux kernel package variants. Most configured
 variants build from
-[`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel).
+[`qualcomm-linux/kernel`](https://github.com/qualcomm-linux/kernel);
+`qcom-laptops` builds from
+[`linux-msm/laptops-kernel`](https://github.com/linux-msm/laptops-kernel).
 
 This branch owns both halves of the chain: the build matrix and GitHub Actions
 workflows, and the Debian packaging tree and local packaging tools. Every build
@@ -30,6 +32,7 @@ isolated `kernel_variant + suite` build leg.
 | `qcom-next-debug` | `linux-qcom-next-debug` | `linux-image-qcom-next-debug` | trixie, forky | trixie, forky | Adds `arch/arm64/configs/qcom_debug.config` and `kernel/configs/debug.config` from the kernel source, via `intree:` entries |
 | `qcom-7.2` | `linux-qcom-7.2` | `linux-image-qcom-7.2` | trixie | trixie | Builds the newest `qcom-7.2-*` tag (Daily) and a pinned `qcom-7.2-*` tag (Release); same DKMS modules as `qcom-next` on trixie |
 | `qcom-7.2-debug` | `linux-qcom-7.2-debug` | `linux-image-qcom-7.2-debug` | trixie | trixie | As `qcom-7.2`, plus the same debug fragments as `qcom-next-debug` |
+| `qcom-laptops` | `linux-qcom-laptops` | `linux-image-qcom-laptops` | trixie, forky | trixie, forky | Builds the `qcom-laptops` branch tip of `linux-msm/laptops-kernel` for both Daily and Release (the tree has no dated tags); a Release after the first needs a manual `release.yml` dispatch; no DKMS modules |
 
 Each debug variant builds the same kernel ref as its standard variant.
 `derive-localversion.sh` folds the variant name into LOCALVERSION, so each
