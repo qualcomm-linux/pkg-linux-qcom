@@ -29,7 +29,18 @@ In general, contributors should develop on branches based off of `main` and pull
 1. Commit your changes using the [DCO](https://developercertificate.org/). You can attest to the DCO by commiting with the **-s** or **--signoff** options or manually adding the "Signed-off-by":
 
     ```bash
-    git commit -s -m "Really useful commit message"`
+    git commit -s
+    ```
+
+    Prefix the subject with the area you changed and explain in the body why the change is needed:
+
+    ```text
+    build-kernel.sh: summarise the change in at most 72 characters
+
+    Explain why the change is needed rather than only what it does,
+    wrapping lines at 72 characters.
+
+    Signed-off-by: Your Name <you@example.com>
     ```
 
 1. After committing your changes on the topic branch, sync it with the upstream branch:
@@ -69,4 +80,6 @@ Here are a few things you can do that will increase the likelihood of your pull 
 - Keep your change as focused as possible.
   If you want to make multiple independent changes, please consider submitting them as separate pull requests.
 - Write a [good commit message](https://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html).
+  The preflight checks enforce a subject of at most 72 characters, a blank
+  line after it, and a non-empty body wrapped at 72 characters.
 - It's a good idea to arrange a discussion with other developers to ensure there is consensus on large features, architecture changes, and other core code changes. PR reviews will go much faster when there are no surprises.
