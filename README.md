@@ -142,10 +142,10 @@ variant is a two-row matrix change, not a workflow redesign.
 Daily is the recurring build and artifact-publication path.
 
 - The scheduled run resolves the full `Daily` matrix.
-- A manual run selects one **Build scope**:
-  - **Full matrix** builds every configured variant and suite.
-  - **Selected variant (all suites)** builds every configured suite for one variant.
-  - **Selected variant and suite** builds one isolated matrix leg.
+- A manual run builds the Daily rows for one **kernel-variant**, or for every
+  variant when it is `all`:
+  - with **suite** left blank, every configured Daily suite for that variant;
+  - with **suite** set, only that suite, one isolated matrix leg.
 - `latest_tag` resolves the newest matching dated tag; `branch_tip` resolves
   the configured branch directly.
 - Debian suites build in Debusine, then their `.deb` outputs are downloaded and
@@ -166,11 +166,11 @@ Release is the controlled promotion path.
   counts as a change, so it releases the ref reverted to.
 - Before merge, `release-dry-run.yml` builds the same variants from the PR's
   new ref, chosen by the same script, and promotes nothing.
-- A manual run uses one **Release scope** for a kernel variant:
-  - **Selected variant (all suites)** promotes every configured Release suite
-    for that variant.
-  - **Selected variant and suite** promotes one configured Release suite for
-    that variant when a targeted action is required.
+- A manual run promotes the Release rows for one **kernel-variant**, or for
+  every variant when it is `all`:
+  - with **suite** left blank, every configured Release suite for that
+    variant;
+  - with **suite** set, only that suite, when a targeted action is required.
 - It uses the pinned `branch_or_tag` from the selected `Release` matrix row; it
   never resolves a newest tag.
 - Debian source and binary artifacts are built in per-variant, per-suite
