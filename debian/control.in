@@ -40,14 +40,17 @@ Description: Qualcomm ARM64 Linux kernel image (meta-package)
 
 Package: linux-headers-@KVER@
 Architecture: arm64
-Depends: ${misc:Depends}
+Depends: linux-base (>= 4.12~), ${shlibs:Depends}, ${misc:Depends}
+Breaks: linux-image-@KVER@ (<< ${binary:Version})
+Replaces: linux-image-@KVER@ (<< ${binary:Version})
 Provides: linux-headers, linux-headers-arm64
 Description: Qualcomm ARM64 Linux kernel headers @KVER@
  Kernel headers for building out-of-tree modules (DKMS, etc.) against
  kernel release @KVER@.
  .
- Headers are installed under /usr/src/linux-headers-@KVER@/ and the
- /usr/lib/modules/@KVER@/build symlink is pointed there.
+ Headers are installed under /usr/src/linux-headers-@KVER@/, and this
+ package ships the /usr/lib/modules/@KVER@/build and source symlinks that
+ point there, so DKMS finds them with or without the kernel image installed.
 
 Package: @HDRPKG@
 Architecture: arm64

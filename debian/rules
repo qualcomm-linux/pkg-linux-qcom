@@ -494,11 +494,10 @@ override_dh_auto_install:
 	$(MAKE) $(KBUILD_O_ARG) ARCH=$(ARCH) modules_install \
 		INSTALL_MOD_PATH=$$PKG INSTALL_MOD_STRIP=1; \
 	\
-	# Fix build/source symlinks to point at the installed headers package.
+	# modules_install points build/source at this build tree. Drop them from the
+	# image: the headers package ships them below, as Debian's does.
 	rm -f $$PKG/lib/modules/$$BASE/build; \
 	rm -f $$PKG/lib/modules/$$BASE/source; \
-	ln -sf /usr/src/linux-headers-$$BASE $$PKG/lib/modules/$$BASE/build; \
-	ln -sf /usr/src/linux-headers-$$BASE $$PKG/lib/modules/$$BASE/source; \
 	\
 	# DTBs: standard Debian location /usr/lib/linux-image-<BASE>/
 	mkdir -p $$PKG/usr/lib/linux-image-$$BASE; \
@@ -520,6 +519,12 @@ override_dh_auto_install:
 	HDRDIR="$$HDR_PKG/usr/src/linux-headers-$$BASE"; \
 	echo "Installing kernel headers to $$HDRDIR"; \
 	mkdir -p "$$HDRDIR"; \
+	# build/source links in the headers package, not the image: dkms and
+	# make -C /lib/modules/<ver>/build look for them, so they must exist
+	# whenever the headers are installed, with or without the image.
+	mkdir -p $$HDR_PKG/lib/modules/$$BASE; \
+	ln -sf /usr/src/linux-headers-$$BASE $$HDR_PKG/lib/modules/$$BASE/build; \
+	ln -sf /usr/src/linux-headers-$$BASE $$HDR_PKG/lib/modules/$$BASE/source; \
 	cp -a Makefile "$$HDRDIR/"; \
 	cp -a include "$$HDRDIR/"; \
 	cp -a scripts "$$HDRDIR/"; \
@@ -632,19 +637,21 @@ override_dh_installmodules:
 
 override_dh_installdeb:
 	# Generate versioned maintainer scripts from templates using BASE (uname -r).
-	# The binary package name is linux-image-<BASE>, derived from kernel.release.
-	# Every maintainer script is a debian/linux-image.<script>.in template with
-	# @KVER@ substituted, so each one can name its own kernel release; scripts
-	# with no template are simply not shipped.
+	# The binary package names are linux-image-<BASE> and linux-headers-<BASE>,
+	# derived from kernel.release. Every maintainer script is a
+	# debian/linux-<image|headers>.<script>.in template with @KVER@ substituted,
+	# so each one can name its own kernel release; scripts with no template are
+	# simply not shipped.
 	# dh_installmodules injects the depmod snippet at #DEBHELPER# in them.
 	@BASE=$$(cat $(KREL_FILE)); \
-	INST_PKG="linux-image-$$BASE"; \
 	\
-	for script in preinst postinst prerm postrm; do \
-		template="debian/linux-image.$$script.in"; \
-		[ -f "$$template" ] || continue; \
-		sed "s/@KVER@/$$BASE/g" "$$template" > debian/$$INST_PKG.$$script; \
-		chmod 755 debian/$$INST_PKG.$$script; \
+	for kind in image headers; do \
+		for script in preinst postinst prerm postrm; do \
+			template="debian/linux-$$kind.$$script.in"; \
+			[ -f "$$template" ] || continue; \
+			sed "s/@KVER@/$$BASE/g" "$$template" > debian/linux-$$kind-$$BASE.$$script; \
+			chmod 755 debian/linux-$$kind-$$BASE.$$script; \
+		done; \
 	done; \
 	\
 	dh_installmodules; \

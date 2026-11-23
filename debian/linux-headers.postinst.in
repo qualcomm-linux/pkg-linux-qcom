@@ -1,0 +1,24 @@
+#!/bin/sh
+# postinst for linux-headers-@KVER@
+#
+# Generated from debian/linux-headers.postinst.in by debian/rules at build time;
+# @KVER@ is substituted with the kernel release (uname -r).
+set -e
+
+KVER="@KVER@"
+
+#DEBHELPER#
+
+# Run the kernel header_postinst.d hooks. dkms ships one there, which builds
+# the registered modules for this release now that its headers are present.
+# Without it, headers installed after the image build nothing until someone
+# runs dkms by hand: the image's postinst.d hook already ran, with no headers.
+#
+# Dispatched through linux-run-hooks(1), as Debian's own linux-headers postinst
+# does, so both /etc/kernel and /usr/share/kernel are run. linux-base is a
+# dependency, so it is configured before this runs.
+if [ "$1" = "configure" ]; then
+    linux-run-hooks headers postinst "$KVER" -- "$@"
+fi
+
+exit 0
