@@ -17,6 +17,11 @@ proposed as a PR to <base> with gh, unless --no-push. With --auto-merge,
 auto-merge is armed on the PR as well. Merging that PR starts release.yml
 for the bumped variants; release-dry-run.yml builds them on the PR first.
 
+With --base-ref the worktree starts from that local ref instead, without
+fetching, so the bump can be made on top of an unmerged branch, for example
+one that changes the matrix. The PR still targets <base>, so it also carries
+that branch's commits until the branch is merged.
+
 With --variant only the named variants are bumped, so a PR for one variant
 does not overlap an open PR for another.
 
@@ -31,7 +36,8 @@ Repository settings needed for --auto-merge:
     auto-merge.
 
 Usage:
-  ci/scripts/propose-release-bump.py [--variant NAME[,NAME...]]
+  ci/scripts/propose-release-bump.py [--base-ref REF]
+                                     [--variant NAME[,NAME...]]
                                      [--no-push] [--auto-merge]
                                      [--dry-run] [--yes]
   ci/scripts/propose-release-bump.py --matrix-path PATH
@@ -42,7 +48,10 @@ Options:
   --remote NAME       Remote to fetch <base> from and push to (default:
                       origin).
   --base BRANCH       Branch to bump and open the PR against (default: main).
-  --branch NAME       Branch to commit on (default: bump/<UTC timestamp>).
+  --base-ref REF      Local ref to start the worktree from instead of
+                      <remote>/<base>; nothing is fetched.
+  --branch NAME       New branch to commit on (default:
+                      bump/<UTC timestamp>).
   --variant NAME[,NAME...]
                       Only bump the Release rows of these kernel variants
                       (exact names, so qcom-next does not include
@@ -54,7 +63,9 @@ Options:
                       default it is not armed.
   --dry-run           Show what would change (the diff, in the worktree
                       mode); commit, push and write nothing.
-  --matrix-path PATH  Only bump PATH in place: no worktree, git or gh.
+  --matrix-path PATH  Only bump PATH in place: no worktree, git or gh, so
+                      it cannot be combined with --base-ref, --branch,
+                      --no-push or --auto-merge.
   -y, --yes           Do not ask before committing, before pushing and
                       opening the PR, or before writing PATH.
 
@@ -307,13 +318,19 @@ def propose(args):
             run(["gh", "auth", "status", "--hostname", "github.com"],
                 capture=True)
 
-    step(f"Fetching {args.remote}/{args.base}")
-    run(["git", "fetch", "-q", args.remote, args.base])
+    if args.base_ref:
+        start = args.base_ref
+        step(f"Checking {start}")
+        run(["git", "rev-parse", "-q", "--verify", f"{start}^{{commit}}"],
+            capture=True)
+    else:
+        start = f"{args.remote}/{args.base}"
+        step(f"Fetching {start}")
+        run(["git", "fetch", "-q", args.remote, args.base])
     with tempfile.TemporaryDirectory(prefix="release-bump-") as tmp:
         wt = Path(tmp) / "wt"
-        step(f"Creating a temporary worktree of {args.remote}/{args.base}")
-        run(["git", "worktree", "add", "-q", "--detach", str(wt),
-             f"{args.remote}/{args.base}"])
+        step(f"Creating a temporary worktree of {start}")
+        run(["git", "worktree", "add", "-q", "--detach", str(wt), start])
         try:
             path = wt / MATRIX_REL_PATH
             base = load_matrix(path)
@@ -361,17 +378,28 @@ def main():
         epilog="See the header of this script for details.")
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--base", default="main")
+    parser.add_argument("--base-ref")
     parser.add_argument("--branch")
     parser.add_argument(
         "--variant", type=lambda s: [v for v in s.split(",") if v])
-    parser.add_argument("--push", action=argparse.BooleanOptionalAction,
-                        default=True)
-    parser.add_argument("--auto-merge", action=argparse.BooleanOptionalAction,
-                        default=False)
+    # None until given, so --matrix-path can tell it was passed.
+    parser.add_argument("--push", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--auto-merge", action=argparse.BooleanOptionalAction)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--matrix-path", type=Path)
     parser.add_argument("-y", "--yes", action="store_true")
     args = parser.parse_args()
+
+    if args.matrix_path:
+        given = [opt for opt, val in (
+            ("--base-ref", args.base_ref), ("--branch", args.branch),
+            ("--[no-]push", args.push), ("--[no-]auto-merge", args.auto_merge),
+        ) if val is not None]
+        if given:
+            parser.error(f"--matrix-path does not commit or push; "
+                         f"drop {', '.join(given)}")
+    args.push = args.push is not False
+    args.auto_merge = bool(args.auto_merge)
 
     try:
         if args.matrix_path:

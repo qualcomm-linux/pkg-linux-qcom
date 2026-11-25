@@ -182,7 +182,9 @@ Release is the controlled promotion path.
   triggers `release-dry-run.yml`. With `--auto-merge` the PR merges once
   the required checks pass and it is approved; `--dry-run` only shows the
   diff. `--variant qcom-next[,...]` bumps only those variants, so the PR
-  does not overlap another open one.
+  does not overlap another open one. The bump starts from `origin/main`;
+  `--base-ref <branch>` starts it from a local branch instead, such as one
+  with an unmerged matrix change.
 - A manual run uses one **Release scope** for a kernel variant:
   - **Selected variant (all suites)** promotes every configured Release suite
     for that variant.
