@@ -94,7 +94,7 @@ These options select the source, so they go on the stage 1 command:
 | The out-of-tree modules | `--dkms kgsl,camx,iris-vpu,audioreach` |
 | A distinct kernel release | `--kver-extra -dev`, see [Testing local kernel changes](#testing-local-kernel-changes) |
 
-- `--latest-tag` looks at `qcom-next-*` tags. With `--variant` it looks at
+- `--latest-tag` looks at `qcom-next-[0-9]*` tags. With `--variant` it looks at
   the variant's own tag pattern instead, `qcom-7.3-[0-9]*` for `qcom-7.3`.
 - Every fragment in `debian/config-available/` is applied to every build.
   `--kernel-config` only adds fragments beyond that set, today the in-tree

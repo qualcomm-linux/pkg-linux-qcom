@@ -29,7 +29,7 @@ on:
       tag-pattern:
         description: 'Tag glob used only by latest_tag (ignored for branch_tip and pinned_ref)'
         required: false
-        default: 'qcom-next-*'
+        default: 'qcom-next-[0-9]*'
       kernel-url:
         description: 'Advanced: custom kernel repository URL (empty uses qualcomm-linux/kernel)'
         required: false
@@ -99,7 +99,7 @@ on:
       tag-pattern:
         description: 'Tag glob used when ref-strategy=latest_tag'
         type: string
-        default: 'qcom-next-*'
+        default: 'qcom-next-[0-9]*'
       srcpkg:
         description: 'Source package name'
         type: string
@@ -266,7 +266,7 @@ jobs:
         env:
           BRANCH_INPUT: ${{ inputs.kernel-branch || 'qcom-next' }}
           REF_STRATEGY_INPUT: ${{ inputs.ref-strategy || 'latest_tag' }}
-          TAG_PATTERN_INPUT: ${{ inputs.tag-pattern || 'qcom-next-*' }}
+          TAG_PATTERN_INPUT: ${{ inputs.tag-pattern || 'qcom-next-[0-9]*' }}
           KERNEL_VARIANT_INPUT: ${{ inputs.kernel-variant || 'qcom-next' }}
         run: |
           set -euo pipefail

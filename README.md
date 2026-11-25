@@ -72,7 +72,7 @@ The final Production matrix is conceptually:
       "git_clone": "https://github.com/qualcomm-linux/kernel",
       "branch_or_tag": "qcom-next",
       "ref_strategy": "latest_tag",
-      "tag_pattern": "qcom-next-*",
+      "tag_pattern": "qcom-next-[0-9]*",
       "srcpkg": "linux-qcom-next",
       "binpkg": "linux-image-qcom-next",
       "kernel_config": [],
@@ -484,7 +484,7 @@ The available inputs are:
 | `suite` | `trixie` | Target suite. |
 | `ref-strategy` | `latest_tag` | `latest_tag`, `branch_tip`, or `pinned_ref`. |
 | `kernel-branch` | `qcom-next` | Branch for `branch_tip`, or immutable ref for `pinned_ref`; ignored by `latest_tag`. |
-| `tag-pattern` | `qcom-next-*` | Tag glob for `latest_tag`; ignored by `branch_tip` and `pinned_ref`. |
+| `tag-pattern` | `qcom-next-[0-9]*` | Tag glob for `latest_tag`; ignored by `branch_tip` and `pinned_ref`. |
 | `kernel-url` | `qualcomm-linux/kernel` | Advanced alternate kernel repository. |
 | `srcpkg` | `linux-qcom-next` | Advanced source package identity override. |
 | `binpkg` | `linux-image-qcom-next` | Advanced image metapackage identity override. |
