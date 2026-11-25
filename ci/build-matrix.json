@@ -148,7 +148,7 @@
       "git_clone": "https://github.com/qualcomm-linux/kernel",
       "branch_or_tag": "qcom-7.3",
       "ref_strategy": "latest_tag",
-      "tag_pattern": "qcom-7.3-*",
+      "tag_pattern": "qcom-7.3-[0-9]*",
       "srcpkg": "linux-qcom-7.3",
       "binpkg": "linux-image-qcom-7.3",
       "kernel_config": [],
@@ -196,7 +196,7 @@
       "git_clone": "https://github.com/qualcomm-linux/kernel",
       "branch_or_tag": "qcom-7.3",
       "ref_strategy": "latest_tag",
-      "tag_pattern": "qcom-7.3-*",
+      "tag_pattern": "qcom-7.3-[0-9]*",
       "srcpkg": "linux-qcom-7.3-debug",
       "binpkg": "linux-image-qcom-7.3-debug",
       "kernel_config": [
