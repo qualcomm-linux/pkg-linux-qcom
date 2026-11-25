@@ -48,7 +48,7 @@ OPTIONS:
   Source selection (mutually exclusive):
     --local-source DIR      Use existing local kernel source (skip clone/fetch)
     -t, --tag TAG           Checkout specific tag
-    -l, --latest-tag        Select the latest qcom-next-* tag automatically
+    -l, --latest-tag        Select the latest qcom-next-[0-9]* tag automatically
                             (with --variant, the latest tag matching its row)
     -b, --branch BRANCH     Branch to use (default: $DEFAULT_BRANCH)
     -r, --repo URL          Kernel repository URL (default: $DEFAULT_REPO)
@@ -144,7 +144,7 @@ LOCALVERSION=""; KVER_EXTRA=""; PROFILES=""; CLEAN=false
 LOCAL_SOURCE=""; ENABLE_CONFIGS=""; SKIP_PREPARE=false
 DKMS_MODULES=""; DSC=""; SOURCE_PACKAGE=false
 SRCPKG=""; BINPKG=""; DEBIAN_REVISION=""
-VARIANT=""; TAG_PATTERN='qcom-next-*'
+VARIANT=""; TAG_PATTERN='qcom-next-[0-9]*'
 # Whether each flag a matrix leg also sets was given, so that --variant can
 # tell an explicit value, empty included, from the default.
 FLAVOUR_SET=false; ENABLE_CONFIGS_SET=false; DKMS_MODULES_SET=false
