@@ -22,7 +22,7 @@ name: Release Dry Run
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ HACK-disabled-while-testing ]
 
 concurrency:
   group: release-dry-run-${{ github.event.number }}
