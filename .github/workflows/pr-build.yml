@@ -4,7 +4,7 @@ name: PR Build
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ HACK-disabled-while-testing ]
 
 concurrency:
   group: pr-build-${{ github.event.number }}
