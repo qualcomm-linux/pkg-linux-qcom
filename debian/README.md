@@ -698,6 +698,7 @@ verbatim so drift is a plain diff; only the SPDX header is added locally.
 | `disk-encryption.config` | `DM_CRYPT`, `DM_UEVENT`, AF_ALG skcipher and hash interfaces | LUKS volumes opened with cryptsetup or systemd-cryptsetup |
 | `docker.config` | Namespaces, cgroups, nftables, netfilter, overlay FS, VXLAN, AppArmor | Builds targeting Docker/container workloads |
 | `incus.config` | Namespaces, cgroups, KVM, vhost/vsock, VFIO, virtio, overlay FS, Btrfs, device mapper | Incus hosts running system containers and VMs |
+| `installer.config` | `ISO9660_FS`, `JOLIET`, `ZISOFS` | The qcom-deb-images installer, an iso-hybrid image |
 | `monza.config` | `SENSORS_EMC2305`, `LEDS_PCA963X`, `SENSORS_INA2XX`, `SND_SOC_MAX98090`, `POWER_SEQUENCING_PCIE_M2` | Monza devboards |
 | `qcom-imsdk.config` | DMABUF heaps | Multimedia/camera pipelines (Qualcomm IMSDK) |
 | `qcom-laptops.config` | `POWER_SEQUENCING_PCIE_M2`, `DRM_SIMPLE_BRIDGE`, `QCOM_SPEL`, `VIDEO_OV02C10`, `HID_ASUS`, Bluetooth LE/RFCOMM/BNEP, `UHID`, `INPUT_UINPUT`; disables `DMABUF_DEBUG` | Qualcomm laptops |
