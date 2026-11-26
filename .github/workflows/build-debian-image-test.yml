@@ -9,6 +9,9 @@ name: build-debian-image-test
 # installs them from there rather than from APT.
 
 on:
+  push:
+    branches:
+      - wip/obbardc/build-debian-image
   workflow_dispatch:
 
 permissions: {}
