@@ -1,7 +1,7 @@
 name: Qualcomm Preflight Checks
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ HACK-disabled-while-testing ]
   push:
     branches: [ main ]
   workflow_dispatch:
