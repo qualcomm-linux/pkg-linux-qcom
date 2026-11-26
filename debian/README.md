@@ -695,6 +695,7 @@ verbatim so drift is a plain diff; only the SPDX header is added locally.
 | Fragment | Contents | Use case |
 |----------|----------|----------|
 | `arduino-accessories.config` | `VIDEO_OV5647` | Accessories used with Arduino boards (camera sensors, displays) |
+| `disk-encryption.config` | `DM_CRYPT`, `DM_UEVENT`, AF_ALG skcipher and hash interfaces | LUKS volumes opened with cryptsetup or systemd-cryptsetup |
 | `docker.config` | Namespaces, cgroups, nftables, netfilter, overlay FS, VXLAN, AppArmor | Builds targeting Docker/container workloads |
 | `incus.config` | Namespaces, cgroups, KVM, vhost/vsock, VFIO, virtio, overlay FS, Btrfs, device mapper | Incus hosts running system containers and VMs |
 | `monza.config` | `SENSORS_EMC2305`, `LEDS_PCA963X`, `SENSORS_INA2XX`, `SND_SOC_MAX98090`, `POWER_SEQUENCING_PCIE_M2` | Monza devboards |
