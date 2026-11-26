@@ -1,0 +1,54 @@
+name: debos-hello-test
+
+# HACK: smoke test debos + fakemachine on the self-hosted arm64 runner.
+
+on:
+  push:
+    branches:
+      - wip/obbardc/build-debian-image
+  #pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  debos-hello:
+    name: debos hello in fakemachine
+    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    permissions:
+      contents: read
+    container:
+      image: public.ecr.aws/debian/debian:forky
+      options: --privileged
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install debos
+        run: |
+          set -euxo pipefail
+          apt-get update
+          apt-get install -y debos
+          debos --version
+          uname -a
+          ls -l /dev/kvm || true
+
+      - name: Write recipe
+        run: |
+          cat > hello.yaml <<'EOF'
+          architecture: arm64
+
+          actions:
+            - action: run
+              description: Say hello
+              chroot: false
+              command: echo "hello from fakemachine"; uname -a
+          EOF
+
+      - name: debos (auto backend)
+        continue-on-error: true
+        run: debos --memory 1GiB --scratchsize 1GiB hello.yaml
+
+      - name: debos (qemu backend)
+        continue-on-error: true
+        run: debos -b qemu --scratchsize 1GiB hello.yaml
