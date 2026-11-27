@@ -5,12 +5,13 @@ name: Release Dry Run
 #
 # pr-build.yml only builds Daily rows, which resolve the newest tag, so it
 # never builds the ref a Release row pins. When a PR changes a Release row's
-# branch_or_tag, this builds every suite of that variant from the new ref, so
-# a green PR shows the release will build before merging starts it.
+# version (its branch_or_tag or debian_version_stub), this builds every suite
+# of that variant as the row now describes it, so a green PR shows the
+# release will build before merging starts it.
 #
 # The variants are chosen by ci/scripts/changed-release-variants.sh, the same
 # script release.yml uses on push, so this dry-runs exactly what the merge
-# releases. A PR that changes no Release ref builds nothing.
+# releases. A PR that changes no Release version builds nothing.
 #
 # This is its own workflow rather than more legs in pr-build.yml because a
 # run's artifacts share one namespace: a Release leg and a Daily leg for the
@@ -34,7 +35,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: the Release rows whose branch_or_tag this PR changes.
+  # configure-matrix: the Release rows whose version this PR changes.
   #
   # Compared from the merge base, not the base branch tip, so a ref that moved
   # on main after this PR branched isn't mistaken for a change made here. The
@@ -86,7 +87,7 @@ jobs:
           done < <(jq -r '.[]' <<< "$VARIANTS")
 
           if [[ "$MATRIX" == '[]' ]]; then
-            echo "This PR changes no Release branch_or_tag; nothing to dry-run."
+            echo "This PR changes no Release version; nothing to dry-run."
           fi
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"

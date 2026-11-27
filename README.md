@@ -139,7 +139,7 @@ variant is a two-row matrix change, not a workflow redesign.
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
 | `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
-| `release.yml` | Resolves and runs the Release matrix. | Push to `main` that changes a Release `branch_or_tag`, or manual dispatch. |
+| `release.yml` | Resolves and runs the Release matrix. | Push to `main` that changes a Release version (`branch_or_tag` or `debian_version_stub`), or manual dispatch. |
 | `release-dry-run.yml` | Builds the Release rows a PR changes, promoting nothing. | Pull requests to `main`. |
 | `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily and Release. |
 | `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes Releases. | Called by `build-kernel-deb.yml`. |
@@ -165,13 +165,17 @@ Daily is the recurring build and artifact-publication path.
 
 Release is the controlled promotion path.
 
-- Merging a change to a Release row's `branch_or_tag` releases that variant:
-  a push to `main` touching `ci/build-matrix.json` starts `release.yml` for
-  every suite of each variant whose Release `branch_or_tag` changed.
-  `ci/scripts/changed-release-variants.sh` decides which variants those are by
-  comparing the parsed matrix before and after the push. Other matrix changes,
-  including other fields of a Release row, release nothing. Reverting a ref
-  counts as a change, so it releases the ref reverted to.
+- Merging a change to a Release row's version releases that variant: a push
+  to `main` touching `ci/build-matrix.json` starts `release.yml` for every
+  suite of each variant whose Release version changed. The version is the
+  row's `branch_or_tag` (upstream) and `debian_version_stub` (Debian
+  revision), plus the `suite_suffix_mapping` entry of each of its suites, so
+  adding a suite also counts. `ci/scripts/changed-release-variants.sh`
+  decides which variants those are by comparing the parsed matrix before and
+  after the push. Other matrix changes, including other fields of a Release
+  row, release nothing, because the packages would collide with the version
+  already released. Reverting a ref counts as a change, so it releases the
+  ref reverted to.
 - Before merge, `release-dry-run.yml` builds the same variants from the PR's
   new ref, chosen by the same script, and promotes nothing.
 - A manual run uses one **Release scope** for a kernel variant:
