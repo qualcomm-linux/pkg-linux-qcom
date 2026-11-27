@@ -140,7 +140,7 @@ variant is a two-row matrix change, not a workflow redesign.
 | --- | --- | --- |
 | `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
 | `release.yml` | Resolves and runs the Release matrix. | Push to `main` that changes a Release version (`branch_or_tag` or `debian_version_stub`), or manual dispatch. |
-| `release-dry-run.yml` | Builds the Release rows a PR changes, promoting nothing. | Pull requests to `main`. |
+| `release-dry-run.yml` | Builds the Release rows a PR changes, promoting nothing, and comments on the PR with what merging it releases. | Pull requests to `main`. |
 | `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily and Release. |
 | `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes Releases. | Called by `build-kernel-deb.yml`. |
 | `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
@@ -176,8 +176,13 @@ Release is the controlled promotion path.
   row, release nothing, because the packages would collide with the version
   already released. Reverting a ref counts as a change, so it releases the
   ref reverted to.
-- Before merge, `release-dry-run.yml` builds the same variants from the PR's
-  new ref, chosen by the same script, and promotes nothing.
+- Before merge, `release-dry-run.yml` builds the same variants as the PR
+  describes them, chosen by the same script, and promotes nothing. It also
+  comments on the PR with the variants, suites, refs and Debian revisions
+  merging it releases, and warns about any Release row the PR changes
+  without changing its version. Every run posts a fresh comment, saying
+  "releases nothing" if that is the case, and hides the previous one as
+  outdated.
 - A manual run uses one **Release scope** for a kernel variant:
   - **Selected variant (all suites)** promotes every configured Release suite
     for that variant.
