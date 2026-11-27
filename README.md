@@ -139,8 +139,8 @@ variant is a two-row matrix change, not a workflow redesign.
 | Workflow | Purpose | Trigger |
 | --- | --- | --- |
 | `daily.yml` | Resolves and runs the Daily matrix. | Scheduled daily at `23:00 UTC`, or manual dispatch. |
-| `release.yml` | Resolves and runs the Release matrix. | Push to `main` that changes a Release `branch_or_tag`, or manual dispatch. |
-| `release-dry-run.yml` | Builds the Release rows a PR changes, promoting nothing. | Pull requests to `main`. |
+| `release.yml` | Resolves and runs the Release matrix. | Push to `main` that changes a Release version (`branch_or_tag` or `debian_version_stub`), or manual dispatch. |
+| `release-dry-run.yml` | Builds the Release rows a PR changes, promoting nothing, and comments on the PR with what merging it releases. | Pull requests to `main`. |
 | `build-kernel-deb.yml` | Reusable orchestrator for one kernel variant and suite. | Manual dispatch or called by Daily and Release. |
 | `build-kernel-debusine.yml` | Builds Debian suites in Debusine and either publishes Daily artifacts or promotes Releases. | Called by `build-kernel-deb.yml`. |
 | `build-kernel-ubuntu.yml` | Builds Ubuntu-family suites with the Docker path. | Called by `build-kernel-deb.yml`. |
@@ -165,15 +165,25 @@ Daily is the recurring build and artifact-publication path.
 
 Release is the controlled promotion path.
 
-- Merging a change to a Release row's `branch_or_tag` releases that variant:
-  a push to `main` touching `ci/build-matrix.json` starts `release.yml` for
-  every suite of each variant whose Release `branch_or_tag` changed.
-  `ci/scripts/changed-release-variants.sh` decides which variants those are by
-  comparing the parsed matrix before and after the push. Other matrix changes,
-  including other fields of a Release row, release nothing. Reverting a ref
-  counts as a change, so it releases the ref reverted to.
-- Before merge, `release-dry-run.yml` builds the same variants from the PR's
-  new ref, chosen by the same script, and promotes nothing.
+- Merging a change to a Release row's version releases it: a push
+  to `main` touching `ci/build-matrix.json` starts `release.yml` for each
+  suite whose Release version changed. The version is the row's
+  `branch_or_tag` (upstream) and `debian_version_stub` (Debian revision),
+  which apply to every suite of the row, plus the `suite_suffix_mapping`
+  entry of each suite, which applies to that suite alone. So changing one
+  suite's suffix, or adding a suite, releases only that suite.
+  `ci/scripts/changed-release-variants.sh` decides which suites those are by
+  comparing the parsed matrix before and after the push. Other matrix
+  changes, including other fields of a Release row, release nothing, because
+  the packages would collide with the version already released. Reverting a
+  ref counts as a change, so it releases the ref reverted to.
+- Before merge, `release-dry-run.yml` builds the same suites as the PR
+  describes them, chosen by the same script, and promotes nothing. It also
+  comments on the PR with the variants, suites, refs and Debian revisions
+  merging it releases, and warns about any Release row the PR changes
+  without changing its version. Every run posts a fresh comment, saying
+  "releases nothing" if that is the case, and hides the previous one as
+  outdated.
 - A manual run uses one **Release scope** for a kernel variant:
   - **Selected variant (all suites)** promotes every configured Release suite
     for that variant.
@@ -193,6 +203,42 @@ Release is the controlled promotion path.
 Direct `build-kernel-deb.yml` dispatches are build-only. Release promotion is
 initiated exclusively by `release.yml`, which owns the target workspace and
 production release controls.
+
+#### Releasing without changing the upstream ref
+
+A release needs a version that `qli` has not had. With the upstream ref
+unchanged, only the Debian revision can provide one, so a change that should
+ship with the same kernel source needs a bump of the Release row's
+`debian_version_stub`. That applies to:
+
+- packaging changes under `debian/`;
+- CI or build script changes that alter what is built;
+- changes outside this repository, such as a new version of a DKMS module or
+  a new build image;
+- edits to a Release row that leave its version alone, such as its `dkms` or
+  `kernel_config`. The dry-run comment on the PR warns about these.
+
+None of these releases anything on its own. To release one:
+
+1. In the variant's Release row in `ci/build-matrix.json`, bump the trailing
+   digit of `debian_version_stub`, for example from `0qli1` to `0qli2`. Leave
+   the Daily row alone: each row has its own stub.
+2. Open a PR with the bump, either alongside the change itself or once it has
+   merged. The dry-run builds every suite of the variant, and its PR comment
+   lists the revisions merging releases, for example `0qli2~bpo13+1` for
+   trixie.
+3. Merge it. `release.yml` releases every suite of the variant, after the
+   usual Production approvals. The new revision sorts above the one already in
+   `qli`, so apt offers it as an upgrade (see
+   [docs/version.md](docs/version.md#ordering)).
+
+Bump again (`0qli3`, ...) for each further rebuild of the same ref. When the
+Release ref moves to a new upstream tag, set the stub back to `0qli1`.
+
+A manual dispatch of `release.yml` builds the row as it stands. Use it to
+retry a failed release or to release a version that was never promoted to
+`qli`, not to rebuild a version that was: that collides with the packages
+already there.
 
 ## Matrix Model
 
@@ -217,7 +263,7 @@ its own values for:
 | `binpkg` | Kernel image metapackage name. |
 | `kernel_config` | Extra fragments applied on top of `debian/config-available/`, all of which is applied to every build, one per array element. A bare name selects `debian/config-available/<name>.config`; an `intree:` entry names a fragment shipped by the kernel source, as a path relative to the kernel source root (e.g. `intree:arch/arm64/configs/qcom_debug.config`), so it stays versioned with the kernel it targets. Empty for variants that need nothing beyond `config-available/`; today it carries only `intree:` fragments. `resolve-matrix.sh` joins it into the comma-separated `kernel-config` workflow input. |
 | `dkms` | Out-of-tree DKMS modules built against this kernel, as an object keyed by suite, each entry a list of modules named as the stem of their `<name>-dkms` package (e.g. `kgsl`). Each module produces its own `<name>-modules-<kernelrelease>` package plus an unversioned `<binpkg>-modules-<name>` metapackage, rather than being installed into the image; a non-empty list also produces one `<binpkg>-modules` metapackage covering them all. A suite's entry is optional: a suite with no entry, and `{}` itself, builds nothing. An empty list does the same for the suite it names. A listed module is a presence contract: a build fails rather than publishing without it. There is no default or fallback, so suites that can't build a given module (e.g. an Ubuntu-family suite lacking a package) simply list less, or omit an entry entirely. `resolve-matrix.sh` joins the resolved leg's suite into the comma-separated `dkms` workflow input; see [debian/README.md](debian/README.md) for what the packaging does with it. |
-| `debian_version_stub` | Base Debian revision, shared by a variant's Daily and Release rows. Must not end in `~`; the suite suffix is derived, not stored here. |
+| `debian_version_stub` | Base Debian revision for this row. A variant's Daily and Release rows each have their own, so a Release can be respun without touching the Daily. Must not end in `~`; the suite suffix is derived, not stored here. |
 | `debian_version_suffix` | `~` for Daily rows, empty for Release rows. Documents the delivery-type half of the revision formula on the row itself; `resolve-matrix.sh` rejects a row where this disagrees with `type`, but derivation always computes this suffix from `type`, never reads this field. |
 | `localversion`, `kver_extra` | Optional version overrides forwarded to packaging. |
 | `debusine_parent_workspace` | Optional parent workspace override for the variant's CI child workspaces. |
@@ -229,8 +275,7 @@ The resolver selects the most recent trailing `YYYYMMDD` date, and rejects
 duplicate suites and malformed variant identifiers before any build jobs
 start. It also rejects a matrix where any configured suite has no
 `suite_suffix_mapping` entry, where two suites share the same suffix, where a
-suffix is non-empty and doesn't start with `~`, where a variant's Daily
-and Release rows disagree on `debian_version_stub`, where a row's
+suffix is non-empty and doesn't start with `~`, where a row's
 `debian_version_suffix` doesn't match what its `type` implies, or where a
 row's `dkms` object names a suite that isn't in `suites` — all before any
 build job starts.
@@ -528,8 +573,8 @@ To add a kernel variant:
    `Daily` and one `Release`.
 2. Define all package identity, source/ref strategy, configuration,
    `debian_version_stub`, and suite values in both rows. Do not rely on
-   another variant's values. `srcpkg`, `binpkg`, and `debian_version_stub`
-   must remain identical across the pair. Set `debian_version_suffix` to `~`
+   another variant's values. `srcpkg` and `binpkg` must remain identical
+   across the pair. Set `debian_version_suffix` to `~`
    on the Daily row and `""` on the Release row; `resolve-matrix.sh` rejects
    the pair if either disagrees with its row's `type`.
 3. Use `latest_tag` with a dated tag glob or `branch_tip` for Daily. Use

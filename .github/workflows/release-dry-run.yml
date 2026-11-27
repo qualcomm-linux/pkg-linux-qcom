@@ -5,12 +5,17 @@ name: Release Dry Run
 #
 # pr-build.yml only builds Daily rows, which resolve the newest tag, so it
 # never builds the ref a Release row pins. When a PR changes a Release row's
-# branch_or_tag, this builds every suite of that variant from the new ref, so
-# a green PR shows the release will build before merging starts it.
+# version (its branch_or_tag, debian_version_stub or a suite's suffix), this
+# builds the suites whose version changed as the row now describes them, so a
+# green PR shows the release will build before merging starts it.
 #
-# The variants are chosen by ci/scripts/changed-release-variants.sh, the same
+# The legs are chosen by ci/scripts/changed-release-variants.sh, the same
 # script release.yml uses on push, so this dry-runs exactly what the merge
-# releases. A PR that changes no Release ref builds nothing.
+# releases. A PR that changes no Release version builds nothing.
+#
+# What merging will release is also posted as a comment on the PR on each
+# run, together with a warning for any Release row the PR changes without
+# changing its version, which merging cannot release.
 #
 # This is its own workflow rather than more legs in pr-build.yml because a
 # run's artifacts share one namespace: a Release leg and a Daily leg for the
@@ -34,7 +39,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # configure-matrix: the Release rows whose branch_or_tag this PR changes.
+  # configure-matrix: the Release rows whose version this PR changes.
   #
   # Compared from the merge base, not the base branch tip, so a ref that moved
   # on main after this PR branched isn't mistaken for a change made here. The
@@ -51,6 +56,7 @@ jobs:
       contents: read  # actions/checkout
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      report: ${{ steps.set-matrix.outputs.report }}
     steps:
       - name: Refuse pull requests from forks
         if: github.event.pull_request.head.repo.full_name != github.repository
@@ -76,20 +82,107 @@ jobs:
           set -euo pipefail
 
           MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
-          VARIANTS=$(ci/scripts/changed-release-variants.sh \
+          LEGS=$(ci/scripts/changed-release-variants.sh \
             --base "$MERGE_BASE" --head "$HEAD_SHA")
 
+          # A Release row that changed without a version change can't be
+          # released, as it would collide with the version already out. Say so,
+          # rather than let it look like it shipped. The names come from the
+          # matrix, so keep them to characters that can't break the annotation.
+          UNRELEASED=$(ci/scripts/changed-release-variants.sh \
+            --base "$MERGE_BASE" --head "$HEAD_SHA" --unreleased)
+          jq -r 'def safe: gsub("[^A-Za-z0-9_.+-]"; "?");
+            to_entries[]
+            | "::warning title=Release row changed without a version bump::\(.key | safe): \(.value | map(safe) | join(", ")) changed, but the Release version did not, so merging this releases nothing for it. Bump debian_version_stub on the Release row to release it."
+          ' <<< "$UNRELEASED"
+
           MATRIX='[]'
-          while IFS= read -r variant; do
-            LEGS=$(ci/scripts/resolve-matrix.sh --type Release --kernel-variant "$variant")
-            MATRIX=$(jq -c --argjson legs "$LEGS" '. + $legs' <<< "$MATRIX")
-          done < <(jq -r '.[]' <<< "$VARIANTS")
+          while IFS=$'\t' read -r variant suite; do
+            LEG=$(ci/scripts/resolve-matrix.sh --type Release \
+              --kernel-variant "$variant" --single-suite "$suite")
+            MATRIX=$(jq -c --argjson leg "$LEG" '. + $leg' <<< "$MATRIX")
+          done < <(jq -r '.[] | [.kernel_variant, .suite] | @tsv' <<< "$LEGS")
 
           if [[ "$MATRIX" == '[]' ]]; then
-            echo "This PR changes no Release branch_or_tag; nothing to dry-run."
+            echo "This PR changes no Release version; nothing to dry-run."
           fi
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
+
+          # The report the report job posts on the PR, and the job summary.
+          # Matrix values come from the PR, so they are quoted as code with
+          # anything that could end the quote or the table cell replaced.
+          REPORT=$(
+            echo "### Release dry run"
+            echo
+            if [[ "$MATRIX" == '[]' ]]; then
+              echo "Merging this PR releases nothing."
+            else
+              echo "Merging this PR releases:"
+              echo
+              jq -r 'def cell: "`" + (tostring | gsub("[`|\n]"; "?")) + "`";
+                "| Variant | Suite | Ref | Debian revision |",
+                "| --- | --- | --- | --- |",
+                (.[] | "| \(.kernel_variant | cell) | \(.suite | cell) | \(.branch_or_tag | cell) | \(.debian_revision | cell) |")
+              ' <<< "$MATRIX"
+            fi
+            if [[ "$UNRELEASED" != '{}' ]]; then
+              echo
+              echo "> [!WARNING]"
+              echo "> These Release rows change, but their version does not, so merging this releases nothing for them. Bump \`debian_version_stub\` on the Release row to release them."
+              echo ">"
+              jq -r 'def code: "`" + (tostring | gsub("[`\n]"; "?")) + "`";
+                to_entries[] | "> - \(.key | code): \(.value | map(code) | join(", "))"
+              ' <<< "$UNRELEASED"
+            fi
+            echo
+            echo "<sub>Compared with the merge base ${MERGE_BASE:0:12} at ${HEAD_SHA:0:12}.</sub>"
+          )
+          echo "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+          DELIMITER="EOF_$(openssl rand -hex 16)"
+          {
+            echo "report<<$DELIMITER"
+            echo "$REPORT"
+            echo "$DELIMITER"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # report: post what merging this PR will release as a comment on it, on
+  # every run, including "releases nothing", so the PR always says what its
+  # merge does.
+  #
+  # Its own job so the pull-requests write permission is not given to the job
+  # that runs code from the PR. Pull requests from forks never get here, as
+  # configure-matrix refuses them.
+  # ---------------------------------------------------------------------------
+  report:
+    name: Report what merging releases
+    needs: configure-matrix
+    runs-on: ubuntu-26.04
+    permissions:
+      pull-requests: write  # comment on the PR
+    steps:
+      # The report comes from the PR's matrix, so it reaches the file
+      # through the environment and is never expanded into the script.
+      - name: Prepare PR comment
+        env:
+          REPORT: ${{ needs.configure-matrix.outputs.report }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$REPORT" > pr-comment.txt
+          cat pr-comment.txt
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          path: pr-comment.txt
+          # post a fresh comment on every run (GitHub only notifies on
+          # comment creation) and minimize the previous one as outdated
+          # instead of deleting it, keeping the history collapsed
+          header: release-dry-run
+          hide_and_recreate: true
+          hide_classify: OUTDATED
 
   # ---------------------------------------------------------------------------
   # build: one parallel job per changed Release leg, built as release.yml would

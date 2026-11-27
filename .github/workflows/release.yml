@@ -8,14 +8,17 @@ name: release
 # workspace to the stable target workspace (e.g. qli) via qli-ci
 # lib/release.
 #
-# To update a release ref: open a PR that changes the Release row for that
-# kernel variant in ci/build-matrix.json. release-dry-run.yml builds the
-# changed rows on the PR, and merging it starts this workflow for exactly the
-# variants whose branch_or_tag changed, every suite of each. Nothing else in
-# the matrix starts a release. Every run still waits for approval in the
-# Production environment before building and again before promoting.
+# To release: open a PR that changes the version of the Release row for that
+# kernel variant in ci/build-matrix.json, that is its branch_or_tag or its
+# debian_version_stub. release-dry-run.yml builds the changed rows on the PR,
+# and merging it starts this workflow for exactly the variants whose Release
+# version changed, every suite of each. A matrix change that leaves the
+# version alone releases nothing, since it would collide with the version
+# already released. Every run still waits for approval in the Production
+# environment before building and again before promoting.
 #
-# Manual dispatch remains for releasing without a ref change and for retries.
+# Manual dispatch remains for retries and for a version that was never
+# promoted.
 # There is intentionally no schedule trigger.
 
 on:
@@ -83,22 +86,54 @@ jobs:
         run: |
           set -euo pipefail
 
-          # A push releases every suite of each variant whose Release
-          # branch_or_tag changed in it, and nothing when none did. Comparing
+          # List what this run releases in the job summary, so the run page
+          # says what went out without opening each build job.
+          summarise_matrix() {
+            {
+              echo "### Releasing"
+              echo
+              jq -r 'def cell: "`" + (tostring | gsub("[`|\n]"; "?")) + "`";
+                "| Variant | Suite | Ref | Debian revision |",
+                "| --- | --- | --- | --- |",
+                (.[] | "| \(.kernel_variant | cell) | \(.suite | cell) | \(.branch_or_tag | cell) | \(.debian_revision | cell) |")
+              ' <<< "$1"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          # A push releases each suite whose Release version changed, and
+          # nothing when none did. Comparing
           # against "before" rather than the parent commit covers pushes that
           # land several commits at once.
           if [[ "$EVENT_NAME" == "push" ]]; then
-            VARIANTS=$(ci/scripts/changed-release-variants.sh \
+            LEGS=$(ci/scripts/changed-release-variants.sh \
               --base "$BEFORE_SHA" --head "$GITHUB_SHA")
 
-            MATRIX='[]'
-            while IFS= read -r variant; do
-              LEGS=$(ci/scripts/resolve-matrix.sh --type Release --kernel-variant "$variant")
-              MATRIX=$(jq -c --argjson legs "$LEGS" '. + $legs' <<< "$MATRIX")
-            done < <(jq -r '.[]' <<< "$VARIANTS")
+            # A Release row that changed without a version change can't be
+            # released, as it would collide with the version already out. Say so,
+            # rather than let it look like it shipped. The names come from the
+            # matrix, so keep them to characters that can't break the annotation.
+            UNRELEASED=$(ci/scripts/changed-release-variants.sh \
+              --base "$BEFORE_SHA" --head "$GITHUB_SHA" --unreleased)
+            jq -r 'def safe: gsub("[^A-Za-z0-9_.+-]"; "?");
+              to_entries[]
+              | "::warning title=Release row changed without a version bump::\(.key | safe): \(.value | map(safe) | join(", ")) changed, but the Release version did not, so it was not released. Bump debian_version_stub on the Release row to release it."
+            ' <<< "$UNRELEASED"
 
+            MATRIX='[]'
+            while IFS=$'\t' read -r variant suite; do
+              LEG=$(ci/scripts/resolve-matrix.sh --type Release \
+                --kernel-variant "$variant" --single-suite "$suite")
+              MATRIX=$(jq -c --argjson leg "$LEG" '. + $leg' <<< "$MATRIX")
+            done < <(jq -r '.[] | [.kernel_variant, .suite] | @tsv' <<< "$LEGS")
+
+            # An empty matrix skips the build job, which leaves a green run
+            # that looks like a release. Make it plain that nothing went out.
             if [[ "$MATRIX" == '[]' ]]; then
-              echo "No Release branch_or_tag changed in $BEFORE_SHA..$GITHUB_SHA; nothing to release."
+              MESSAGE="No Release version changed in $BEFORE_SHA..$GITHUB_SHA; nothing to release."
+              echo "::notice title=Nothing to release::$MESSAGE"
+              echo "$MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+            else
+              summarise_matrix "$MATRIX"
             fi
             echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
             echo "Matrix entries: $(echo "$MATRIX" | jq length)"
@@ -122,6 +157,7 @@ jobs:
               ;;
           esac
           MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
+          summarise_matrix "$MATRIX"
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
@@ -137,7 +173,7 @@ jobs:
     name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
     needs: configure-matrix
     # An empty include list is a workflow error, and a push that touched the
-    # matrix without changing a Release ref resolves to one.
+    # matrix without changing a Release version resolves to one.
     if: needs.configure-matrix.outputs.matrix != '[]'
     strategy:
       fail-fast: false
