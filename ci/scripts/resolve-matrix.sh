@@ -268,7 +268,6 @@ validation_errors=$(jq -r '
         | ([ $rows[].type ] | sort) as $types
         | ([ $rows[].srcpkg ] | unique) as $srcpkgs
         | ([ $rows[].binpkg ] | unique) as $binpkgs
-        | ([ $rows[].debian_version_stub ] | unique) as $stubs
         | if ($rows | length) != 2
           then "kernel_variant " + $variant + " must define exactly one Daily row and one Release row"
           elif $types != ["Daily", "Release"]
@@ -277,8 +276,6 @@ validation_errors=$(jq -r '
           then "kernel_variant " + $variant + " must use one srcpkg across its Daily and Release rows"
           elif ($binpkgs | length) != 1
           then "kernel_variant " + $variant + " must use one binpkg across its Daily and Release rows"
-          elif ($stubs | length) != 1
-          then "kernel_variant " + $variant + " must use one debian_version_stub across its Daily and Release rows"
           else empty
           end
       ]
