@@ -157,7 +157,7 @@ def bump_matrix(matrix, variants=None):
     """
     rows = matrix["deliveries"]
 
-    if variants:
+    if variants is not None:
         known = {r["kernel_variant"] for r in rows if r["type"] == "Release"}
         unknown = [v for v in variants if v not in known]
         if unknown:
@@ -173,7 +173,7 @@ def bump_matrix(matrix, variants=None):
         if row["type"] != "Release":
             continue
         variant = row["kernel_variant"]
-        if variants and variant not in variants:
+        if variants is not None and variant not in variants:
             continue
         src = daily.get(variant)
         if not src or src.get("ref_strategy") != "latest_tag":
@@ -390,6 +390,10 @@ def main():
     parser.add_argument("-y", "--yes", action="store_true")
     args = parser.parse_args()
 
+    # Only an omitted --variant means every variant: an empty one, such as
+    # --variant "$unset", would otherwise bump them all.
+    if args.variant == []:
+        parser.error("--variant needs at least one variant name")
     if args.matrix_path:
         given = [opt for opt, val in (
             ("--base-ref", args.base_ref), ("--branch", args.branch),
