@@ -86,6 +86,20 @@ jobs:
         run: |
           set -euo pipefail
 
+          # List what this run releases in the job summary, so the run page
+          # says what went out without opening each build job.
+          summarise_matrix() {
+            {
+              echo "### Releasing"
+              echo
+              jq -r 'def cell: "`" + (tostring | gsub("[`|\n]"; "?")) + "`";
+                "| Variant | Suite | Ref | Debian revision |",
+                "| --- | --- | --- | --- |",
+                (.[] | "| \(.kernel_variant | cell) | \(.suite | cell) | \(.branch_or_tag | cell) | \(.debian_revision | cell) |")
+              ' <<< "$1"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
           # A push releases every suite of each variant whose Release
           # version changed in it, and nothing when none did. Comparing
           # against "before" rather than the parent commit covers pushes that
@@ -111,8 +125,14 @@ jobs:
               MATRIX=$(jq -c --argjson legs "$LEGS" '. + $legs' <<< "$MATRIX")
             done < <(jq -r '.[]' <<< "$VARIANTS")
 
+            # An empty matrix skips the build job, which leaves a green run
+            # that looks like a release. Make it plain that nothing went out.
             if [[ "$MATRIX" == '[]' ]]; then
-              echo "No Release version changed in $BEFORE_SHA..$GITHUB_SHA; nothing to release."
+              MESSAGE="No Release version changed in $BEFORE_SHA..$GITHUB_SHA; nothing to release."
+              echo "::notice title=Nothing to release::$MESSAGE"
+              echo "$MESSAGE" >> "$GITHUB_STEP_SUMMARY"
+            else
+              summarise_matrix "$MATRIX"
             fi
             echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
             echo "Matrix entries: $(echo "$MATRIX" | jq length)"
@@ -136,6 +156,7 @@ jobs:
               ;;
           esac
           MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
+          summarise_matrix "$MATRIX"
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix entries: $(echo "$MATRIX" | jq length)"
