@@ -8,14 +8,17 @@ name: release
 # workspace to the stable target workspace (e.g. qli) via qli-ci
 # lib/release.
 #
-# To update a release ref: open a PR that changes the Release row for that
-# kernel variant in ci/build-matrix.json. release-dry-run.yml builds the
-# changed rows on the PR, and merging it starts this workflow for exactly the
-# variants whose branch_or_tag changed, every suite of each. Nothing else in
-# the matrix starts a release. Every run still waits for approval in the
-# Production environment before building and again before promoting.
+# To release: open a PR that changes the version of the Release row for that
+# kernel variant in ci/build-matrix.json, that is its branch_or_tag or its
+# debian_version_stub. release-dry-run.yml builds the changed rows on the PR,
+# and merging it starts this workflow for exactly the variants whose Release
+# version changed, every suite of each. A matrix change that leaves the
+# version alone releases nothing, since it would collide with the version
+# already released. Every run still waits for approval in the Production
+# environment before building and again before promoting.
 #
-# Manual dispatch remains for releasing without a ref change and for retries.
+# Manual dispatch remains for retries and for a version that was never
+# promoted.
 # There is intentionally no schedule trigger.
 
 on:
@@ -84,7 +87,7 @@ jobs:
           set -euo pipefail
 
           # A push releases every suite of each variant whose Release
-          # branch_or_tag changed in it, and nothing when none did. Comparing
+          # version changed in it, and nothing when none did. Comparing
           # against "before" rather than the parent commit covers pushes that
           # land several commits at once.
           if [[ "$EVENT_NAME" == "push" ]]; then
@@ -98,7 +101,7 @@ jobs:
             done < <(jq -r '.[]' <<< "$VARIANTS")
 
             if [[ "$MATRIX" == '[]' ]]; then
-              echo "No Release branch_or_tag changed in $BEFORE_SHA..$GITHUB_SHA; nothing to release."
+              echo "No Release version changed in $BEFORE_SHA..$GITHUB_SHA; nothing to release."
             fi
             echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
             echo "Matrix entries: $(echo "$MATRIX" | jq length)"
@@ -137,7 +140,7 @@ jobs:
     name: ${{ matrix.kernel_variant }} / ${{ matrix.suite }}
     needs: configure-matrix
     # An empty include list is a workflow error, and a push that touched the
-    # matrix without changing a Release ref resolves to one.
+    # matrix without changing a Release version resolves to one.
     if: needs.configure-matrix.outputs.matrix != '[]'
     strategy:
       fail-fast: false

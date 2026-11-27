@@ -3,17 +3,27 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 set -euo pipefail
 
-# List the kernel variants whose Release row changed its branch_or_tag between
-# two revisions of the delivery matrix.
+# List the kernel variants whose Release version changed between two
+# revisions of the delivery matrix.
 #
 # This is what decides which variants release.yml releases on a push to main,
 # and which Release rows release-dry-run.yml builds for a pull request, so the
 # rows a pull request dry-runs are exactly the rows its merge releases.
 #
-# Only branch_or_tag on Release rows counts. Daily rows, every other Release
-# field, formatting and row order are ignored: the matrix is compared as parsed
-# JSON, not as text. A Release row that exists at --head but not at --base
-# counts as changed, since it names a ref that has never been released. A row
+# A release has to carry a version the target workspace has not seen, so only
+# a change to the version releases. For a Release row that is:
+#
+#   - branch_or_tag, the upstream part of the version;
+#   - debian_version_stub, the Debian revision;
+#   - suite_suffix_mapping for each of the row's suites, which the revision of
+#     that suite's leg is derived from. Adding a suite counts, since that
+#     suite has never had this version.
+#
+# A variant whose version changed is released in every suite, as a manual
+# dispatch would. Daily rows, every other Release field, removed suites,
+# formatting and row order are ignored: the matrix is compared as parsed JSON,
+# not as text. A Release row that exists at --head but not at --base counts as
+# changed, since it names a version that has never been released. A row
 # removed at --head does not, since there is nothing left to release.
 #
 # Anything that prevents a reliable answer is an error rather than an empty
@@ -32,12 +42,13 @@ set -euo pipefail
 #
 # Output:
 #   Compact JSON array of kernel_variant names on stdout, sorted, possibly
-#   empty. The old and new ref of each changed variant are logged to stderr.
+#   empty. What changed in each variant's version is logged to stderr.
 #
 # Exit codes:
 #   0  Success, including when nothing changed.
 #   1  Error (invalid arguments, unknown revision, matrix missing or invalid
-#      at either revision, duplicate Release rows for one variant).
+#      at either revision, duplicate Release rows for one variant, a Release
+#      suite with no suite_suffix_mapping entry).
 
 BASE=""
 HEAD=""
@@ -65,8 +76,10 @@ done
 [[ -n "$MATRIX_PATH" ]] || { echo "ERROR: --matrix-path must not be empty" >&2; exit 1; }
 
 # Print the Release rows of the matrix at a revision as a
-# {kernel_variant: branch_or_tag} object.
-release_refs() {
+# {kernel_variant: {row: <Release row>, suffixes: {suite: suffix}}} object,
+# where suffixes holds the suite_suffix_mapping entry of each of the row's
+# suites.
+release_rows() {
     local rev=$1 commit content
 
     # A push that creates a branch reports an all-zero "before" SHA, and a
@@ -81,37 +94,64 @@ release_refs() {
         return 1
     }
 
-    local refs
-    refs=$(jq -c '
+    local rows
+    rows=$(jq -c '
+      def nonempty_string: type == "string" and length > 0;
       if type != "object" or (.deliveries | type) != "array"
       then error("deliveries is missing or not an array")
-      else [.deliveries[] | select(type == "object" and .type == "Release")]
-      end
-      | if any(.[]; (.kernel_variant | type) != "string" or (.kernel_variant | length) == 0)
+      elif (.suite_suffix_mapping | type) != "object"
+      then error("suite_suffix_mapping is missing or not an object")
+      else .suite_suffix_mapping as $mapping
+      | [.deliveries[] | select(type == "object" and .type == "Release")]
+      | if any(.[]; .kernel_variant | nonempty_string | not)
         then error("a Release row has a missing or invalid kernel_variant")
-        elif any(.[]; (.branch_or_tag | type) != "string" or (.branch_or_tag | length) == 0)
+        elif any(.[]; .branch_or_tag | nonempty_string | not)
         then error("a Release row has a missing or invalid branch_or_tag")
+        elif any(.[]; .debian_version_stub | nonempty_string | not)
+        then error("a Release row has a missing or invalid debian_version_stub")
+        elif any(.[]; (.suites | type) != "array" or any(.suites[]; nonempty_string | not))
+        then error("a Release row has a missing or invalid suites list")
+        elif any(.[]; any(.suites[]; in($mapping) | not))
+        then error("a Release suite has no suite_suffix_mapping entry")
         elif ([.[].kernel_variant] | unique | length) != length
         then error("more than one Release row for kernel_variant "
                    + ([.[].kernel_variant] | group_by(.) | map(select(length > 1)[0]) | join(", ")))
-        else map({key: .kernel_variant, value: .branch_or_tag}) | from_entries
+        else map({key: .kernel_variant,
+                  value: {row: ., suffixes: (. as $row | [$row.suites[] | {key: ., value: $mapping[.]}] | from_entries)}})
+             | from_entries
         end
+      end
     ' <<< "$content" 2>&1) || {
-        echo "ERROR: $MATRIX_PATH at $rev is not a valid delivery matrix: ${refs#jq: error (at <stdin>:*): }" >&2
+        echo "ERROR: $MATRIX_PATH at $rev is not a valid delivery matrix: ${rows#jq: error (at <stdin>:*): }" >&2
         return 1
     }
-    echo "$refs"
+    echo "$rows"
 }
 
-base_refs=$(release_refs "$BASE")
-head_refs=$(release_refs "$HEAD")
+base_rows=$(release_rows "$BASE")
+head_rows=$(release_rows "$HEAD")
 
-changed=$(jq -cn --argjson base "$base_refs" --argjson head "$head_refs" '
-  [$head | to_entries[] | select($base[.key] != .value) | .key] | sort
+# For each Release variant at --head, the reasons its version is new: empty
+# when it is the version already released.
+version_changes=$(jq -cn --argjson base "$base_rows" --argjson head "$head_rows" '
+  def changes($old; $new):
+    if $old == null then ["new Release row"]
+    else
+      [ ("branch_or_tag", "debian_version_stub")
+        | select($old.row[.] != $new.row[.])
+        | "\(.) \($old.row[.]) -> \($new.row[.])" ]
+      + [ $new.suffixes | to_entries[]
+          | . as $leg
+          | if $old.suffixes | has($leg.key) | not
+            then "new suite \(.key)"
+            elif $old.suffixes[.key] != .value
+            then "suite \(.key) suffix \"\($old.suffixes[.key])\" -> \"\(.value)\""
+            else empty end ]
+    end;
+  $head | with_entries(.value = changes($base[.key]; .value))
 ')
 
-jq -r --argjson base "$base_refs" --argjson head "$head_refs" '
-  .[] | "Release ref changed for \(.): \($base[.] // "(new Release row)") -> \($head[.])"
-' <<< "$changed" >&2
+jq -r 'to_entries[] | select(.value | length > 0)
+  | "Release version changed for \(.key): \(.value | join(", "))"' <<< "$version_changes" >&2
 
-echo "$changed"
+jq -c '[to_entries[] | select(.value | length > 0) | .key] | sort' <<< "$version_changes"
