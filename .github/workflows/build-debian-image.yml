@@ -169,15 +169,21 @@ jobs:
       # the image recipes take the same -t options as the rootfs one; the
       # RB1 U-Boot (-t u_boot_rb1) is only available on EFS, so the flash
       # files are built without it
+      #
+      # the two disk images use the fakemachine qemu backend explicitly:
+      # building them on the host (--disable-fakemachine) got stuck. This is
+      # SLOW, as there's no /dev/kvm on the runner and qemu has to emulate
+      # everything (TCG).
+      # TODO: use the kvm backend once we have a runner with KVM
       - name: Build UFS image with debos
         run: |
           set -ux
-          make disk-ufs.img FAKEMACHINE_OPTS="--disable-fakemachine" EXTRA_DEBOS_OPTS="--print-recipe -t suite:${SUITE} -t profile:${PROFILE} -t variant:${VARIANT}"
+          make disk-ufs.img FAKEMACHINE_OPTS="--fakemachine-backend qemu" EXTRA_DEBOS_OPTS="--print-recipe -t suite:${SUITE} -t profile:${PROFILE} -t variant:${VARIANT}"
 
       - name: Build SD card image with debos
         run: |
           set -ux
-          make disk-sdcard.img FAKEMACHINE_OPTS="--disable-fakemachine" EXTRA_DEBOS_OPTS="--print-recipe -t suite:${SUITE} -t profile:${PROFILE} -t variant:${VARIANT}"
+          make disk-sdcard.img FAKEMACHINE_OPTS="--fakemachine-backend qemu" EXTRA_DEBOS_OPTS="--print-recipe -t suite:${SUITE} -t profile:${PROFILE} -t variant:${VARIANT}"
 
       - name: Build flashable files with debos
         run: |
