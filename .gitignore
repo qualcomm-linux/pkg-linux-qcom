@@ -22,3 +22,6 @@ debian/linux-headers-*.postinst
 # Default kernel source and build output directories
 kernel-source/
 kernel-build/
+
+# Script cache
+__pycache__/
