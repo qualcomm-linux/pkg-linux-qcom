@@ -203,6 +203,42 @@ Direct `build-kernel-deb.yml` dispatches are build-only. Release promotion is
 initiated exclusively by `release.yml`, which owns the target workspace and
 production release controls.
 
+#### Releasing without changing the upstream ref
+
+A release needs a version that `qli` has not had. With the upstream ref
+unchanged, only the Debian revision can provide one, so a change that should
+ship with the same kernel source needs a bump of the Release row's
+`debian_version_stub`. That applies to:
+
+- packaging changes under `debian/`;
+- CI or build script changes that alter what is built;
+- changes outside this repository, such as a new version of a DKMS module or
+  a new build image;
+- edits to a Release row that leave its version alone, such as its `dkms` or
+  `kernel_config`. The dry-run comment on the PR warns about these.
+
+None of these releases anything on its own. To release one:
+
+1. In the variant's Release row in `ci/build-matrix.json`, bump the trailing
+   digit of `debian_version_stub`, for example from `0qli1` to `0qli2`. Leave
+   the Daily row alone: each row has its own stub.
+2. Open a PR with the bump, either alongside the change itself or once it has
+   merged. The dry-run builds every suite of the variant, and its PR comment
+   lists the revisions merging releases, for example `0qli2~bpo13+1` for
+   trixie.
+3. Merge it. `release.yml` releases every suite of the variant, after the
+   usual Production approvals. The new revision sorts above the one already in
+   `qli`, so apt offers it as an upgrade (see
+   [docs/version.md](docs/version.md#ordering)).
+
+Bump again (`0qli3`, ...) for each further rebuild of the same ref. When the
+Release ref moves to a new upstream tag, set the stub back to `0qli1`.
+
+A manual dispatch of `release.yml` builds the row as it stands. Use it to
+retry a failed release or to release a version that was never promoted to
+`qli`, not to rebuild a version that was: that collides with the packages
+already there.
+
 ## Matrix Model
 
 `ci/build-matrix.json` is an object with two top-level keys: `deliveries`
