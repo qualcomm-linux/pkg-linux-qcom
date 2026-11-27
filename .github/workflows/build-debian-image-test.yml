@@ -1,0 +1,89 @@
+name: build-debian-image-test
+
+# Standalone test of build-debian-image.yml: build a custom Debian image with
+# a qcom-next forky kernel taken from the QLI APT repository, without needing
+# a kernel build to have run first.
+#
+# The kernel .debs are fetched into an artifact, the same way a kernel build
+# would provide them to the reusable workflow; build-debian-image.yml
+# installs them from there rather than from APT.
+
+on:
+  push:
+    branches:
+      - wip/obbardc/build-debian-image
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # A recent qcom-next forky kernel in the QLI APT repository. Pinned so the
+  # test is reproducible; bump it once it drops out of the pool.
+  KERNEL_VERSION: '7.4.0~rc3+git20261124~g1843874b4356-0qli1'
+  QLI_URL: https://deb.debusine.qualcomm.com/qualcomm/qli
+
+jobs:
+  # HACK: disabled until the image builds successfully with the APT kernel.
+  # fetch-kernel:
+  #   name: Fetch qcom-next forky kernel
+  #   runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+  #   permissions: {}
+  #   container:
+  #     image: public.ecr.aws/debian/debian:forky
+  #   defaults:
+  #     run:
+  #       shell: bash
+  #   steps:
+  #     - name: Download kernel .debs from the QLI APT repository
+  #       run: |
+  #         set -euxo pipefail
+  #         apt-get update
+  #         apt-get install -y --no-install-recommends ca-certificates curl xz-utils
+  #
+  #         curl -fsSL "${QLI_URL}/dists/forky/main/binary-arm64/Packages.xz" |
+  #             xz -dc >Packages
+  #
+  #         # the linux-image and linux-headers binaries of the pinned
+  #         # linux-qcom-next version, without the -dbg and -dbgsym ones
+  #         awk -v ver="$KERNEL_VERSION" -v RS= -F'\n' '
+  #           {
+  #             delete f
+  #             for (i = 1; i <= NF; i++) {
+  #               k = $i; sub(/:.*/, "", k)
+  #               v = $i; sub(/^[^:]*: */, "", v)
+  #               f[k] = v
+  #             }
+  #             if (f["Source"] ~ /^linux-qcom-next( |$)/ && f["Version"] == ver &&
+  #                 f["Package"] ~ /^linux-(image|headers)-/ && f["Package"] !~ /dbg/)
+  #               print f["SHA256"], f["Filename"]
+  #           }' Packages >kernel-debs.list
+  #         [ -s kernel-debs.list ] || {
+  #             echo "::error::No linux-qcom-next ${KERNEL_VERSION} packages in the QLI forky repository; bump KERNEL_VERSION"
+  #             exit 1
+  #         }
+  #
+  #         mkdir kernel-debs
+  #         while read -r sha256 filename; do
+  #             curl -fsSL -o "kernel-debs/${filename##*/}" "${QLI_URL}/${filename}"
+  #             echo "${sha256}  kernel-debs/${filename##*/}" | sha256sum -c -
+  #         done <kernel-debs.list
+  #         ls -l kernel-debs
+  #
+  #     - name: Upload kernel .debs
+  #       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+  #       with:
+  #         name: kernel-debs-qcom-next-forky
+  #         path: kernel-debs
+  #         retention-days: 1
+
+  image:
+    name: Build custom Debian image
+    # needs: fetch-kernel
+    uses: $/.github/workflows/build-debian-image.yml
+    permissions:
+      contents: read
+    with:
+      suite: forky
+      # HACK: no kernel-artifact, so the qcom-next kernel is installed from
+      # the QLI APT repository until the image builds successfully.
+      # kernel-artifact: kernel-debs-qcom-next-forky

@@ -20,6 +20,7 @@ on:
     - cron: '37 7 * * *'
   workflow_dispatch:
   pull_request:
+    branches: [ HACK-disabled-while-testing ]
     paths:
       - '.github/workflows/dkms-check.yml'
       - '.github/workflows/dkms-check-published.yml'
