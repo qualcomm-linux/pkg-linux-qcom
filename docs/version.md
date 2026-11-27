@@ -103,7 +103,8 @@ The revision (`0qli1~bpo13+1`) is derived separately, from the version stub, the
 suite, and whether the build is a Daily or a Release. See the matrix
 documentation in the top-level [README](../README.md#matrix-model); the trailing
 digit on the stub is the packaging revision, bumped when the packaging changes
-but the kernel snapshot does not.
+but the kernel snapshot does not. The README describes [how to release such a
+change](../README.md#releasing-without-changing-the-upstream-ref).
 
 ## Ordering
 
