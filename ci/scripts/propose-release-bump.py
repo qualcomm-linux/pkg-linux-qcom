@@ -10,6 +10,11 @@ same lookup daily.yml uses. When that tag's trailing YYYYMMDD is newer than
 the Release row's branch_or_tag, the row is bumped to it. A Release row never
 moves backwards.
 
+A bump imports a new upstream version, so the Debian revision starts again:
+debian_version_stub is reset to DEFAULT_DEBIAN_VERSION_STUB on the variant's
+Daily and Release rows, which must share it. A warning is printed when that
+changes the stub, for example from a respin's 0qli2.
+
 By default this works in a temporary git worktree of <remote>/<base>, so the
 current checkout is never touched. Each stale Release row is bumped in its
 own signed-off commit on a local <branch>. Then <branch> is pushed and
@@ -98,6 +103,9 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 RESOLVE_KERNEL_REF = SCRIPT_DIR / "resolve-kernel-ref.sh"
 MATRIX_REL_PATH = "ci/build-matrix.json"
+
+# The debian_version_stub of a variant whose Release ref was just bumped.
+DEFAULT_DEBIAN_VERSION_STUB = "0qli1"
 
 # The snapshot date resolve-kernel-ref.sh sorts tags on.
 DATE_SUFFIX = re.compile(r"-(\d{8})$")
@@ -202,19 +210,35 @@ def bump_matrix(matrix, variants=None):
         else:
             log(f"{variant}: {old_date} < {date_key(tag)}, bumping")
 
-        row["branch_or_tag"] = tag
-        bumps.append((variant, old, tag))
+        bump = (variant, old, tag)
+        for stub in sorted(apply_bump(matrix, bump)):
+            log(f"WARNING: {variant}: resetting debian_version_stub from "
+                f"{stub} to {DEFAULT_DEBIAN_VERSION_STUB} for the new "
+                f"upstream version")
+        bumps.append(bump)
 
     return bumps
 
 
 def apply_bump(matrix, bump):
-    """Set the Release row of matrix that bump is for to its new ref."""
+    """Apply bump to matrix.
+
+    Set the Release row that bump is for to its new ref and reset the
+    debian_version_stub of the variant's rows. Returns the set of stubs
+    that were replaced, empty when they were already the default.
+    """
     variant, old, new = bump
+    replaced = set()
     for row in matrix["deliveries"]:
-        if (row["type"] == "Release" and row["kernel_variant"] == variant
-                and row["branch_or_tag"] == old):
+        if row["kernel_variant"] != variant:
+            continue
+        if row["type"] == "Release" and row["branch_or_tag"] == old:
             row["branch_or_tag"] = new
+        stub = row.get("debian_version_stub")
+        if stub != DEFAULT_DEBIAN_VERSION_STUB:
+            replaced.add(stub)
+            row["debian_version_stub"] = DEFAULT_DEBIAN_VERSION_STUB
+    return replaced
 
 
 def commit_message(bump):

@@ -176,8 +176,10 @@ Release is the controlled promotion path.
   new ref, chosen by the same script, and promotes nothing.
 - `ci/scripts/propose-release-bump.py` prepares that PR: it bumps every
   Release row whose Daily row has a newer tag and commits that on a local
-  `bump/<timestamp>` branch, after showing the diff and asking. It then asks
-  again before pushing the branch and opening the PR with `gh`; `--no-push`
+  `bump/<timestamp>` branch, after showing the diff and asking. A bump is a
+  new upstream version, so it also resets the variant's
+  `debian_version_stub` to `0qli1`, with a warning when that changes it.
+  It then asks again before pushing the branch and opening the PR with `gh`; `--no-push`
   stops after the commit. Run it by hand, not from a workflow, so the PR
   triggers `release-dry-run.yml`. With `--auto-merge` the PR merges once
   the required checks pass and it is approved; `--dry-run` only shows the
