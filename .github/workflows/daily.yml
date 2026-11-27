@@ -2,8 +2,8 @@ name: daily
 
 # Daily kernel package builds. Runs at 3:00 PM PST (23:00 UTC), one parallel
 # build per Daily entry in ci/build-matrix.json after suite flattening.
-# Manual dispatch can run the full Daily matrix, every suite for one kernel
-# variant, or one kernel variant and suite. Variant and suite are matrix values,
+# Manual dispatch builds one kernel variant, or every variant with "all", and
+# every suite of it unless a suite is given. Variant and suite are matrix values,
 # so future variants need no workflow edit.
 #
 # Matrix schema: ci/build-matrix.json
@@ -21,25 +21,19 @@ on:
     # 3:00 PM PST == 23:00 UTC
     - cron: '0 23 * * *'
   workflow_dispatch:
+    # No scope choice: GitHub cannot hide one input depending on another, so
+    # a scope dropdown always showed fields that some scopes ignored. "all"
+    # and a blank suite express the scope instead.
     inputs:
-      build-scope:
-        description: 'Choose all variants, all suites for one variant, or one variant and suite'
-        type: choice
-        required: true
-        default: 'Selected variant and suite'
-        options:
-          - 'Full matrix'
-          - 'Selected variant (all suites)'
-          - 'Selected variant and suite'
       kernel-variant:
-        description: 'Kernel variant to build (ignored for Full matrix)'
+        description: 'Kernel variant to build, or "all" for every variant'
         required: true
-        default: 'qcom-next'
+        default: 'all'
         type: string
       suite:
-        description: 'Target suite to build (used only for Selected variant and suite)'
-        required: true
-        default: 'trixie'
+        description: 'Suite to build (leave blank for all suites of the variant)'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -52,8 +46,7 @@ jobs:
   #
   # Delegates to ci/scripts/resolve-matrix.sh which filters type=Daily rows
   # and expands each row's "suites" array into one flat entry per suite.
-  # Manual dispatch selects the complete matrix, every suite for a variant, or
-  # one variant and suite.
+  # Manual dispatch selects a variant (or "all") and optionally one suite.
   # ---------------------------------------------------------------------------
   configure-matrix:
     name: Configure build matrix
@@ -70,36 +63,29 @@ jobs:
       - name: Generate build matrix
         id: set-matrix
         env:
-          BUILD_SCOPE_INPUT: ${{ github.event.inputs.build-scope }}
+          EVENT_NAME: ${{ github.event_name }}
           INPUT_VARIANT: ${{ github.event.inputs.kernel-variant }}
           INPUT_SUITE: ${{ github.event.inputs.suite }}
         run: |
           set -euo pipefail
 
-          BUILD_SCOPE="$BUILD_SCOPE_INPUT"
-
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            BUILD_SCOPE="Full matrix"
+          # A scheduled run has no inputs and builds the full matrix.
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            INPUT_VARIANT=all
+            INPUT_SUITE=
           fi
 
-          case "$BUILD_SCOPE" in
-            "Full matrix")
-              echo "Source: ci/build-matrix.json (full Daily matrix)"
-              args=(--type Daily)
-              ;;
-            "Selected variant (all suites)")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, all suites)"
-              args=(--type Daily --kernel-variant "$INPUT_VARIANT")
-              ;;
-            "Selected variant and suite")
-              echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: $INPUT_SUITE)"
-              args=(--type Daily --kernel-variant "$INPUT_VARIANT" --single-suite "$INPUT_SUITE")
-              ;;
-            *)
-              echo "ERROR: unsupported build scope: $BUILD_SCOPE" >&2
-              exit 1
-              ;;
-          esac
+          # "all" leaves the variant unfiltered. It is spelled out rather
+          # than taken from a blank field so that building everything is
+          # never the result of an input left empty by mistake.
+          args=(--type Daily)
+          if [[ "$INPUT_VARIANT" != "all" ]]; then
+            args+=(--kernel-variant "$INPUT_VARIANT")
+          fi
+          if [[ -n "$INPUT_SUITE" ]]; then
+            args+=(--single-suite "$INPUT_SUITE")
+          fi
+          echo "Source: ci/build-matrix.json (variant: $INPUT_VARIANT, suite: ${INPUT_SUITE:-all})"
           MATRIX=$(ci/scripts/resolve-matrix.sh "${args[@]}")
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
