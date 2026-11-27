@@ -80,6 +80,17 @@ jobs:
           VARIANTS=$(ci/scripts/changed-release-variants.sh \
             --base "$MERGE_BASE" --head "$HEAD_SHA")
 
+          # A Release row that changed without a version change can't be
+          # released, as it would collide with the version already out. Say so,
+          # rather than let it look like it shipped. The names come from the
+          # matrix, so keep them to characters that can't break the annotation.
+          UNRELEASED=$(ci/scripts/changed-release-variants.sh \
+            --base "$MERGE_BASE" --head "$HEAD_SHA" --unreleased)
+          jq -r 'def safe: gsub("[^A-Za-z0-9_.+-]"; "?");
+            to_entries[]
+            | "::warning title=Release row changed without a version bump::\(.key | safe): \(.value | map(safe) | join(", ")) changed, but the Release version did not, so merging this releases nothing for it. Bump debian_version_stub on the Release row to release it."
+          ' <<< "$UNRELEASED"
+
           MATRIX='[]'
           while IFS= read -r variant; do
             LEGS=$(ci/scripts/resolve-matrix.sh --type Release --kernel-variant "$variant")
