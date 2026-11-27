@@ -26,6 +26,11 @@ set -euo pipefail
 # changed, since it names a version that has never been released. A row
 # removed at --head does not, since there is nothing left to release.
 #
+# With --unreleased it lists the opposite instead: Release rows that changed
+# while their version did not, which therefore release nothing. Those are the
+# changes a reviewer most needs to hear about, since they look like they
+# should ship and can't until the version is bumped.
+#
 # Anything that prevents a reliable answer is an error rather than an empty
 # result, so a broken input can never be mistaken for "nothing changed" and
 # can never widen what gets released.
@@ -33,16 +38,23 @@ set -euo pipefail
 # Usage:
 #   ci/scripts/changed-release-variants.sh --base REV --head REV
 #   ci/scripts/changed-release-variants.sh --base REV --head REV --matrix-path ci/build-matrix.json
+#   ci/scripts/changed-release-variants.sh --base REV --head REV --unreleased
 #
 # Options:
 #   --base REV           Revision to compare from. Required.
 #   --head REV           Revision to compare to. Required.
 #   --matrix-path PATH   Repository path of the matrix
 #                          (default: ci/build-matrix.json).
+#   --unreleased         List the Release rows that changed without a
+#                          version change, instead of those to release.
 #
 # Output:
 #   Compact JSON array of kernel_variant names on stdout, sorted, possibly
 #   empty. What changed in each variant's version is logged to stderr.
+#
+#   With --unreleased, a compact JSON object on stdout instead, possibly
+#   empty, mapping each such kernel_variant to the sorted names of the Release
+#   row fields that changed, e.g. {"qcom-7.3-debug":["dkms"]}.
 #
 # Exit codes:
 #   0  Success, including when nothing changed.
@@ -53,6 +65,7 @@ set -euo pipefail
 BASE=""
 HEAD=""
 MATRIX_PATH="ci/build-matrix.json"
+UNRELEASED=false
 
 usage() {
     sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# \?//'
@@ -64,6 +77,7 @@ while [[ $# -gt 0 ]]; do
         --base)        BASE="${2:-}";        shift 2 ;;
         --head)        HEAD="${2:-}";        shift 2 ;;
         --matrix-path) MATRIX_PATH="${2:-}"; shift 2 ;;
+        --unreleased)  UNRELEASED=true;      shift ;;
         -h|--help)     usage ;;
         *) echo "ERROR: Unknown option: $1" >&2; usage ;;
     esac
@@ -150,6 +164,23 @@ version_changes=$(jq -cn --argjson base "$base_rows" --argjson head "$head_rows"
     end;
   $head | with_entries(.value = changes($base[.key]; .value))
 ')
+
+if [[ "$UNRELEASED" == true ]]; then
+    # Rows present at both revisions whose version is the one already
+    # released, but which differ as parsed JSON, so key order doesn't count.
+    jq -cnS --argjson base "$base_rows" --argjson head "$head_rows" \
+           --argjson changes "$version_changes" '
+      [ $head | to_entries[]
+        | .key as $variant
+        | select($base | has($variant)) | select($changes[$variant] == [])
+        | $base[$variant].row as $old | .value.row as $new
+        | [ ($old + $new) | keys[] | select($old[.] != $new[.]) ] as $fields
+        | select($fields != [])
+        | {key: $variant, value: $fields} ]
+      | from_entries
+    '
+    exit 0
+fi
 
 jq -r 'to_entries[] | select(.value | length > 0)
   | "Release version changed for \(.key): \(.value | join(", "))"' <<< "$version_changes" >&2
