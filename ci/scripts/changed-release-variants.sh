@@ -3,31 +3,36 @@
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 set -euo pipefail
 
-# List the kernel variants whose Release version changed between two
-# revisions of the delivery matrix.
+# List the Release legs (kernel variant and suite) whose version changed
+# between two revisions of the delivery matrix.
 #
 # This is what decides which variants release.yml releases on a push to main,
-# and which Release rows release-dry-run.yml builds for a pull request, so the
-# rows a pull request dry-runs are exactly the rows its merge releases.
+# and which Release legs release-dry-run.yml builds for a pull request, so the
+# legs a pull request dry-runs are exactly the legs its merge releases.
 #
 # A release has to carry a version the target workspace has not seen, so only
 # a change to the version releases. For a Release row that is:
 #
-#   - branch_or_tag, the upstream part of the version;
-#   - debian_version_stub, the Debian revision;
-#   - suite_suffix_mapping for each of the row's suites, which the revision of
-#     that suite's leg is derived from. Adding a suite counts, since that
-#     suite has never had this version.
+#   - branch_or_tag, the upstream part of the version, or
+#     debian_version_stub, the Debian revision. Either changes the version of
+#     every suite of the row;
+#   - suite_suffix_mapping for one of the row's suites, which the revision of
+#     that suite's leg is derived from. This changes the version of that
+#     suite only. Adding a suite counts, since that suite has never had this
+#     version.
 #
-# A variant whose version changed is released in every suite, as a manual
-# dispatch would. Daily rows, every other Release field, removed suites,
-# formatting and row order are ignored: the matrix is compared as parsed JSON,
-# not as text. A Release row that exists at --head but not at --base counts as
-# changed, since it names a version that has never been released. A row
-# removed at --head does not, since there is nothing left to release.
+# Only the legs whose version changed are listed. The other suites of the row
+# keep the version already released, and releasing them again would collide
+# with it. Daily rows, every other Release field, removed suites, formatting
+# and row order are ignored: the matrix is compared as parsed JSON, not as
+# text. A Release row that exists at --head but not at --base counts as
+# changed in every suite, since it names a version that has never been
+# released. A row removed at --head does not, since there is nothing left to
+# release.
 #
 # With --unreleased it lists the opposite instead: Release rows that changed
-# while their version did not, which therefore release nothing. Those are the
+# while the version of none of their suites did, which therefore release
+# nothing. Those are the
 # changes a reviewer most needs to hear about, since they look like they
 # should ship and can't until the version is bumped.
 #
@@ -46,11 +51,12 @@ set -euo pipefail
 #   --matrix-path PATH   Repository path of the matrix
 #                          (default: ci/build-matrix.json).
 #   --unreleased         List the Release rows that changed without a
-#                          version change, instead of those to release.
+#                          version change, instead of the legs to release.
 #
 # Output:
-#   Compact JSON array of kernel_variant names on stdout, sorted, possibly
-#   empty. What changed in each variant's version is logged to stderr.
+#   Compact JSON array on stdout, sorted, possibly empty, with one
+#   {"kernel_variant": ..., "suite": ...} object for each leg to release.
+#   What changed in each variant's version is logged to stderr.
 #
 #   With --unreleased, a compact JSON object on stdout instead, possibly
 #   empty, mapping each such kernel_variant to the sorted names of the Release
@@ -145,22 +151,29 @@ release_rows() {
 base_rows=$(release_rows "$BASE")
 head_rows=$(release_rows "$HEAD")
 
-# For each Release variant at --head, the reasons its version is new: empty
-# when it is the version already released.
+# For each Release variant at --head, why its version is new and in which
+# suites: {reasons: [...], suites: [...]}, both empty when it is the version
+# already released. branch_or_tag and debian_version_stub are part of every
+# suite's version, so changing either releases every suite. A suffix is part
+# of one suite's version only, so changing it releases that suite alone.
 version_changes=$(jq -cn --argjson base "$base_rows" --argjson head "$head_rows" '
   def changes($old; $new):
-    if $old == null then ["new Release row"]
+    if $old == null
+    then {reasons: ["new Release row"], suites: $new.row.suites}
     else
       [ ("branch_or_tag", "debian_version_stub")
         | select($old.row[.] != $new.row[.])
-        | "\(.) \($old.row[.]) -> \($new.row[.])" ]
-      + [ $new.suffixes | to_entries[]
+        | "\(.) \($old.row[.]) -> \($new.row[.])" ] as $row
+      | [ $new.suffixes | to_entries[]
           | . as $leg
           | if $old.suffixes | has($leg.key) | not
-            then "new suite \(.key)"
+            then {suite: .key, reason: "new suite \(.key)"}
             elif $old.suffixes[.key] != .value
-            then "suite \(.key) suffix \"\($old.suffixes[.key])\" -> \"\(.value)\""
-            else empty end ]
+            then {suite: .key,
+                  reason: "suite \(.key) suffix \"\($old.suffixes[.key])\" -> \"\(.value)\""}
+            else empty end ] as $suffix
+      | {reasons: ($row + [$suffix[].reason]),
+         suites: (if $row != [] then $new.row.suites else [$suffix[].suite] end)}
     end;
   $head | with_entries(.value = changes($base[.key]; .value))
 ')
@@ -172,7 +185,7 @@ if [[ "$UNRELEASED" == true ]]; then
            --argjson changes "$version_changes" '
       [ $head | to_entries[]
         | .key as $variant
-        | select($base | has($variant)) | select($changes[$variant] == [])
+        | select($base | has($variant)) | select($changes[$variant].reasons == [])
         | $base[$variant].row as $old | .value.row as $new
         | [ ($old + $new) | keys[] | select($old[.] != $new[.]) ] as $fields
         | select($fields != [])
@@ -182,7 +195,9 @@ if [[ "$UNRELEASED" == true ]]; then
     exit 0
 fi
 
-jq -r 'to_entries[] | select(.value | length > 0)
-  | "Release version changed for \(.key): \(.value | join(", "))"' <<< "$version_changes" >&2
+jq -r 'to_entries[] | select(.value.reasons | length > 0)
+  | "Release version changed for \(.key): \(.value.reasons | join(", "))"' <<< "$version_changes" >&2
 
-jq -c '[to_entries[] | select(.value | length > 0) | .key] | sort' <<< "$version_changes"
+jq -c '[to_entries[] | .key as $variant | .value.suites[]
+        | {kernel_variant: $variant, suite: .}]
+       | sort_by([.kernel_variant, .suite])' <<< "$version_changes"

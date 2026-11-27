@@ -100,12 +100,12 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           }
 
-          # A push releases every suite of each variant whose Release
-          # version changed in it, and nothing when none did. Comparing
+          # A push releases each suite whose Release version changed, and
+          # nothing when none did. Comparing
           # against "before" rather than the parent commit covers pushes that
           # land several commits at once.
           if [[ "$EVENT_NAME" == "push" ]]; then
-            VARIANTS=$(ci/scripts/changed-release-variants.sh \
+            LEGS=$(ci/scripts/changed-release-variants.sh \
               --base "$BEFORE_SHA" --head "$GITHUB_SHA")
 
             # A Release row that changed without a version change can't be
@@ -120,10 +120,11 @@ jobs:
             ' <<< "$UNRELEASED"
 
             MATRIX='[]'
-            while IFS= read -r variant; do
-              LEGS=$(ci/scripts/resolve-matrix.sh --type Release --kernel-variant "$variant")
-              MATRIX=$(jq -c --argjson legs "$LEGS" '. + $legs' <<< "$MATRIX")
-            done < <(jq -r '.[]' <<< "$VARIANTS")
+            while IFS=$'\t' read -r variant suite; do
+              LEG=$(ci/scripts/resolve-matrix.sh --type Release \
+                --kernel-variant "$variant" --single-suite "$suite")
+              MATRIX=$(jq -c --argjson leg "$LEG" '. + $leg' <<< "$MATRIX")
+            done < <(jq -r '.[] | [.kernel_variant, .suite] | @tsv' <<< "$LEGS")
 
             # An empty matrix skips the build job, which leaves a green run
             # that looks like a release. Make it plain that nothing went out.

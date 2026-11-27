@@ -165,18 +165,19 @@ Daily is the recurring build and artifact-publication path.
 
 Release is the controlled promotion path.
 
-- Merging a change to a Release row's version releases that variant: a push
-  to `main` touching `ci/build-matrix.json` starts `release.yml` for every
-  suite of each variant whose Release version changed. The version is the
-  row's `branch_or_tag` (upstream) and `debian_version_stub` (Debian
-  revision), plus the `suite_suffix_mapping` entry of each of its suites, so
-  adding a suite also counts. `ci/scripts/changed-release-variants.sh`
-  decides which variants those are by comparing the parsed matrix before and
-  after the push. Other matrix changes, including other fields of a Release
-  row, release nothing, because the packages would collide with the version
-  already released. Reverting a ref counts as a change, so it releases the
-  ref reverted to.
-- Before merge, `release-dry-run.yml` builds the same variants as the PR
+- Merging a change to a Release row's version releases it: a push
+  to `main` touching `ci/build-matrix.json` starts `release.yml` for each
+  suite whose Release version changed. The version is the row's
+  `branch_or_tag` (upstream) and `debian_version_stub` (Debian revision),
+  which apply to every suite of the row, plus the `suite_suffix_mapping`
+  entry of each suite, which applies to that suite alone. So changing one
+  suite's suffix, or adding a suite, releases only that suite.
+  `ci/scripts/changed-release-variants.sh` decides which suites those are by
+  comparing the parsed matrix before and after the push. Other matrix
+  changes, including other fields of a Release row, release nothing, because
+  the packages would collide with the version already released. Reverting a
+  ref counts as a change, so it releases the ref reverted to.
+- Before merge, `release-dry-run.yml` builds the same suites as the PR
   describes them, chosen by the same script, and promotes nothing. It also
   comments on the PR with the variants, suites, refs and Debian revisions
   merging it releases, and warns about any Release row the PR changes
